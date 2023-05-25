@@ -1,0 +1,6 @@
+dimension: InvoiceIssuer
+check_friendly_name: "InvoiceIssuer must have unique values."
+validation_config:
+  version: 0.5
+  check:
+    check_unique

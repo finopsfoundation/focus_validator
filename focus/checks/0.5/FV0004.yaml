@@ -1,0 +1,6 @@
+dimension: ChargeType
+check_friendly_name: "ChargeType cannot have null values."
+validation_config:
+  version: 0.5
+  check:
+    allow_nulls: false

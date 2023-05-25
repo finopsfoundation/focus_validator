@@ -1,0 +1,6 @@
+dimension: InvoiceIssuer
+check_friendly_name: "InvoiceIssuer cannot accept null values."
+validation_config:
+  version: 0.5
+  check:
+    allow_nulls: false

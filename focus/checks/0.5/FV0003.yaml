@@ -1,0 +1,10 @@
+dimension: ChargeType
+check_friendly_name: "ChargeType must have a value from the list, {}."
+validation_config:
+  version: 0.5
+  check:
+    value_in:
+      - "Adjustment"
+      - "Purchase"
+      - "Tax"
+      - "Usage"

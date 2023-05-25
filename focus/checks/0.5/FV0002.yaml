@@ -1,0 +1,6 @@
+dimension: ResourceID
+check_friendly_name: "Resource id allows null values."
+validation_config:
+  version: 0.5
+  check:
+    allow_nulls: true
