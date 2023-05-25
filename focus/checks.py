@@ -16,5 +16,5 @@ def check_unique(pandas_obj: pd.Series):
 
 
 @extensions.register_check_method()
-def check_value_in(pandas_obj: pd.Series):
-    return ""
+def check_value_in(pandas_obj: pd.Series, allowed_values):
+    return pandas_obj.isin(allowed_values)
