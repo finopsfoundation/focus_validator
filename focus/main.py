@@ -4,6 +4,7 @@ import pandas as pd
 from pandera.errors import SchemaErrors
 from tabulate import tabulate
 
+from focus.format_failure_cases import reformat_failure_cases_df
 from focus.generate_checks import generate_check
 from .dimension_configurations import load_override_config
 
@@ -28,7 +29,7 @@ def process_data(data_file, override_file=None, report_path=None, error_csv_path
         __pretty_print__(e.data)
         print()
         print("failure_cases:")
-        __pretty_print__(e.failure_cases)
+        __pretty_print__(reformat_failure_cases_df(e.failure_cases))
 
 
 if __name__ == '__main__':
