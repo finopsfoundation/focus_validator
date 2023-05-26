@@ -4,7 +4,6 @@ import pandera as pa
 from pydantic import BaseModel, validator
 
 from .check_options import AllowNullsCheck, SIMPLE_CHECKS, ValueIn
-from ..checks import not_null
 from ..exceptions import FocusNotImplementedError
 
 
@@ -33,6 +32,6 @@ class CheckConfig05(BaseModel):
             error_string = error_string.format(", ".join(check.value_in))
             return pa.Check.check_value_in(allowed_values=check.value_in, error=error_string)
         elif isinstance(check, AllowNullsCheck):
-            return pa.Check(not_null, error="Dimension should have unique values")
+            return pa.Check.check_not_null(error=error_string)
         else:
             raise FocusNotImplementedError(msg="Check type: {} not implemented.".format(type(check)))
