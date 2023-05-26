@@ -48,6 +48,6 @@ class CheckConfigs(BaseModel):
                     check = check_config.__process_validation_config__()
                     checks.append(check)
             schema_dict[dimension_name] = pa.Column(
-                value_type, required=False, checks=checks
+                value_type, required=False, checks=checks, nullable=True
             )
         return pa.DataFrameSchema(schema_dict, strict=False)
