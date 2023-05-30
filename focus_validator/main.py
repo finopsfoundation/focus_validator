@@ -1,8 +1,8 @@
 import argparse
-from focus_validator.validator import Validator
 import os
 import sys
 
+from focus_validator.validator import Validator
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(

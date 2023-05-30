@@ -1,7 +1,11 @@
-from focus_validator.exceptions import UnsupportedVersion
-from focus_validator.config_validators.override_config import ValidationOverrideConfig
 import os
+
 import yaml
+
+from focus_validator.config_validators import CheckConfig
+from focus_validator.config_validators.override_config import ValidationOverrideConfig
+from focus_validator.exceptions import UnsupportedVersion
+
 
 class SpecRulesLoader:
     def __init__(self, override_filename, rule_set_path, rules_version):
@@ -30,14 +34,14 @@ class SpecRulesLoader:
             self.rules.append(Rule(rule_path=rule_path, override_config=self.override_config))
 
     def get_rule_paths(self):
-        rule_paths = []
         for root, dirs, files in os.walk(self.rules_path, topdown=False):
             for name in files:
-                rule_paths.append(os.path.join(root, name))
-        return rule_paths
+                yield os.path.join(root, name)
 
 
 class Rule:
+    check_config: CheckConfig
+
     def __init__(self, rule_path, override_config=None):
         self.rule_path = rule_path
         self.meta_data = None
@@ -54,7 +58,8 @@ class Rule:
 
     def parse_friendly_name(self):
         if 'value_in' in self.validation_config['check']:
-            self.check_friendly_name = self.check_friendly_name.replace('{values}', str(self.validation_config['check']['value_in']))
+            self.check_friendly_name = self.check_friendly_name.replace('{values}', str(
+                self.validation_config['check']['value_in']))
 
     def handle_overrides(self, override_config):
         if not override_config:
@@ -67,7 +72,6 @@ class Rule:
         return {'result': True, 'skipped': self.skipped}
 
         # schema = generate_check(version=0.5, override_config=override_config)
-
 
         # try:
         #     schema.validate(pd.DataFrame(data), lazy=True)

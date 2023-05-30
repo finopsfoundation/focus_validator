@@ -1,3 +1,3 @@
-from .checks_config import CheckConfigs
+from .check_config import CheckConfig
 from .override_config import ValidationOverrideConfig
-from .version_0_5_config import CheckConfig05
+from .validation_config import ValidationConfig

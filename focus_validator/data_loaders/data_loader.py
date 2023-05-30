@@ -1,4 +1,7 @@
-from focus_validator.data_loaders.csv_data_loader import CSVDataLoader
+from focus_validator.exceptions import FocusNotImplementedError
+from .csv_data_loader import CSVDataLoader
+from .file_mime import get_file_mime_type
+
 
 class DataLoader:
     def __init__(self, data_filename):
@@ -7,12 +10,14 @@ class DataLoader:
         self.data_loader = self.data_loader_class(self.data_filename)
 
     def find_data_loader(self):
-        # TODO: We should make this smarter than just extension checking
-        if self.data_filename.endswith('.csv'):
+        file_mime_type = get_file_mime_type(self.data_filename)
+
+        if file_mime_type == "ASCII text":
             return CSVDataLoader
+        elif file_mime_type == "Apache Parquet":
+            raise FocusNotImplementedError(msg="Parquet read not implemented.")
         else:
-            # TODO: Probably should raise an error here about being unable to load this type of file input
-            return None
-    
+            raise FocusNotImplementedError(msg=f"Validator for file_type {file_mime_type} not implemented yet.")
+
     def load(self):
         return self.data_loader.load()

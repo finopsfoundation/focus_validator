@@ -7,8 +7,7 @@ from .check_options import AllowNullsCheck, SIMPLE_CHECKS, ValueIn
 from ..exceptions import FocusNotImplementedError
 
 
-class CheckConfig05(BaseModel):
-    version: float = 0.5
+class ValidationConfig(BaseModel):
     check: Union[str, AllowNullsCheck, ValueIn]
 
     @validator('check')

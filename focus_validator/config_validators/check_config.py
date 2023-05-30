@@ -1,25 +1,26 @@
 from itertools import groupby
-from typing import List
+from typing import List, Union
 
 import pandera as pa
 from pydantic import BaseModel
 
-from focus_validator.exceptions import FocusNotImplementedError
+from focus_validator.config_validators.data_type_config import DataTypeConfig
 from focus_validator.config_validators.dimension_value_types import DIMENSION_VALUE_TYPE_MAP
 from focus_validator.config_validators.override_config import ValidationOverrideConfig
-from focus_validator.config_validators.version_0_5_config import CheckConfig05
+from focus_validator.config_validators.validation_config import ValidationConfig
+from focus_validator.exceptions import FocusNotImplementedError
 
 
-class CheckConfigs(BaseModel):
+class CheckConfig(BaseModel):
     check_name: str
     dimension: str
     check_friendly_name: str
-    validation_config: CheckConfig05
+    validation_config: Union[ValidationConfig, DataTypeConfig]
 
     def __process_validation_config__(self) -> pa.Check:
         validation_config = self.validation_config
 
-        if isinstance(validation_config, CheckConfig05):
+        if isinstance(validation_config, ValidationConfig):
             return validation_config.generate_pandera_rule(
                 check_name=self.check_name, friendly_name=self.check_friendly_name
             )

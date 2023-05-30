@@ -1,6 +1,6 @@
 from focus_validator.data_loaders import data_loader
-from focus_validator.rules.spec_rules_loader import SpecRulesLoader
 from focus_validator.outputter.outputter import Outputter
+from focus_validator.rules.spec_rules_loader import SpecRulesLoader
 
 
 class Validator:

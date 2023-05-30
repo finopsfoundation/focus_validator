@@ -1,0 +1,5 @@
+check_id: FV-D001
+dimension: ChargeType
+check_friendly_name: "ChargeType must be of type string."
+validation_config:
+  data_type: string
