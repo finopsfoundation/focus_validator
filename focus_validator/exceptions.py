@@ -5,3 +5,7 @@ class FocusValidationError(Exception):
 class FocusNotImplementedError(FocusValidationError):
     def __init__(self, msg=None):
         super().__init__(msg)
+
+
+class UnsupportedVersion(Exception):
+    pass

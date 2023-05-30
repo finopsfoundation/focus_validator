@@ -4,10 +4,10 @@ from typing import List
 import pandera as pa
 from pydantic import BaseModel
 
-from focus.exceptions import FocusNotImplementedError
-from .dimension_value_types import DIMENSION_VALUE_TYPE_MAP
-from .override_config import ValidationOverrideConfig
-from .version_0_5_config import CheckConfig05
+from focus_validator.exceptions import FocusNotImplementedError
+from focus_validator.config_validators.dimension_value_types import DIMENSION_VALUE_TYPE_MAP
+from focus_validator.config_validators.override_config import ValidationOverrideConfig
+from focus_validator.config_validators.version_0_5_config import CheckConfig05
 
 
 class CheckConfigs(BaseModel):

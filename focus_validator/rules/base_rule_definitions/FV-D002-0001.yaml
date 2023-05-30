@@ -1,6 +1,7 @@
+check_id: FV-D002-0001
 dimension: ResourceID
+data_type: string
 check_friendly_name: "Resource id allows null values."
 validation_config:
-  version: 0.5
   check:
     allow_nulls: true

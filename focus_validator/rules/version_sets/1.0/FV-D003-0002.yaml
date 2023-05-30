@@ -1,0 +1,6 @@
+dimension: InvoiceIssuer
+data_type: string
+check_friendly_name: "InvoiceIssuer must have unique values."
+validation_config:
+  check:
+    check_unique
