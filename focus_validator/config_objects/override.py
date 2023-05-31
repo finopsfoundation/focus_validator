@@ -1,6 +1,7 @@
 from typing import List
-from pydantic import BaseModel
+
 import yaml
+from pydantic import BaseModel
 
 
 class Override(BaseModel):
@@ -8,6 +9,6 @@ class Override(BaseModel):
 
     @staticmethod
     def load_yaml(self, override_filename):
-        with open(self.override_filename, 'r') as file:
+        with open(self.override_filename, "r") as file:
             override_obj = yaml.safe_load(file)
         return Override.parse_obj(override_obj)

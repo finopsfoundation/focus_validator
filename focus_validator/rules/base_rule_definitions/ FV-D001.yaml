@@ -1,4 +1,0 @@
-check_id: FV-D001
-dimension_definition: true
-dimension: ChargeType
-data_type: string

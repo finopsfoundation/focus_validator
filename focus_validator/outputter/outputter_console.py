@@ -1,7 +1,3 @@
-import tabulate
-import pandas as pd
-
-
 class ConsoleOutputter:
     def __init__(self, output_destination):
         self.output_destination = output_destination
@@ -15,4 +11,4 @@ class ConsoleOutputter:
         self.result_set = result_set
         self.formatted_result = self.process_result_set()
         print(result_set)
-        #print(tabulate(self.result_set, headers='keys', tablefmt='psql'))
+        # print(tabulate(self.result_set, headers='keys', tablefmt='psql'))

@@ -1,21 +1,21 @@
+from enum import Enum
 from itertools import groupby
 from typing import List, Union
 
 import pandera as pa
+import yaml
+from focus_validator.config_validators.override_validator import (
+    ValidationOverrideConfig,
+)
 from pydantic import BaseModel, validator
 
-from focus_validator.config_validators.override_validator import ValidationOverrideConfig
 from focus_validator.exceptions import FocusNotImplementedError
-from typing import List
-from enum import Enum
-from typing import Union
-import yaml
 
 
 class ValidationConfig(BaseModel):
     check: Union[str, AllowNullsCheck, ValueIn]
 
-    @validator('check')
+    @validator("check")
     def validate_checks(cls, check):
         if isinstance(check, str):
             assert check in SIMPLE_CHECKS
@@ -31,14 +31,20 @@ class ValidationConfig(BaseModel):
             if check == "check_unique":
                 return pa.Check.check_unique(error=error_string)
             else:
-                raise FocusNotImplementedError(msg="Check type: {} not implemented.".format(check))
+                raise FocusNotImplementedError(
+                    msg="Check type: {} not implemented.".format(check)
+                )
         elif isinstance(check, ValueIn):
             error_string = error_string.format(", ".join(check.value_in))
-            return pa.Check.check_value_in(allowed_values=check.value_in, error=error_string)
+            return pa.Check.check_value_in(
+                allowed_values=check.value_in, error=error_string
+            )
         elif isinstance(check, AllowNullsCheck):
             return pa.Check.check_not_null(error=error_string, ignore_na=False)
         else:
-            raise FocusNotImplementedError(msg="Check type: {} not implemented.".format(type(check)))
+            raise FocusNotImplementedError(
+                msg="Check type: {} not implemented.".format(type(check))
+            )
 
 
 class AllowNullsCheck(BaseModel):
@@ -75,17 +81,24 @@ class Rule(BaseModel):
                 check_name=self.check_name, friendly_name=self.check_friendly_name
             )
         else:
-            raise FocusNotImplementedError("Check for version: {} not implemented.".format(type(validation_config)))
+            raise FocusNotImplementedError(
+                "Check for version: {} not implemented.".format(type(validation_config))
+            )
 
     @classmethod
-    def generate_schema(cls, schemas: List['CheckConfigs'], override_config: ValidationOverrideConfig = None):
+    def generate_schema(
+            cls,
+            schemas: List["CheckConfigs"],
+            override_config: ValidationOverrideConfig = None,
+    ):
         schema_dict = {}
         overrides = {}
         if override_config:
             overrides = set(override_config.overrides.skip)
 
         for dimension_name, check_configs in groupby(
-                sorted(schemas, key=lambda item: item.dimension), key=lambda item: item.dimension
+                sorted(schemas, key=lambda item: item.dimension),
+                key=lambda item: item.dimension,
         ):
             try:
                 value_type = DIMENSION_VALUE_TYPE_MAP[dimension_name]
@@ -105,14 +118,15 @@ class Rule(BaseModel):
 
     @staticmethod
     def load_yaml(rule_path):
-        with open(rule_path, 'r') as f:
+        with open(rule_path, "r") as f:
             rule_obj = yaml.safe_load(f)
         return Rule.parse_obj(rule_obj)
 
     def parse_friendly_name(self):
-        if 'value_in' in self.validation_config['check']:
-            self.check_friendly_name = self.check_friendly_name.replace('{values}', str(
-                self.validation_config['check']['value_in']))
+        if "value_in" in self.validation_config["check"]:
+            self.check_friendly_name = self.check_friendly_name.replace(
+                "{values}", str(self.validation_config["check"]["value_in"])
+            )
 
     def handle_overrides(self, override_config):
         if not override_config:

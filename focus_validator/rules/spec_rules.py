@@ -1,7 +1,8 @@
 import os
 
+from focus_validator.config_objects import Override, Rule
 from focus_validator.exceptions import UnsupportedVersion
-from focus_validator.config_objects import Rule, Override
+
 
 class SpecRules:
     def __init__(self, override_filename, rule_set_path, rules_version):
@@ -10,7 +11,9 @@ class SpecRules:
         self.rules_version = rules_version
         self.rule_set_path = rule_set_path
         if self.rules_version not in self.supported_versions():
-            raise UnsupportedVersion(f'FOCUS version {self.rules_version} not supported.')
+            raise UnsupportedVersion(
+                f"FOCUS version {self.rules_version} not supported."
+            )
         self.rules_path = os.path.join(self.rule_set_path, self.rules_version)
         self.rules = []
 
@@ -20,13 +23,11 @@ class SpecRules:
     def load(self):
         self.load_overrides()
         self.load_rules()
-    
+
     def load_overrides(self):
         if not self.override_filename:
             return {}
-        self.override_config =  Override.load_yaml(self.override_filename)
-
-
+        self.override_config = Override.load_yaml(self.override_filename)
 
     def load_rules(self):
         for rule_path in self.get_rule_paths():
