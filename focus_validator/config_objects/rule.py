@@ -4,16 +4,26 @@ from typing import List, Union
 
 import pandera as pa
 import yaml
-from focus_validator.config_validators.override_validator import (
-    ValidationOverrideConfig,
-)
 from pydantic import BaseModel, validator
 
+from focus_validator.config_objects.override import Override
 from focus_validator.exceptions import FocusNotImplementedError
+
+
+class AllowNullsCheck(BaseModel):
+    allow_nulls: bool
+
+
+class ValueIn(BaseModel):
+    value_in: List[str]
+
+
+SIMPLE_CHECKS = ["check_unique"]
 
 
 class ValidationConfig(BaseModel):
     check: Union[str, AllowNullsCheck, ValueIn]
+    check_friendly_name: str
 
     @validator("check")
     def validate_checks(cls, check):
@@ -23,9 +33,15 @@ class ValidationConfig(BaseModel):
         else:
             return check
 
-    def generate_pandera_rule(self, check_name, friendly_name):
+    def parse_friendly_name(self):
+        check_friendly_name = self.check_friendly_name
+        if isinstance(self.check, ValueIn):
+            check_friendly_name = check_friendly_name.replace("{values}", ",".join(self.check.value_in))
+        return check_friendly_name
+
+    def generate_pandera_rule(self, check_name):
         check = self.check
-        error_string = "{}: {}".format(check_name, friendly_name)
+        error_string = "{}::: {}".format(check_name, self.parse_friendly_name())
 
         if isinstance(check, str):
             if check == "check_unique":
@@ -47,20 +63,9 @@ class ValidationConfig(BaseModel):
             )
 
 
-class AllowNullsCheck(BaseModel):
-    allow_nulls: bool
-
-
-class ValueIn(BaseModel):
-    value_in: List[str]
-
-
-SIMPLE_CHECKS = ["check_unique"]
-
-
 class DataTypes(Enum):
     STRING = "string"
-    decimal = "decimal"
+    DECIMAL = "decimal"
 
 
 class DataTypeConfig(BaseModel):
@@ -68,9 +73,8 @@ class DataTypeConfig(BaseModel):
 
 
 class Rule(BaseModel):
-    check_name: str
+    check_id: str
     dimension: str
-    check_friendly_name: str
     validation_config: Union[ValidationConfig, DataTypeConfig]
 
     def __process_validation_config__(self) -> pa.Check:
@@ -78,7 +82,7 @@ class Rule(BaseModel):
 
         if isinstance(validation_config, ValidationConfig):
             return validation_config.generate_pandera_rule(
-                check_name=self.check_name, friendly_name=self.check_friendly_name
+                check_name=self.check_id
             )
         else:
             raise FocusNotImplementedError(
@@ -88,48 +92,55 @@ class Rule(BaseModel):
     @classmethod
     def generate_schema(
             cls,
-            schemas: List["CheckConfigs"],
-            override_config: ValidationOverrideConfig = None,
+            rules: List["Rule"],
+            override_config: Override = None,
     ):
         schema_dict = {}
         overrides = {}
         if override_config:
-            overrides = set(override_config.overrides.skip)
+            overrides = set(override_config.overrides)
 
-        for dimension_name, check_configs in groupby(
-                sorted(schemas, key=lambda item: item.dimension),
+        value_type_maps = {}
+        validation_rules = []
+        for rule in rules:
+            if isinstance(rule.validation_config, DataTypeConfig):
+                data_type = rule.validation_config.data_type
+                if data_type == DataTypes.DECIMAL:
+                    pandera_type = pa.Decimal
+                else:
+                    pandera_type = pa.String
+                value_type_maps[rule.dimension] = pandera_type
+            else:
+                validation_rules.append(rule)
+
+        checklist = {}
+        for dimension_name, dimension_rules in groupby(
+                sorted(validation_rules, key=lambda item: item.dimension),
                 key=lambda item: item.dimension,
         ):
             try:
-                value_type = DIMENSION_VALUE_TYPE_MAP[dimension_name]
+                value_type = value_type_maps[dimension_name]
             except FocusNotImplementedError:
-                raise
+                raise FocusNotImplementedError(msg="Dimension config not implemented for: {}".format(dimension_name))
 
-            check_configs: List[CheckConfigs] = list(check_configs)
+            dimension_rules: List[Rule] = list(dimension_rules)
             checks = []
-            for check_config in check_configs:
-                if check_config.check_name not in overrides:
-                    check = check_config.__process_validation_config__()
+            for rule in dimension_rules:
+                skipped = rule.check_id in overrides
+                if not skipped:
+                    check = rule.__process_validation_config__()
                     checks.append(check)
+                checklist[rule.check_id] = {
+                    'Check Name': rule.check_id, 'Friendly Name': rule.validation_config.parse_friendly_name(),
+                    'Status': 'Skipped' if skipped else 'Pending'
+                }
             schema_dict[dimension_name] = pa.Column(
                 value_type, required=False, checks=checks, nullable=True
             )
-        return pa.DataFrameSchema(schema_dict, strict=False)
+        return pa.DataFrameSchema(schema_dict, strict=False), checklist
 
     @staticmethod
     def load_yaml(rule_path):
         with open(rule_path, "r") as f:
             rule_obj = yaml.safe_load(f)
         return Rule.parse_obj(rule_obj)
-
-    def parse_friendly_name(self):
-        if "value_in" in self.validation_config["check"]:
-            self.check_friendly_name = self.check_friendly_name.replace(
-                "{values}", str(self.validation_config["check"]["value_in"])
-            )
-
-    def handle_overrides(self, override_config):
-        if not override_config:
-            return
-        if self.check_id in override_config.overrides.skip:
-            self.skipped = True

@@ -18,7 +18,7 @@ class DataLoader:
     def find_data_loader(self):
         file_mime_type = get_file_mime_type(self.data_filename)
 
-        if file_mime_type == "ASCII text":
+        if file_mime_type in ["ASCII text", "CSV text"]:
             return CSVDataLoader
         elif file_mime_type == "Apache Parquet":
             raise FocusNotImplementedError(msg="Parquet read not implemented.")

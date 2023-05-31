@@ -1,4 +1,5 @@
 from focus_validator.outputter.outputter_console import ConsoleOutputter
+from focus_validator.rules.spec_rules import ValidationResult
 
 
 class Outputter:
@@ -8,5 +9,5 @@ class Outputter:
         # TODO: map to the correct outputter based on output
         self.outputter = self.console_outputter
 
-    def write(self, result_set):
+    def write(self, result_set: ValidationResult):
         self.outputter.write(result_set)

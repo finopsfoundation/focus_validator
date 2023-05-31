@@ -8,7 +8,7 @@ class Override(BaseModel):
     overrides: List[str]
 
     @staticmethod
-    def load_yaml(self, override_filename):
-        with open(self.override_filename, "r") as file:
+    def load_yaml(override_filename):
+        with open(override_filename, "r") as file:
             override_obj = yaml.safe_load(file)
         return Override.parse_obj(override_obj)

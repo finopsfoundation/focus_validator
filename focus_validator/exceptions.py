@@ -7,5 +7,5 @@ class FocusNotImplementedError(FocusValidationError):
         super().__init__(msg)
 
 
-class UnsupportedVersion(Exception):
+class UnsupportedVersion(FocusValidationError):
     pass
