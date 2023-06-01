@@ -4,17 +4,17 @@ from focus_validator.data_loaders import data_loader
 from focus_validator.outputter.outputter import Outputter
 from focus_validator.rules.spec_rules import SpecRules
 
-DEFAULT_VERSION_SETS_PATH = resource_filename('focus_validator.rules', 'version_sets')
+DEFAULT_VERSION_SETS_PATH = resource_filename("focus_validator.rules", "version_sets")
 
 
 class Validator:
     def __init__(
-            self,
-            data_filename,
-            output_destination,
-            rule_set_path=DEFAULT_VERSION_SETS_PATH,
-            rules_version=0.5,
-            override_filename=None,
+        self,
+        data_filename,
+        output_destination,
+        rule_set_path=DEFAULT_VERSION_SETS_PATH,
+        rules_version=0.5,
+        override_filename=None,
     ):
         self.data_filename = data_filename
         self.focus_data = None

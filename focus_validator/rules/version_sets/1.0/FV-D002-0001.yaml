@@ -1,6 +1,0 @@
-dimension: ResourceID
-data_type: string
-check_friendly_name: "Resource id allows null values."
-validation_config:
-  check:
-    allow_nulls: true

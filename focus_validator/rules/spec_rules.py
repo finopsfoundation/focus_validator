@@ -9,18 +9,24 @@ from focus_validator.exceptions import UnsupportedVersion
 
 
 def restructure_failure_cases_df(failure_cases: pd.DataFrame):
-    failure_cases = failure_cases.rename(columns={'column': 'Dimension', 'index': 'Row #', 'failure_case': 'Values'})
+    failure_cases = failure_cases.rename(
+        columns={"column": "Dimension", "index": "Row #", "failure_case": "Values"}
+    )
 
-    failure_cases[['Check Name', 'Description']] = failure_cases['check'].str.split(':::', expand=True)
-    failure_cases = failure_cases.drop('check', axis=1)
-    failure_cases = failure_cases.drop('check_number', axis=1)
-    failure_cases = failure_cases.drop('schema_context', axis=1)
+    failure_cases[["Check Name", "Description"]] = failure_cases["check"].str.split(
+        ":::", expand=True
+    )
+    failure_cases = failure_cases.drop("check", axis=1)
+    failure_cases = failure_cases.drop("check_number", axis=1)
+    failure_cases = failure_cases.drop("schema_context", axis=1)
 
-    failure_cases = failure_cases.rename_axis('#')
+    failure_cases = failure_cases.rename_axis("#")
     failure_cases.index = failure_cases.index + 1
 
-    failure_cases['Row #'] = failure_cases['Row #'] + 1
-    failure_cases = failure_cases[['Dimension', 'Check Name', 'Description', 'Values', 'Row #']]
+    failure_cases["Row #"] = failure_cases["Row #"] + 1
+    failure_cases = failure_cases[
+        ["Dimension", "Check Name", "Description", "Values", "Row #"]
+    ]
 
     return failure_cases
 
@@ -37,13 +43,15 @@ class ValidationResult:
         failure_cases = self.__failure_cases__
         checklist = self.__checklist__
         if failure_cases is not None:
-            self.failure_cases = failure_cases = restructure_failure_cases_df(failure_cases)
-            failed = set(failure_cases['Check Name'])
+            self.failure_cases = failure_cases = restructure_failure_cases_df(
+                failure_cases
+            )
+            failed = set(failure_cases["Check Name"])
             for check_name in failed:
-                checklist[check_name]['Status'] = 'Failed'
+                checklist[check_name]["Status"] = "Failed"
 
         checklist = pd.DataFrame(checklist.values())
-        checklist['Status'].replace(['Pending'], 'Passed', regex=False, inplace=True)
+        checklist["Status"].replace(["Pending"], "Passed", regex=False, inplace=True)
         self.checklist = checklist
 
 
@@ -82,13 +90,17 @@ class SpecRules:
                 yield os.path.join(root, name)
 
     def validate(self, focus_data):
-        pandera_schema, checklist = Rule.generate_schema(rules=self.rules, override_config=self.override_config)
+        pandera_schema, checklist = Rule.generate_schema(
+            rules=self.rules, override_config=self.override_config
+        )
         try:
             pandera_schema.validate(focus_data, lazy=True)
             failure_cases = None
         except SchemaErrors as e:
             failure_cases = e.failure_cases
 
-        validation_result = ValidationResult(checklist=checklist, failure_cases=failure_cases)
+        validation_result = ValidationResult(
+            checklist=checklist, failure_cases=failure_cases
+        )
         validation_result.process_result()
         return validation_result

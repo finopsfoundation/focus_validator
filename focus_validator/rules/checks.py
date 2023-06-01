@@ -4,9 +4,9 @@ from pandera import extensions
 
 def is_camel_case(column_name):
     return (
-            column_name != column_name.lower()
-            and column_name != column_name.upper()
-            and "_" not in column_name
+        column_name != column_name.lower()
+        and column_name != column_name.upper()
+        and "_" not in column_name
     )
 
 

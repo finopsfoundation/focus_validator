@@ -11,8 +11,8 @@ class ConsoleOutputter:
     def write(self, result_set: ValidationResult):
         self.result_set = result_set
         print("Checklist:")
-        print(tabulate(result_set.checklist, headers='keys', tablefmt='psql'))
+        print(tabulate(result_set.checklist, headers="keys", tablefmt="psql"))
 
         if result_set.failure_cases is not None:
             print("Checks summary:")
-            print(tabulate(result_set.failure_cases, headers='keys', tablefmt='psql'))
+            print(tabulate(result_set.failure_cases, headers="keys", tablefmt="psql"))

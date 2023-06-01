@@ -36,7 +36,9 @@ class ValidationConfig(BaseModel):
     def parse_friendly_name(self):
         check_friendly_name = self.check_friendly_name
         if isinstance(self.check, ValueIn):
-            check_friendly_name = check_friendly_name.replace("{values}", ",".join(self.check.value_in))
+            check_friendly_name = check_friendly_name.replace(
+                "{values}", ",".join(self.check.value_in)
+            )
         return check_friendly_name
 
     def generate_pandera_rule(self, check_name):
@@ -81,9 +83,7 @@ class Rule(BaseModel):
         validation_config = self.validation_config
 
         if isinstance(validation_config, ValidationConfig):
-            return validation_config.generate_pandera_rule(
-                check_name=self.check_id
-            )
+            return validation_config.generate_pandera_rule(check_name=self.check_id)
         else:
             raise FocusNotImplementedError(
                 "Check for version: {} not implemented.".format(type(validation_config))
@@ -91,9 +91,9 @@ class Rule(BaseModel):
 
     @classmethod
     def generate_schema(
-            cls,
-            rules: List["Rule"],
-            override_config: Override = None,
+        cls,
+        rules: List["Rule"],
+        override_config: Override = None,
     ):
         schema_dict = {}
         overrides = {}
@@ -115,13 +115,17 @@ class Rule(BaseModel):
 
         checklist = {}
         for dimension_name, dimension_rules in groupby(
-                sorted(validation_rules, key=lambda item: item.dimension),
-                key=lambda item: item.dimension,
+            sorted(validation_rules, key=lambda item: item.dimension),
+            key=lambda item: item.dimension,
         ):
             try:
                 value_type = value_type_maps[dimension_name]
             except FocusNotImplementedError:
-                raise FocusNotImplementedError(msg="Dimension config not implemented for: {}".format(dimension_name))
+                raise FocusNotImplementedError(
+                    msg="Dimension config not implemented for: {}".format(
+                        dimension_name
+                    )
+                )
 
             dimension_rules: List[Rule] = list(dimension_rules)
             checks = []
@@ -131,8 +135,9 @@ class Rule(BaseModel):
                     check = rule.__process_validation_config__()
                     checks.append(check)
                 checklist[rule.check_id] = {
-                    'Check Name': rule.check_id, 'Friendly Name': rule.validation_config.parse_friendly_name(),
-                    'Status': 'Skipped' if skipped else 'Pending'
+                    "Check Name": rule.check_id,
+                    "Friendly Name": rule.validation_config.parse_friendly_name(),
+                    "Status": "Skipped" if skipped else "Pending",
                 }
             schema_dict[dimension_name] = pa.Column(
                 value_type, required=False, checks=checks, nullable=True
