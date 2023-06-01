@@ -42,7 +42,9 @@ class ValidationResult:
     def process_result(self):
         failure_cases = self.__failure_cases__
         checklist = self.__checklist__
-        if failure_cases is not None:
+        if failure_cases is None:
+            self.failure_cases = None
+        else:
             self.failure_cases = failure_cases = restructure_failure_cases_df(
                 failure_cases
             )
