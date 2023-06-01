@@ -1,0 +1,4 @@
+check_id: FV-D002
+dimension: ResourceID
+validation_config:
+  data_type: string

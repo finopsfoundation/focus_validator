@@ -1,0 +1,4 @@
+check_id: FV-D003
+dimension: InvoiceIssuer
+validation_config:
+  data_type: string
