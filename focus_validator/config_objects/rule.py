@@ -136,6 +136,7 @@ class Rule(BaseModel):
                     checks.append(check)
                 checklist[rule.check_id] = {
                     "Check Name": rule.check_id,
+                    "Dimension": rule.dimension,
                     "Friendly Name": rule.validation_config.parse_friendly_name(),
                     "Status": "Skipped" if skipped else "Pending",
                 }
