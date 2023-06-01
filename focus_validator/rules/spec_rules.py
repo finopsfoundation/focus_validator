@@ -32,7 +32,7 @@ def restructure_failure_cases_df(failure_cases: pd.DataFrame):
 
 
 class ValidationResult:
-    checklist: Optional[pd.DataFrame]
+    checklist: Dict[str, ChecklistObject]
     failure_cases: Optional[pd.DataFrame]
 
     def __init__(self, checklist: Dict[str, ChecklistObject], failure_cases: pd.DataFrame = None):
