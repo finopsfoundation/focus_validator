@@ -48,6 +48,11 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+
+    if args.output_type != "console" and args.output_destination is None:
+        parser.error("--output-destination required {}".format(args.output_type))
+        sys.exit(1)
+
     validator = Validator(
         data_filename=args.data_file,
         override_filename=args.override_file,
