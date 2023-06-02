@@ -1,24 +1,20 @@
-from enum import Enum
 from itertools import groupby
-from typing import List, Union
+from typing import List, Union, Optional
 
 import pandera as pa
 import yaml
 from pydantic import BaseModel, validator
 
+from focus_validator.config_objects.common import (
+    ValueIn,
+    AllowNullsCheck,
+    SIMPLE_CHECKS,
+    DataTypeConfig,
+    DataTypes,
+    ChecklistObjectStatus,
+)
 from focus_validator.config_objects.override import Override
 from focus_validator.exceptions import FocusNotImplementedError
-
-
-class AllowNullsCheck(BaseModel):
-    allow_nulls: bool
-
-
-class ValueIn(BaseModel):
-    value_in: List[str]
-
-
-SIMPLE_CHECKS = ["check_unique"]
 
 
 class ValidationConfig(BaseModel):
@@ -65,13 +61,10 @@ class ValidationConfig(BaseModel):
             )
 
 
-class DataTypes(Enum):
-    STRING = "string"
-    DECIMAL = "decimal"
-
-
-class DataTypeConfig(BaseModel):
-    data_type: DataTypes
+class InvalidRule(BaseModel):
+    rule_path: str
+    error: str
+    error_type: str
 
 
 class Rule(BaseModel):
@@ -96,6 +89,7 @@ class Rule(BaseModel):
         override_config: Override = None,
     ):
         schema_dict = {}
+        checklist = {}
         overrides = {}
         if override_config:
             overrides = set(override_config.overrides)
@@ -103,6 +97,15 @@ class Rule(BaseModel):
         value_type_maps = {}
         validation_rules = []
         for rule in rules:
+            if isinstance(rule, InvalidRule):
+                checklist[rule.rule_path] = ChecklistObject(
+                    check_name=rule.rule_path,
+                    dimension="Unknown",
+                    error=f"{rule.error_type}: {rule.error}",
+                    status=ChecklistObjectStatus.ERRORED,
+                    rule_ref=rule,
+                )
+                continue
             if isinstance(rule.validation_config, DataTypeConfig):
                 data_type = rule.validation_config.data_type
                 if data_type == DataTypes.DECIMAL:
@@ -110,42 +113,71 @@ class Rule(BaseModel):
                 else:
                     pandera_type = pa.String
                 value_type_maps[rule.dimension] = pandera_type
+                checklist[rule.check_id] = ChecklistObject(
+                    check_name=rule.check_id,
+                    dimension=rule.dimension,
+                    status=ChecklistObjectStatus.SKIPPED
+                    if rule.check_id in overrides
+                    else ChecklistObjectStatus.PENDING,
+                    friendly_name=f"Ensures that dimension is of {data_type.value} type.",
+                    rule_ref=rule,
+                )
             else:
                 validation_rules.append(rule)
 
-        checklist = {}
         for dimension_name, dimension_rules in groupby(
             sorted(validation_rules, key=lambda item: item.dimension),
             key=lambda item: item.dimension,
         ):
             try:
                 value_type = value_type_maps[dimension_name]
-            except FocusNotImplementedError:
-                raise FocusNotImplementedError(
-                    msg="Dimension config not implemented for: {}".format(
-                        dimension_name
-                    )
-                )
+            except KeyError:
+                value_type = None
 
             dimension_rules: List[Rule] = list(dimension_rules)
             checks = []
             for rule in dimension_rules:
-                skipped = rule.check_id in overrides
-                if not skipped:
+                checklist[rule.check_id] = check_list_object = ChecklistObject(
+                    check_name=rule.check_id,
+                    dimension=dimension_name,
+                    friendly_name=rule.validation_config.parse_friendly_name(),
+                    status=ChecklistObjectStatus.PENDING,
+                    rule_ref=rule,
+                )
+
+                if rule.check_id in overrides:
+                    check_list_object.status = ChecklistObjectStatus.SKIPPED
+                else:
                     check = rule.__process_validation_config__()
                     checks.append(check)
-                checklist[rule.check_id] = {
-                    "Check Name": rule.check_id,
-                    "Friendly Name": rule.validation_config.parse_friendly_name(),
-                    "Status": "Skipped" if skipped else "Pending",
-                }
-            schema_dict[dimension_name] = pa.Column(
-                value_type, required=False, checks=checks, nullable=True
-            )
+
+                if value_type is None:
+                    check_list_object.error = (
+                        "ConfigurationError: No configuration found for dimension."
+                    )
+                    check_list_object.status = ChecklistObjectStatus.ERRORED
+                else:
+                    schema_dict[dimension_name] = pa.Column(
+                        value_type, required=False, checks=checks, nullable=True
+                    )
         return pa.DataFrameSchema(schema_dict, strict=False), checklist
 
     @staticmethod
-    def load_yaml(rule_path):
-        with open(rule_path, "r") as f:
-            rule_obj = yaml.safe_load(f)
-        return Rule.parse_obj(rule_obj)
+    def load_yaml(rule_path) -> Union["Rule", InvalidRule]:
+        try:
+            with open(rule_path, "r") as f:
+                rule_obj = yaml.safe_load(f)
+            return Rule.parse_obj(rule_obj)
+        except Exception as e:
+            return InvalidRule(
+                rule_path=rule_path, error=str(e), error_type=e.__class__.__name__
+            )
+
+
+class ChecklistObject(BaseModel):
+    check_name: str
+    dimension: str
+    friendly_name: Optional[str]
+    error: Optional[str]
+    status: ChecklistObjectStatus
+    rule_ref: Union[InvalidRule, Rule]
