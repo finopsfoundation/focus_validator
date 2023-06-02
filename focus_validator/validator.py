@@ -12,8 +12,9 @@ class Validator:
         self,
         data_filename,
         output_destination,
+        output_type,
         rule_set_path=DEFAULT_VERSION_SETS_PATH,
-        rules_version=0.5,
+        rules_version="0.5",
         override_filename=None,
     ):
         self.data_filename = data_filename
@@ -26,8 +27,9 @@ class Validator:
             rule_set_path=rule_set_path,
             rules_version=rules_version,
         )
-        self.output_destination = output_destination
-        self.outputter = Outputter(self.output_destination)
+        self.outputter = Outputter(
+            output_type=output_type, output_destination=output_destination
+        )
 
     def load(self):
         self.focus_data = data_loader.DataLoader(

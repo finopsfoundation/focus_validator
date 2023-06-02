@@ -36,15 +36,29 @@ if __name__ == "__main__":
         help="Path to rules definitions",
     )
     parser.add_argument(
-        "--output-destination", default="console", help="Where to output the rules"
+        "--output-type",
+        default="console",
+        help="What type of output you would like",
+        choices=["console", "unittest"],
+    )
+    parser.add_argument(
+        "--output-destination",
+        default=None,
+        help="filename of where to output the rules",
     )
 
     args = parser.parse_args()
+
+    if args.output_type != "console" and args.output_destination is None:
+        parser.error("--output-destination required {}".format(args.output_type))
+        sys.exit(1)
+
     validator = Validator(
         data_filename=args.data_file,
         override_filename=args.override_file,
         rule_set_path=args.rule_set_path,
         rules_version=args.validate_version,
+        output_type=args.output_type,
         output_destination=args.output_destination,
     )
     if args.supported_versions:
