@@ -1,34 +1,39 @@
-import json
+import re
 import xml.etree.cElementTree as ET
 from datetime import datetime, timezone
 
 
 class UnittestFormatter:
-    def __init__(self, name):
+    def __init__(
+        self,
+        name,
+        tests,
+        failures,
+        errors,
+        skipped,
+        assertions=None,
+        time="0",
+        timestamp=None,
+    ):
         self.name = name
-        self.tests = 0
-        self.failures = 0
-        self.errors = 0
-        self.skipped = 0
-        self.assertions = 0
-        self.time = "0"
-        self.timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        self.tests = str(tests)
+        self.failures = str(failures)
+        self.errors = str(errors)
+        self.skipped = str(skipped)
+        self.assertions = str(assertions)
+        if not self.assertions:
+            self.assertions = self.tests
+        self.time = time
+        self.timestamp = timestamp
+        if not self.timestamp:
+            self.timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
         self.results = {}
 
-    def add_testsuite(self, name):
+    def add_testsuite(self, name, dimension):
         if name not in self.results:
-            self.results[name] = {"tests": {}, "time": "0"}
+            self.results[name] = {"tests": {}, "time": "0", "dimension": dimension}
 
     def add_testcase(self, testsuite, name, result, message):
-        if result.lower() == "failed":
-            self.failures += 1
-        if result.lower() == "skipped":
-            self.skipped += 1
-        if result.lower() == "error":
-            self.errors += 1
-        self.tests += 1
-        self.assertions += 1
-
         self.results[testsuite]["tests"][name] = {
             "result": result.lower(),
             "message": message,
@@ -38,17 +43,22 @@ class UnittestFormatter:
         testsuites = ET.Element(
             "testsuites",
             name=self.name,
-            tests=str(self.tests),
-            failures=str(self.failures),
-            errors=str(self.errors),
-            skipped=str(self.skipped),
-            assertions=str(self.assertions),
-            time=str(self.time),
+            tests=self.tests,
+            failures=self.failures,
+            errors=self.errors,
+            skipped=self.skipped,
+            assertions=self.assertions,
+            time=self.time,
             timestamp=self.timestamp,
         )
 
         for testsuite in sorted(self.results.keys()):
-            ts = ET.SubElement(testsuites, "testsuite", name=testsuite, time="0")
+            ts = ET.SubElement(
+                testsuites,
+                "testsuite",
+                name=f'{testsuite}-{self.results[testsuite]["dimension"]}',
+                time="0",
+            )
             for testcase in sorted(self.results[testsuite]["tests"].keys()):
                 tc = ET.SubElement(ts, "testcase", name=testcase, time="0")
                 if (
@@ -71,6 +81,15 @@ class UnittestFormatter:
                         "skipped",
                         message=self.results[testsuite]["tests"][testcase]["message"],
                     )
+                elif (
+                    self.results[testsuite]["tests"][testcase]["result"].lower()
+                    == "errored"
+                ):
+                    ET.SubElement(
+                        tc,
+                        "error",
+                        message=self.results[testsuite]["tests"][testcase]["message"],
+                    )
         tree = ET.ElementTree(testsuites)
         ET.indent(tree)
         return tree
@@ -81,25 +100,54 @@ class UnittestOutputter:
         self.output_destination = output_destination
 
     def write(self, result_set):
-        formatter = UnittestFormatter(name="FOCUS Validations")
-        result_set.checklist = result_set.checklist.join(
-            result_set.checklist["Check Name"]
-            .str.rsplit("-", expand=True)
-            .rename(columns={0: "FV", 1: "Testsuite", 2: "Testcase"})
+        # First generate the summary
+        result_statuses = {}
+        for status in ["passed", "failed", "skipped", "errored"]:
+            result_statuses[status] = sum(
+                [1 for r in result_set.checklist.values() if r.status.value == status]
+            )
+
+        # format the results for processing
+        rows = [v.dict() for v in result_set.checklist.values()]
+
+        # Setup a Formatter and initiate with result totals
+        formatter = UnittestFormatter(
+            name="FOCUS Validations",
+            tests=len(rows),
+            failures=result_statuses["failed"],
+            errors=result_statuses["errored"],
+            skipped=result_statuses["skipped"],
         )
-        result_json = json.loads(
-            result_set.checklist.set_index("Check Name").to_json(orient="index")
-        )
-        for test in result_json.keys():
-            testsuite = f'{result_json[test]["FV"]}-{result_json[test]["Testsuite"]}'
-            formatter.add_testsuite(testsuite)
-            if result_json[test]["Testcase"]:
+
+        # If there are any errors load them in first
+        if result_statuses["errored"]:
+            formatter.add_testsuite(name="Base", dimension="Unknown")
+            for testcase in [r for r in rows if r.get("error", False)]:
                 formatter.add_testcase(
-                    testsuite=testsuite,
-                    name=test,
-                    result=result_json[test]["Status"],
-                    message=result_json[test]["Friendly Name"],
+                    testsuite="Base",
+                    name=testcase["check_name"],
+                    result=testcase["status"].value,
+                    message=testcase["error"],
                 )
+
+        # Add the testsuites to the Formatter
+        for testsuite in [
+            r for r in rows if re.match(r"^FV-D[0-9]{3}$", r["check_name"])
+        ]:
+            formatter.add_testsuite(
+                name=testsuite["check_name"], dimension=testsuite["dimension"]
+            )
+
+        # Add the testcases to the testsuites
+        for testcase in [
+            r for r in rows if re.match(r"^FV-D[0-9]{3}-[0-9]{4}$", r["check_name"])
+        ]:
+            formatter.add_testcase(
+                testsuite=testcase["check_name"].rsplit("-", 1)[0],
+                name=testcase["check_name"],
+                result=testcase["status"].value,
+                message=testcase["friendly_name"],
+            )
 
         tree = formatter.generate_unittest()
         tree.write(self.output_destination, encoding="utf-8", xml_declaration=True)
