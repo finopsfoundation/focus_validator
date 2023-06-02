@@ -1,0 +1,27 @@
+name: Validate Focus Data
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - issue/**
+
+jobs:
+    validate_focus:
+        runs-on: ubuntu-latest
+        permissions:
+          checks: write
+        steps:
+            - name: Check out repository code
+              uses: actions/checkout@v3
+            - name: super-step
+              shell: sh
+              run: |
+                python3 -m focus_validator.main --data-file samples/all_pass.csv  --output-type unittest --output-destination reports/focus_tests.xml
+            - name: FOCUS Validation Report
+              uses: dorny/test-reporter@v1
+              if: success() || failure()    # run this step even if previous step failed
+              with:
+                name: FOCUS Validations
+                path: reports/*.xml         # Path to test results
+                reporter: java-junit        # Format of test results
