@@ -4,7 +4,12 @@ from typing import Optional, Dict
 import pandas as pd
 from pandera.errors import SchemaErrors
 
-from focus_validator.config_objects import Override, Rule, ChecklistObjectStatus, ChecklistObject
+from focus_validator.config_objects import (
+    Override,
+    Rule,
+    ChecklistObjectStatus,
+    ChecklistObject,
+)
 from focus_validator.exceptions import UnsupportedVersion
 
 
@@ -35,7 +40,9 @@ class ValidationResult:
     checklist: Dict[str, ChecklistObject]
     failure_cases: Optional[pd.DataFrame]
 
-    def __init__(self, checklist: Dict[str, ChecklistObject], failure_cases: pd.DataFrame = None):
+    def __init__(
+        self, checklist: Dict[str, ChecklistObject], failure_cases: pd.DataFrame = None
+    ):
         self.__failure_cases__ = failure_cases
         self.__checklist__ = checklist
 

@@ -1,5 +1,5 @@
 from itertools import groupby
-from typing import List, Union
+from typing import List, Union, Optional
 
 import pandera as pa
 import yaml
@@ -11,7 +11,6 @@ from focus_validator.config_objects.common import (
     SIMPLE_CHECKS,
     DataTypeConfig,
     DataTypes,
-    ChecklistObject,
     ChecklistObjectStatus,
 )
 from focus_validator.config_objects.override import Override
@@ -85,9 +84,9 @@ class Rule(BaseModel):
 
     @classmethod
     def generate_schema(
-            cls,
-            rules: List["Rule"],
-            override_config: Override = None,
+        cls,
+        rules: List["Rule"],
+        override_config: Override = None,
     ):
         schema_dict = {}
         checklist = {}
@@ -100,9 +99,11 @@ class Rule(BaseModel):
         for rule in rules:
             if isinstance(rule, InvalidRule):
                 checklist[rule.rule_path] = ChecklistObject(
-                    check_name=rule.rule_path, dimension="Unknown",
+                    check_name=rule.rule_path,
+                    dimension="Unknown",
                     error=f"{rule.error_type}: {rule.error}",
                     status=ChecklistObjectStatus.ERRORED,
+                    rule_ref=rule,
                 )
                 continue
             if isinstance(rule.validation_config, DataTypeConfig):
@@ -118,14 +119,15 @@ class Rule(BaseModel):
                     status=ChecklistObjectStatus.SKIPPED
                     if rule.check_id in overrides
                     else ChecklistObjectStatus.PENDING,
-                    friendly_name=f"Ensures that dimension is of {data_type.value} type."
+                    friendly_name=f"Ensures that dimension is of {data_type.value} type.",
+                    rule_ref=rule,
                 )
             else:
                 validation_rules.append(rule)
 
         for dimension_name, dimension_rules in groupby(
-                sorted(validation_rules, key=lambda item: item.dimension),
-                key=lambda item: item.dimension,
+            sorted(validation_rules, key=lambda item: item.dimension),
+            key=lambda item: item.dimension,
         ):
             try:
                 value_type = value_type_maps[dimension_name]
@@ -139,7 +141,8 @@ class Rule(BaseModel):
                     check_name=rule.check_id,
                     dimension=dimension_name,
                     friendly_name=rule.validation_config.parse_friendly_name(),
-                    status=ChecklistObjectStatus.PENDING
+                    status=ChecklistObjectStatus.PENDING,
+                    rule_ref=rule,
                 )
 
                 if rule.check_id in overrides:
@@ -169,3 +172,12 @@ class Rule(BaseModel):
             return InvalidRule(
                 rule_path=rule_path, error=str(e), error_type=e.__class__.__name__
             )
+
+
+class ChecklistObject(BaseModel):
+    check_name: str
+    dimension: str
+    friendly_name: Optional[str]
+    error: Optional[str]
+    status: ChecklistObjectStatus
+    rule_ref: Union[InvalidRule, Rule]

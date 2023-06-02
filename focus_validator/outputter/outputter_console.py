@@ -13,17 +13,19 @@ class ConsoleOutputter:
     def __restructure_check_list__(result_set: ValidationResult):
         rows = [v.dict() for v in result_set.checklist.values()]
         for row in rows:
-            row['status'] = row['status'].value.title()
+            row["status"] = row["status"].value.title()
         df = pd.DataFrame(rows)
-        df = df.rename(
+        df.rename(
             columns={
                 "check_name": "Check Name",
                 "dimension": "Dimension",
                 "friendly_name": "Friendly Name",
                 "error": "Error",
-                "status": "Status"
-            }
+                "status": "Status",
+            },
+            inplace=True,
         )
+        df.drop("rule_ref", axis=1, inplace=True)
         return df
 
     def write(self, result_set: ValidationResult):

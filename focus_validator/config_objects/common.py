@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional
+from typing import List
 
 from pydantic import BaseModel
 
@@ -30,11 +30,3 @@ class ChecklistObjectStatus(Enum):
     FAILED = "failed"
     SKIPPED = "skipped"
     PENDING = "pending"
-
-
-class ChecklistObject(BaseModel):
-    check_name: str
-    dimension: str
-    friendly_name: Optional[str]
-    error: Optional[str]
-    status: ChecklistObjectStatus
