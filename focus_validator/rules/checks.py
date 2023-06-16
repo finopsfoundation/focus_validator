@@ -16,8 +16,12 @@ def is_camel_case(column_name):
 
 
 @extensions.register_check_method()
-def check_not_null(pandas_obj: pd.Series):
-    return ~pandas_obj.isnull()
+def check_not_null(pandas_obj: pd.Series, allow_nulls: bool):
+    # TODO: works for string type, need to verify for other data types
+    check_values = pandas_obj.isnull() | pd.Series(pandas_obj == "").values
+    if not allow_nulls:
+        check_values = check_values | pd.Series(pandas_obj == "NULL").values
+    return ~check_values
 
 
 @extensions.register_check_method()

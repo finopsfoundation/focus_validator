@@ -75,7 +75,9 @@ class Rule(BaseModel):
                 allowed_values=check.value_in, error=error_string
             )
         elif isinstance(check, AllowNullsCheck):
-            return pa.Check.check_not_null(error=error_string, ignore_na=False)
+            return pa.Check.check_not_null(
+                error=error_string, ignore_na=False, allow_nulls=check.allow_nulls
+            )
         else:
             raise FocusNotImplementedError(
                 msg="Check type: {} not implemented.".format(type(check))
