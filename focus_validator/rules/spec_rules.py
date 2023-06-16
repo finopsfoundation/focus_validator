@@ -13,7 +13,27 @@ from focus_validator.config_objects import (
 from focus_validator.exceptions import UnsupportedVersion
 
 
-def restructure_failure_cases_df(failure_cases: pd.DataFrame):
+def convert_missing_dimension_errors(df, checklist):
+    def process_row(row):
+        if (
+            row["schema_context"] == "DataFrameSchema"
+            and row["check"] == "column_in_dataframe"
+        ):
+            for check_name, check_obj in checklist.items():
+                if row["failure_case"] == check_obj.dimension:
+                    row["check"] = f"{check_name}:::{check_obj.friendly_name}"
+                    row["column"] = check_obj.dimension
+                    row["failure_case"] = None
+                    return row
+        else:
+            return row
+
+    filtered_df = df.apply(process_row, axis=1)
+    return filtered_df
+
+
+def restructure_failure_cases_df(failure_cases: pd.DataFrame, checklist):
+    failure_cases = convert_missing_dimension_errors(failure_cases, checklist)
     failure_cases = failure_cases.rename(
         columns={"column": "Dimension", "index": "Row #", "failure_case": "Values"}
     )
@@ -53,7 +73,7 @@ class ValidationResult:
             self.failure_cases = None
         else:
             self.failure_cases = failure_cases = restructure_failure_cases_df(
-                failure_cases
+                failure_cases, checklist
             )
             failed = set(failure_cases["Check Name"])
             for check_name in failed:

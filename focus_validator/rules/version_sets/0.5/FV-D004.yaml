@@ -1,0 +1,5 @@
+check_id: FV-D004
+dimension: Provider
+validation_config:
+  data_type: string
+  required: True

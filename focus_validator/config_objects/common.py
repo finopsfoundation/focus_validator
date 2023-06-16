@@ -22,6 +22,7 @@ class DataTypes(Enum):
 
 class DataTypeConfig(BaseModel):
     data_type: DataTypes
+    required: bool = False
 
 
 class ChecklistObjectStatus(Enum):

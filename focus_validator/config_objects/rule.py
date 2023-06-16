@@ -94,7 +94,6 @@ class Rule(BaseModel):
         if override_config:
             overrides = set(override_config.overrides)
 
-        value_type_maps = {}
         validation_rules = []
         for rule in rules:
             if isinstance(rule, InvalidRule):
@@ -112,15 +111,30 @@ class Rule(BaseModel):
                     pandera_type = pa.Decimal
                 else:
                     pandera_type = pa.String
-                value_type_maps[rule.dimension] = pandera_type
+
+                if rule.validation_config.required:
+                    friendly_name = f"Ensures that dimension is of {data_type.value} type and is present."
+                else:
+                    friendly_name = (
+                        f"Ensures that dimension is of {data_type.value} type."
+                    )
                 checklist[rule.check_id] = ChecklistObject(
                     check_name=rule.check_id,
                     dimension=rule.dimension,
                     status=ChecklistObjectStatus.SKIPPED
                     if rule.check_id in overrides
                     else ChecklistObjectStatus.PENDING,
-                    friendly_name=f"Ensures that dimension is of {data_type.value} type.",
+                    friendly_name=friendly_name,
                     rule_ref=rule,
+                )
+                dimension_required = (
+                    rule.validation_config.required and rule.dimension not in overrides
+                )
+                schema_dict[rule.dimension] = pa.Column(
+                    pandera_type,
+                    required=dimension_required,
+                    checks=[],
+                    nullable=True,
                 )
             else:
                 validation_rules.append(rule)
@@ -129,13 +143,11 @@ class Rule(BaseModel):
             sorted(validation_rules, key=lambda item: item.dimension),
             key=lambda item: item.dimension,
         ):
-            try:
-                value_type = value_type_maps[dimension_name]
-            except KeyError:
-                value_type = None
-
             dimension_rules: List[Rule] = list(dimension_rules)
-            checks = []
+            try:
+                pa_column = schema_dict[dimension_name]
+            except KeyError:
+                pa_column = None
             for rule in dimension_rules:
                 checklist[rule.check_id] = check_list_object = ChecklistObject(
                     check_name=rule.check_id,
@@ -145,21 +157,17 @@ class Rule(BaseModel):
                     rule_ref=rule,
                 )
 
-                if rule.check_id in overrides:
-                    check_list_object.status = ChecklistObjectStatus.SKIPPED
-                else:
-                    check = rule.__process_validation_config__()
-                    checks.append(check)
-
-                if value_type is None:
+                if pa_column is None:
                     check_list_object.error = (
                         "ConfigurationError: No configuration found for dimension."
                     )
                     check_list_object.status = ChecklistObjectStatus.ERRORED
+                elif rule.check_id in overrides:
+                    check_list_object.status = ChecklistObjectStatus.SKIPPED
                 else:
-                    schema_dict[dimension_name] = pa.Column(
-                        value_type, required=False, checks=checks, nullable=True
-                    )
+                    check = rule.__process_validation_config__()
+                    pa_column.checks.append(check)
+
         return pa.DataFrameSchema(schema_dict, strict=False), checklist
 
     @staticmethod
