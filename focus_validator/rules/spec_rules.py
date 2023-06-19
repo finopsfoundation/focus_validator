@@ -66,7 +66,9 @@ class ValidationResult:
 
 
 class SpecRules:
-    def __init__(self, override_filename, rule_set_path, rules_version):
+    def __init__(
+        self, override_filename, rule_set_path, rules_version, dimension_namespace
+    ):
         self.override_filename = override_filename
         self.override_config = None
         self.rules_version = rules_version
@@ -77,6 +79,7 @@ class SpecRules:
             )
         self.rules_path = os.path.join(self.rule_set_path, self.rules_version)
         self.rules = []
+        self.dimension_namespace = dimension_namespace
 
     def supported_versions(self):
         return sorted([x for x in os.walk(self.rule_set_path)][0][1])
@@ -92,7 +95,9 @@ class SpecRules:
 
     def load_rules(self):
         for rule_path in self.get_rule_paths():
-            self.rules.append(Rule.load_yaml(rule_path))
+            self.rules.append(
+                Rule.load_yaml(rule_path, dimension_namespace=self.dimension_namespace)
+            )
 
     def get_rule_paths(self):
         for root, dirs, files in os.walk(self.rules_path, topdown=False):

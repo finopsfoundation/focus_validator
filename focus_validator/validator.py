@@ -16,6 +16,7 @@ class Validator:
         rule_set_path=DEFAULT_VERSION_SETS_PATH,
         rules_version="0.5",
         override_filename=None,
+        dimension_namespace=None,
     ):
         self.data_filename = data_filename
         self.focus_data = None
@@ -26,6 +27,7 @@ class Validator:
             override_filename=override_filename,
             rule_set_path=rule_set_path,
             rules_version=rules_version,
+            dimension_namespace=dimension_namespace,
         )
         self.outputter = Outputter(
             output_type=output_type, output_destination=output_destination

@@ -11,6 +11,10 @@ if __name__ == "__main__":
         help="Path to the data file (CSV)",
         required="--supported-versions" not in sys.argv,
     )
+    parser.add_argument(
+        "--dimension-namespace",
+        help="Dimension namespace to differentiate focus dimensions from vendor dimensions",
+    )
     parser.add_argument("--override-file", help="Path to the override file (YAML)")
     parser.add_argument(
         "--output-format", default="text", help="Path to the output report file"
@@ -60,6 +64,7 @@ if __name__ == "__main__":
         rules_version=args.validate_version,
         output_type=args.output_type,
         output_destination=args.output_destination,
+        dimension_namespace=args.dimension_namespace,
     )
     if args.supported_versions:
         for version in validator.get_supported_versions():
