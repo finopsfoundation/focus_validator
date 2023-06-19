@@ -1,7 +1,8 @@
 import magic
 
+from focus_validator.data_loaders.csv_data_loader import CSVDataLoader
+from focus_validator.data_loaders.parquet_data_loader import ParquetDataLoader
 from focus_validator.exceptions import FocusNotImplementedError
-from .csv_data_loader import CSVDataLoader
 
 
 def get_file_mime_type(filename):
@@ -21,7 +22,7 @@ class DataLoader:
         if file_mime_type in ["ASCII text", "CSV text"]:
             return CSVDataLoader
         elif file_mime_type == "Apache Parquet":
-            raise FocusNotImplementedError(msg="Parquet read not implemented.")
+            return ParquetDataLoader
         else:
             raise FocusNotImplementedError(
                 msg=f"Validator for file_type {file_mime_type} not implemented yet."
