@@ -64,7 +64,7 @@ class UnittestFormatter:
                 tc = ET.SubElement(
                     ts,
                     "testcase",
-                    name=f"{testcase}:{self.results[testsuite]['tests'][testcase]['check_type_name']}",
+                    name=f"{testcase} :: {self.results[testsuite]['tests'][testcase]['check_type_name']}",
                     time="0",
                 )
                 if (
