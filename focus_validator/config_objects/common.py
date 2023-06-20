@@ -1,7 +1,7 @@
 from enum import Enum
-from typing import List
+from typing import List, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AllowNullsCheck(BaseModel):
@@ -12,7 +12,7 @@ class ValueIn(BaseModel):
     value_in: List[str]
 
 
-SIMPLE_CHECKS = ["check_unique", "dimension_required"]
+SIMPLE_CHECKS = Literal["check_unique", "dimension_required"]
 
 
 class DataTypes(Enum):
@@ -23,6 +23,10 @@ class DataTypes(Enum):
 
 class DataTypeConfig(BaseModel):
     data_type: DataTypes
+    check_type_friendly_name: str = Field("DataTypeCheck", const=True)
+
+    class Config:
+        frozen = True
 
 
 class ChecklistObjectStatus(Enum):
