@@ -1,5 +1,5 @@
 # FOCUS (FinOps Open Source Cost and Usage Specification) Validator
-Validator resource for checking datasets against the (FOCUS)[focus.finops.org] specification.
+Validator resource for checking datasets against the [FOCUS](https://focus.finops.org) specification.
 
 ## Overview
 
