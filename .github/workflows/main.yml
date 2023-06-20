@@ -5,6 +5,7 @@ on:
       - main
       - dev
       - issue/**
+      - 20-add-friendly-name-to-check-type
 
 jobs:
     validate_focus:
