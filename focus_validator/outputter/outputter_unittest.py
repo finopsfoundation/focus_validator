@@ -33,10 +33,11 @@ class UnittestFormatter:
         if name not in self.results:
             self.results[name] = {"tests": {}, "time": "0", "dimension": dimension}
 
-    def add_testcase(self, testsuite, name, result, message):
+    def add_testcase(self, testsuite, name, result, message, check_type_name):
         self.results[testsuite]["tests"][name] = {
             "result": result.lower(),
             "message": message,
+            "check_type_name": check_type_name,
         }
 
     def generate_unittest(self):
@@ -60,7 +61,12 @@ class UnittestFormatter:
                 time="0",
             )
             for testcase in sorted(self.results[testsuite]["tests"].keys()):
-                tc = ET.SubElement(ts, "testcase", name=testcase, time="0")
+                tc = ET.SubElement(
+                    ts,
+                    "testcase",
+                    name=f"{testcase}:{self.results[testsuite]['tests'][testcase]['check_type_name']}",
+                    time="0",
+                )
                 if (
                     self.results[testsuite]["tests"][testcase]["result"].lower()
                     == "failed"
@@ -128,6 +134,7 @@ class UnittestOutputter:
                     name=testcase["check_name"],
                     result=testcase["status"].value,
                     message=testcase["error"],
+                    check_type_name=None,
                 )
 
         # Add the testsuites to the Formatter
@@ -136,6 +143,15 @@ class UnittestOutputter:
         ]:
             formatter.add_testsuite(
                 name=testsuite["check_name"], dimension=testsuite["dimension"]
+            )
+            formatter.add_testcase(
+                testsuite=testsuite["check_name"],
+                name=testsuite["check_name"],
+                result=testsuite["status"].value,
+                message=testsuite["friendly_name"],
+                check_type_name=testsuite["rule_ref"]["validation_config"][
+                    "check_type_friendly_name"
+                ],
             )
 
         # Add the testcases to the testsuites
@@ -147,6 +163,9 @@ class UnittestOutputter:
                 name=testcase["check_name"],
                 result=testcase["status"].value,
                 message=testcase["friendly_name"],
+                check_type_name=testcase["rule_ref"]["validation_config"][
+                    "check_type_friendly_name"
+                ],
             )
 
         tree = formatter.generate_unittest()
