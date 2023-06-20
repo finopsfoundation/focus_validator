@@ -163,10 +163,20 @@ class Rule(BaseModel):
         return pa.DataFrameSchema(schema_dict, strict=False), checklist
 
     @staticmethod
-    def load_yaml(rule_path) -> Union["Rule", InvalidRule]:
+    def load_yaml(
+        rule_path, dimension_namespace: str = None
+    ) -> Union["Rule", InvalidRule]:
         try:
             with open(rule_path, "r") as f:
                 rule_obj = yaml.safe_load(f)
+
+            if (
+                isinstance(rule_obj, dict)
+                and rule_obj.get("dimension")
+                and dimension_namespace
+            ):
+                rule_obj["dimension"] = f"{dimension_namespace}:{rule_obj['dimension']}"
+
             return Rule.parse_obj(rule_obj)
         except Exception as e:
             return InvalidRule(
