@@ -1,0 +1,4 @@
+check_id: FV-D007-0001
+column_id: Publisher
+check:
+  data_type: string
