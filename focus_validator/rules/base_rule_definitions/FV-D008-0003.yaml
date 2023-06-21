@@ -1,0 +1,4 @@
+check_id: FV-D008-0003
+column_id: ResourceName
+check:
+  column_required
