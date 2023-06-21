@@ -1,5 +1,0 @@
-check_id: FV-D001
-dimension: ChargeType
-validation_config:
-  data_type: string
-  required: true

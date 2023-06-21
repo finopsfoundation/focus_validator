@@ -12,7 +12,7 @@ class ValueIn(BaseModel):
     value_in: List[str]
 
 
-SIMPLE_CHECKS = ["check_unique"]
+SIMPLE_CHECKS = ["check_unique", "dimension_required"]
 
 
 class DataTypes(Enum):
@@ -22,7 +22,6 @@ class DataTypes(Enum):
 
 class DataTypeConfig(BaseModel):
     data_type: DataTypes
-    required: bool = False
 
 
 class ChecklistObjectStatus(Enum):

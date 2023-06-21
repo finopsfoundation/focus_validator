@@ -1,5 +1,1 @@
-check_id: FV-D004
-dimension: Provider
-validation_config:
-  data_type: string
-  required: True
+../../base_rule_definitions/FV-D004.yaml

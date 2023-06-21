@@ -112,27 +112,18 @@ class Rule(BaseModel):
                 else:
                     pandera_type = pa.String
 
-                if rule.validation_config.required:
-                    friendly_name = f"Ensures that dimension is of {data_type.value} type and is present."
-                else:
-                    friendly_name = (
-                        f"Ensures that dimension is of {data_type.value} type."
-                    )
                 checklist[rule.check_id] = ChecklistObject(
                     check_name=rule.check_id,
                     dimension=rule.dimension,
                     status=ChecklistObjectStatus.SKIPPED
                     if rule.check_id in overrides
                     else ChecklistObjectStatus.PENDING,
-                    friendly_name=friendly_name,
+                    friendly_name=f"Ensures that dimension is of {data_type.value} type.",
                     rule_ref=rule,
-                )
-                dimension_required = (
-                    rule.validation_config.required and rule.dimension not in overrides
                 )
                 schema_dict[rule.dimension] = pa.Column(
                     pandera_type,
-                    required=dimension_required,
+                    required=False,
                     checks=[],
                     nullable=True,
                 )
@@ -165,8 +156,11 @@ class Rule(BaseModel):
                 elif rule.check_id in overrides:
                     check_list_object.status = ChecklistObjectStatus.SKIPPED
                 else:
-                    check = rule.__process_validation_config__()
-                    pa_column.checks.append(check)
+                    if rule.validation_config.check == "dimension_required":
+                        pa_column.required = True
+                    else:
+                        check = rule.__process_validation_config__()
+                        pa_column.checks.append(check)
 
         return pa.DataFrameSchema(schema_dict, strict=False), checklist
 
