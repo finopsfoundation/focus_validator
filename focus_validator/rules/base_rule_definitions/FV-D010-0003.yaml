@@ -1,0 +1,4 @@
+check_id: FV-D010-0003
+column_id: BilledCost
+check:
+  column_required
