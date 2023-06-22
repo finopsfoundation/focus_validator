@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pandas as pd
 from pandera import extensions
 
@@ -23,3 +25,18 @@ def check_unique(pandas_obj: pd.Series):
 @extensions.register_check_method()
 def check_value_in(pandas_obj: pd.Series, allowed_values):
     return pandas_obj.isin(allowed_values)
+
+
+@extensions.register_check_method()
+def check_datetime_dtype(pandas_obj: pd.Series):
+    def __validate_date_obj__(value: str):
+        if not isinstance(value, str) or not value.endswith("Z"):
+            return False
+
+        try:
+            datetime.strptime(value[:-1], "%Y-%m-%dT%H:%M:%S")
+            return True
+        except ValueError:
+            return False
+
+    return pd.Series(map(__validate_date_obj__, pandas_obj.values))
