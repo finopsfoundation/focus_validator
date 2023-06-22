@@ -1,0 +1,4 @@
+check_id: FV-D012-0003
+column_id: BillingPeriodEnd
+check:
+  column_required
