@@ -106,9 +106,19 @@ class Rule(BaseModel):
                 )
                 continue
             if isinstance(rule.validation_config, DataTypeConfig):
+                dimension_checks = []
+
                 data_type = rule.validation_config.data_type
                 if data_type == DataTypes.DECIMAL:
                     pandera_type = pa.Decimal
+                elif data_type == DataTypes.DATETIME:
+                    pandera_type = None
+                    dimension_checks.append(
+                        pa.Check.check_datetime_dtype(
+                            ignore_na=True,
+                            error=f"{rule.check_id}:::Ensures that dimension is of {data_type.value} type.",
+                        )
+                    )
                 else:
                     pandera_type = pa.String
 
@@ -124,7 +134,7 @@ class Rule(BaseModel):
                 schema_dict[rule.dimension] = pa.Column(
                     pandera_type,
                     required=False,
-                    checks=[],
+                    checks=dimension_checks,
                     nullable=True,
                 )
             else:

@@ -18,6 +18,7 @@ SIMPLE_CHECKS = ["check_unique", "dimension_required"]
 class DataTypes(Enum):
     STRING = "string"
     DECIMAL = "decimal"
+    DATETIME = "datetime"
 
 
 class DataTypeConfig(BaseModel):
