@@ -10,6 +10,7 @@ from focus_validator.config_objects import (
     ChecklistObjectStatus,
     ChecklistObject,
 )
+from focus_validator.config_objects.common import DataTypeConfig
 from focus_validator.config_objects.rule import ValidationConfig
 from focus_validator.exceptions import UnsupportedVersion
 
@@ -40,8 +41,27 @@ def convert_missing_dimension_errors(df, checklist):
     return filtered_df
 
 
+def convert_dtype_dimension_errors(df, checklist):
+    def process_row(row):
+        if row["schema_context"] == "Column" and row["check"].startswith("dtype"):
+            for check_name, check_obj in checklist.items():
+                if row["column"] == check_obj.dimension and isinstance(
+                    check_obj.rule_ref.validation_config, DataTypeConfig
+                ):
+                    row["check"] = f"{check_name}:::{check_obj.friendly_name}"
+                    row["column"] = check_obj.dimension
+                    row["failure_case"] = None
+                    return row
+        else:
+            return row
+
+    filtered_df = df.apply(process_row, axis=1)
+    return filtered_df
+
+
 def restructure_failure_cases_df(failure_cases: pd.DataFrame, checklist):
     failure_cases = convert_missing_dimension_errors(failure_cases, checklist)
+    failure_cases = convert_dtype_dimension_errors(failure_cases, checklist)
     failure_cases = failure_cases.rename(
         columns={"column": "Dimension", "index": "Row #", "failure_case": "Values"}
     )
