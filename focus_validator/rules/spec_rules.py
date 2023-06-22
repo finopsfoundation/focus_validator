@@ -10,6 +10,7 @@ from focus_validator.config_objects import (
     ChecklistObjectStatus,
     ChecklistObject,
 )
+from focus_validator.config_objects.rule import ValidationConfig
 from focus_validator.exceptions import UnsupportedVersion
 
 
@@ -20,7 +21,14 @@ def convert_missing_dimension_errors(df, checklist):
             and row["check"] == "column_in_dataframe"
         ):
             for check_name, check_obj in checklist.items():
-                if row["failure_case"] == check_obj.dimension:
+                if (
+                    row["failure_case"] == check_obj.dimension
+                    and isinstance(
+                        check_obj.rule_ref.validation_config, ValidationConfig
+                    )
+                    and check_obj.rule_ref.validation_config.check
+                    == "dimension_required"
+                ):
                     row["check"] = f"{check_name}:::{check_obj.friendly_name}"
                     row["column"] = check_obj.dimension
                     row["failure_case"] = None

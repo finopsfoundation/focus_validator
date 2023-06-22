@@ -44,7 +44,7 @@ class TestRequiredDimension(TestCase):
         schema, checklist = Rule.generate_schema(
             rules=[
                 Rule(
-                    check_id=random_test_name,
+                    check_id=str(uuid4()),
                     dimension=random_dimension_name,
                     validation_config=DataTypeConfig(data_type=DataTypes.STRING),
                 ),
@@ -70,7 +70,6 @@ class TestRequiredDimension(TestCase):
         result = ValidationResult(failure_cases=failure_cases, checklist=checklist)
         result.process_result()
 
-        print(result.failure_cases)
         self.assertEqual(result.failure_cases.shape[0], 4)
         missing_dimension_errors = result.failure_cases[
             result.failure_cases["Dimension"] == random_dimension_name
