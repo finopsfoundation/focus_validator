@@ -1,6 +1,7 @@
 import pandas as pd
 from tabulate import tabulate
 
+from focus_validator.config_objects import Rule
 from focus_validator.rules.spec_rules import ValidationResult
 
 
@@ -13,10 +14,15 @@ class ConsoleOutputter:
     def __restructure_check_list__(result_set: ValidationResult):
         rows = []
         for value in result_set.checklist.values():
+            if isinstance(value.rule_ref, Rule):
+                check_type = value.rule_ref.validation_config.check_type_friendly_name
+            else:
+                check_type = "ERRORED"
+
             row_obj = value.dict()
             row_obj.update(
                 {
-                    "check_type": value.rule_ref.validation_config.check_type_friendly_name,
+                    "check_type": check_type,
                     "status": row_obj["status"].value.title(),
                 }
             )

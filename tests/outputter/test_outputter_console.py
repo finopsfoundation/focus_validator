@@ -1,6 +1,8 @@
 from unittest import TestCase
 
+from focus_validator.config_objects import Rule, InvalidRule
 from focus_validator.outputter.outputter_console import ConsoleOutputter
+from focus_validator.rules.spec_rules import ValidationResult
 from focus_validator.validator import Validator
 
 
@@ -28,3 +30,23 @@ class TestOutputterConsole(TestCase):
                 "Status",
             ],
         )
+
+    def test_output_with_bad_configs_loaded(self):
+        schema, checklist = Rule.generate_schema(
+            rules=[
+                InvalidRule(
+                    rule_path="bad_rule_path",
+                    error="random-error",
+                    error_type="ValueError"
+                )
+            ]
+        )
+
+        validation_result = ValidationResult(
+            failure_cases=None, checklist=checklist
+        )
+        validation_result.process_result()
+
+        outputter = ConsoleOutputter(output_destination=None)
+        checklist = outputter.__restructure_check_list__(result_set=validation_result)
+        print(checklist)
