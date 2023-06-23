@@ -110,7 +110,7 @@ class Rule(BaseModel):
 
                 data_type = rule.validation_config.data_type
                 if data_type == DataTypes.DECIMAL:
-                    pandera_type = pa.Decimal
+                    pandera_type = pa.Float
                 elif data_type == DataTypes.DATETIME:
                     pandera_type = None
                     dimension_checks.append(
