@@ -3,6 +3,8 @@ from datetime import datetime
 import pandas as pd
 from pandera import extensions
 
+from focus_validator.utils.download_currency_codes import get_currency_codes
+
 
 def is_camel_case(column_name):
     return (
@@ -40,3 +42,11 @@ def check_datetime_dtype(pandas_obj: pd.Series):
             return False
 
     return pd.Series(map(__validate_date_obj__, pandas_obj.values))
+
+
+@extensions.register_check_method()
+def check_currency_type_dtype(pandas_obj: pd.Series):
+    currency_codes = set(get_currency_codes())
+    return pd.Series(
+        map(lambda v: isinstance(v, str) and v in currency_codes, pandas_obj.values)
+    )
