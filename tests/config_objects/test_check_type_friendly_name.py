@@ -24,6 +24,7 @@ class TestCheckTypeFriendlyName(TestCase):
                     "CheckUnique",
                     "AllowNullsCheck",
                     "ValueIn",
+                    "DimensionRequired",
                 ],  # needs to be updated as more checks are introduced
             )
 
