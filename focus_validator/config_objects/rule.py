@@ -3,7 +3,7 @@ from typing import List, Union, Optional
 
 import pandera as pa
 import yaml
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, root_validator
 
 from focus_validator.config_objects.common import (
     ValueIn,
@@ -18,16 +18,22 @@ from focus_validator.exceptions import FocusNotImplementedError
 
 
 class ValidationConfig(BaseModel):
-    check: Union[str, AllowNullsCheck, ValueIn]
+    check: Union[SIMPLE_CHECKS, AllowNullsCheck, ValueIn]
     check_friendly_name: str
+    check_type_friendly_name: str = None
 
-    @validator("check")
-    def validate_checks(cls, check):
-        if isinstance(check, str):
-            assert check in SIMPLE_CHECKS
-            return check
-        else:
-            return check
+    @root_validator
+    def root_val(cls, values):
+        check = values.get("check")
+        if check is not None:
+            if isinstance(check, str):
+                check_type_friendly_name = "".join(
+                    [word.title() for word in check.split("_")]
+                )
+            else:
+                check_type_friendly_name = check.__class__.__name__
+            values["check_type_friendly_name"] = check_type_friendly_name
+        return values
 
     def parse_friendly_name(self):
         check_friendly_name = self.check_friendly_name

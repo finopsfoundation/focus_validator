@@ -11,13 +11,21 @@ class ConsoleOutputter:
 
     @staticmethod
     def __restructure_check_list__(result_set: ValidationResult):
-        rows = [v.dict() for v in result_set.checklist.values()]
-        for row in rows:
-            row["status"] = row["status"].value.title()
+        rows = []
+        for value in result_set.checklist.values():
+            row_obj = value.dict()
+            row_obj.update(
+                {
+                    "check_type": value.rule_ref.validation_config.check_type_friendly_name,
+                    "status": row_obj["status"].value.title(),
+                }
+            )
+            rows.append(row_obj)
         df = pd.DataFrame(rows)
         df.rename(
             columns={
                 "check_name": "Check Name",
+                "check_type": "Check Type",
                 "dimension": "Dimension",
                 "friendly_name": "Friendly Name",
                 "error": "Error",
@@ -25,7 +33,16 @@ class ConsoleOutputter:
             },
             inplace=True,
         )
-        df.drop("rule_ref", axis=1, inplace=True)
+        df = df.reindex(
+            columns=[
+                "Check Name",
+                "Check Type",
+                "Dimension",
+                "Friendly Name",
+                "Error",
+                "Status",
+            ]
+        )
         return df
 
     def write(self, result_set: ValidationResult):
