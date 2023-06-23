@@ -45,7 +45,7 @@ def check_datetime_dtype(pandas_obj: pd.Series):
 
 
 @extensions.register_check_method()
-def check_currency_type_dtype(pandas_obj: pd.Series):
+def check_currency_code_dtype(pandas_obj: pd.Series):
     currency_codes = set(get_currency_codes())
     return pd.Series(
         map(lambda v: isinstance(v, str) and v in currency_codes, pandas_obj.values)

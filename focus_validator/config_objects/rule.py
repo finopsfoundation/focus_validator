@@ -125,10 +125,10 @@ class Rule(BaseModel):
                             error=f"{rule.check_id}:::Ensures that dimension is of {data_type.value} type.",
                         )
                     )
-                elif data_type == DataTypes.CURRENCY_TYPE:
+                elif data_type == DataTypes.CURRENCY_CODE:
                     pandera_type = None
                     dimension_checks.append(
-                        pa.Check.check_currency_type_dtype(
+                        pa.Check.check_currency_code_dtype(
                             ignore_na=True,
                             error=f"{rule.check_id}:::Ensures that dimension is of {data_type.value} type.",
                         )

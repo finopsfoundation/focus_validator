@@ -23,7 +23,7 @@ class TestAttributeCurrencyType(TestCase):
                 Rule(
                     check_id=random_check_id,
                     dimension=random_dimension_name,
-                    validation_config=DataTypeConfig(data_type=DataTypes.CURRENCY_TYPE),
+                    validation_config=DataTypeConfig(data_type=DataTypes.CURRENCY_CODE),
                 )
             ]
         )
@@ -58,14 +58,14 @@ class TestAttributeCurrencyType(TestCase):
                 ChecklistObjectStatus.PASSED,
             )
 
-    def test_valid_currency_type(self):
+    def test_valid_currency_code(self):
         self.__eval_function__("USD", False)
 
-    def test_valid_currency_bad_data_type(self):
+    def test_valid_currency_code_bad_data_type(self):
         self.__eval_function__(0, True)
 
-    def test_valid_currency_null_value(self):
+    def test_valid_currency_code_null_value(self):
         self.__eval_function__(None, False)
 
-    def test_valid_currency_empty_string(self):
+    def test_valid_currency_code_empty_string(self):
         self.__eval_function__("", True)
