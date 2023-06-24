@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 import pandas as pd
@@ -31,8 +32,10 @@ def check_value_in(pandas_obj: pd.Series, allowed_values):
 
 @extensions.register_check_method()
 def check_datetime_dtype(pandas_obj: pd.Series):
+    pattern = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
     def __validate_date_obj__(value: str):
-        if not isinstance(value, str) or not value.endswith("Z"):
+        if not (isinstance(value, str) and re.match(pattern, value)):
             return False
 
         try:
