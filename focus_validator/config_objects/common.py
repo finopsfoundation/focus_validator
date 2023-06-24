@@ -19,6 +19,7 @@ class DataTypes(Enum):
     STRING = "string"
     DECIMAL = "decimal"
     DATETIME = "datetime"
+    CURRENCY_CODE = "currency-code"
 
 
 class DataTypeConfig(BaseModel):
