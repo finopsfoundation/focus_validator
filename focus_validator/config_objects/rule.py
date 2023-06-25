@@ -6,21 +6,34 @@ import yaml
 from pydantic import BaseModel, root_validator
 
 from focus_validator.config_objects.common import (
-    ValueIn,
+    ValueInCheck,
     AllowNullsCheck,
     SIMPLE_CHECKS,
-    DataTypeConfig,
     DataTypes,
     ChecklistObjectStatus,
+    DataTypeCheck,
 )
 from focus_validator.config_objects.override import Override
 from focus_validator.exceptions import FocusNotImplementedError
 
 
-class ValidationConfig(BaseModel):
-    check: Union[SIMPLE_CHECKS, AllowNullsCheck, ValueIn]
-    check_friendly_name: str
+class InvalidRule(BaseModel):
+    rule_path: str
+    error: str
+    error_type: str
+
+
+class Rule(BaseModel):
+    check_id: str
+    dimension: str
+    check: Union[SIMPLE_CHECKS, AllowNullsCheck, ValueInCheck, DataTypeCheck]
+
+    check_friendly_name: str = None  # auto generated or else can be overwritten
     check_type_friendly_name: str = None
+
+    class Config:
+        extra = "forbid"
+        frozen = True
 
     @root_validator
     def root_val(cls, values):
@@ -37,15 +50,15 @@ class ValidationConfig(BaseModel):
 
     def parse_friendly_name(self):
         check_friendly_name = self.check_friendly_name
-        if isinstance(self.check, ValueIn):
+        if isinstance(self.check, ValueInCheck):
             check_friendly_name = check_friendly_name.replace(
                 "{values}", ",".join(self.check.value_in)
             )
         return check_friendly_name
 
-    def generate_pandera_rule(self, check_name):
+    def generate_pandera_rule(self, check_id):
         check = self.check
-        error_string = "{}::: {}".format(check_name, self.parse_friendly_name())
+        error_string = "{}::: {}".format(check_id, self.parse_friendly_name())
 
         if isinstance(check, str):
             if check == "check_unique":
@@ -54,7 +67,7 @@ class ValidationConfig(BaseModel):
                 raise FocusNotImplementedError(
                     msg="Check type: {} not implemented.".format(check)
                 )
-        elif isinstance(check, ValueIn):
+        elif isinstance(check, ValueInCheck):
             error_string = error_string.format(", ".join(check.value_in))
             return pa.Check.check_value_in(
                 allowed_values=check.value_in, error=error_string
@@ -64,28 +77,6 @@ class ValidationConfig(BaseModel):
         else:
             raise FocusNotImplementedError(
                 msg="Check type: {} not implemented.".format(type(check))
-            )
-
-
-class InvalidRule(BaseModel):
-    rule_path: str
-    error: str
-    error_type: str
-
-
-class Rule(BaseModel):
-    check_id: str
-    dimension: str
-    validation_config: Union[ValidationConfig, DataTypeConfig]
-
-    def __process_validation_config__(self) -> pa.Check:
-        validation_config = self.validation_config
-
-        if isinstance(validation_config, ValidationConfig):
-            return validation_config.generate_pandera_rule(check_name=self.check_id)
-        else:
-            raise FocusNotImplementedError(
-                "Check for version: {} not implemented.".format(type(validation_config))
             )
 
     @classmethod
@@ -111,10 +102,11 @@ class Rule(BaseModel):
                     rule_ref=rule,
                 )
                 continue
-            if isinstance(rule.validation_config, DataTypeConfig):
+
+            if isinstance(rule.check, DataTypeCheck):
                 dimension_checks = []
 
-                data_type = rule.validation_config.data_type
+                data_type = rule.check.data_type
                 if data_type == DataTypes.DECIMAL:
                     pandera_type = pa.Float
                 elif data_type == DataTypes.DATETIME:
@@ -167,7 +159,7 @@ class Rule(BaseModel):
                 checklist[rule.check_id] = check_list_object = ChecklistObject(
                     check_name=rule.check_id,
                     dimension=dimension_name,
-                    friendly_name=rule.validation_config.parse_friendly_name(),
+                    friendly_name=rule.parse_friendly_name(),
                     status=ChecklistObjectStatus.PENDING,
                     rule_ref=rule,
                 )
@@ -180,10 +172,10 @@ class Rule(BaseModel):
                 elif rule.check_id in overrides:
                     check_list_object.status = ChecklistObjectStatus.SKIPPED
                 else:
-                    if rule.validation_config.check == "dimension_required":
+                    if rule.check == "dimension_required":
                         pa_column.required = True
                     else:
-                        check = rule.__process_validation_config__()
+                        check = rule.generate_pandera_rule(check_id=rule.check_id)
                         pa_column.checks.append(check)
 
         return pa.DataFrameSchema(schema_dict, strict=False), checklist

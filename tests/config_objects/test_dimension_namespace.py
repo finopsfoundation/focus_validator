@@ -5,11 +5,10 @@ import pandas as pd
 
 from focus_validator.config_objects import Rule
 from focus_validator.config_objects.common import (
-    DataTypeConfig,
     DataTypes,
     AllowNullsCheck,
+    DataTypeCheck,
 )
-from focus_validator.config_objects.rule import ValidationConfig
 from focus_validator.validator import Validator
 
 
@@ -34,15 +33,12 @@ class TestDimensionNamespace(TestCase):
                 Rule(
                     check_id=random_test_name,
                     dimension=random_dimension_name,
-                    validation_config=DataTypeConfig(data_type=DataTypes.STRING),
+                    check=DataTypeCheck(data_type=DataTypes.STRING),
                 ),
                 Rule(
                     check_id=random_test_name,
                     dimension=random_dimension_name,
-                    validation_config=ValidationConfig(
-                        check=AllowNullsCheck(allow_nulls=False),
-                        check_friendly_name="Dimension required.",
-                    ),
+                    check=AllowNullsCheck(allow_nulls=False),
                 ),
             ]
         )

@@ -1,0 +1,4 @@
+check_id: FV-D002-0002
+dimension: ResourceID
+check:
+  allow_nulls: true

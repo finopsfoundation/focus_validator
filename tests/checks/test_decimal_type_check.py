@@ -6,8 +6,7 @@ import pandas as pd
 from pandera.errors import SchemaErrors
 
 from focus_validator.config_objects import Rule
-from focus_validator.config_objects.common import DataTypes, DataTypeConfig
-from focus_validator.config_objects.rule import ValidationConfig
+from focus_validator.config_objects.common import DataTypeCheck, DataTypes
 from focus_validator.rules.spec_rules import ValidationResult
 
 
@@ -20,7 +19,7 @@ class TestDecimalTypeCheck(TestCase):
                 Rule(
                     check_id=random_dimension_name,
                     dimension=random_dimension_name,
-                    validation_config=DataTypeConfig(data_type=DataTypes.DECIMAL),
+                    check=DataTypeCheck(data_type=DataTypes.DECIMAL),
                 ),
             ]
         )
@@ -44,15 +43,12 @@ class TestDecimalTypeCheck(TestCase):
                 Rule(
                     check_id="some-check",
                     dimension=random_dimension_name,
-                    validation_config=ValidationConfig(
-                        check="dimension_required",
-                        check_friendly_name="random dimension required",
-                    ),
+                    check="dimension_required",
                 ),
                 Rule(
                     check_id=random_check_name,
                     dimension=random_dimension_name,
-                    validation_config=DataTypeConfig(data_type=DataTypes.DECIMAL),
+                    check=DataTypeCheck(data_type=DataTypes.DECIMAL),
                 ),
             ]
         )

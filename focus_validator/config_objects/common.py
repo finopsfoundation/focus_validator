@@ -1,14 +1,14 @@
 from enum import Enum
 from typing import List, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class AllowNullsCheck(BaseModel):
     allow_nulls: bool
 
 
-class ValueIn(BaseModel):
+class ValueInCheck(BaseModel):
     value_in: List[str]
 
 
@@ -22,12 +22,8 @@ class DataTypes(Enum):
     CURRENCY_CODE = "currency-code"
 
 
-class DataTypeConfig(BaseModel):
+class DataTypeCheck(BaseModel):
     data_type: DataTypes
-    check_type_friendly_name: str = Field("DataTypeCheck", const=True)
-
-    class Config:
-        frozen = True
 
 
 class ChecklistObjectStatus(Enum):

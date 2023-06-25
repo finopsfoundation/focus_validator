@@ -5,8 +5,7 @@ import pandas as pd
 from pandera.errors import SchemaErrors
 
 from focus_validator.config_objects import Rule, Override
-from focus_validator.config_objects.common import DataTypeConfig, DataTypes
-from focus_validator.config_objects.rule import ValidationConfig
+from focus_validator.config_objects.common import DataTypes, DataTypeCheck
 from focus_validator.rules.spec_rules import ValidationResult
 
 
@@ -33,6 +32,7 @@ class TestRequiredDimension(TestCase):
         schema, _ = Rule.generate_schema(
             rules=rules, override_config=Override(overrides=["FV-D001-0001"])
         )
+        print(schema.columns)
         self.assertIn("ChargeType", schema.columns)
         self.assertFalse(schema.columns["ChargeType"].required)
 
@@ -46,15 +46,13 @@ class TestRequiredDimension(TestCase):
                 Rule(
                     check_id=str(uuid4()),
                     dimension=random_dimension_name,
-                    validation_config=DataTypeConfig(data_type=DataTypes.STRING),
+                    check=DataTypeCheck(data_type=DataTypes.STRING),
                 ),
                 Rule(
                     check_id=random_test_name,
                     dimension=random_dimension_name,
-                    validation_config=ValidationConfig(
-                        check="dimension_required",
-                        check_friendly_name="Dimension required.",
-                    ),
+                    check="dimension_required",
+                    check_friendly_name="Dimension required.",
                 ),
                 Rule.load_yaml(
                     "samples/rule_configs/valid_rule_config_dimension_metadata.yaml"

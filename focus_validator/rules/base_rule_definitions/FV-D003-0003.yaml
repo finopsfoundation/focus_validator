@@ -1,0 +1,4 @@
+check_id: FV-D003-0003
+dimension: InvoiceIssuer
+check:
+  check_unique

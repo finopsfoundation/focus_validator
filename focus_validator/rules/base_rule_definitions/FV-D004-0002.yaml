@@ -1,6 +1,4 @@
 check_id: FV-D004-0002
 dimension: Provider
-validation_config:
-  check_friendly_name: "Provider is a required dimension."
-  check:
-    dimension_required
+check:
+  allow_nulls: false

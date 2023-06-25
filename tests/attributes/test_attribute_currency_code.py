@@ -6,13 +6,14 @@ from pandera.errors import SchemaErrors
 
 from focus_validator.config_objects import Rule
 from focus_validator.config_objects.common import (
-    DataTypeConfig,
     DataTypes,
     ChecklistObjectStatus,
+    DataTypeCheck,
 )
 from focus_validator.rules.spec_rules import ValidationResult
 
 
+# noinspection DuplicatedCode
 class TestAttributeCurrencyType(TestCase):
     def __eval_function__(self, sample_value, should_fail):
         random_dimension_name = str(uuid4())
@@ -23,7 +24,7 @@ class TestAttributeCurrencyType(TestCase):
                 Rule(
                     check_id=random_check_id,
                     dimension=random_dimension_name,
-                    validation_config=DataTypeConfig(data_type=DataTypes.CURRENCY_CODE),
+                    check=DataTypeCheck(data_type=DataTypes.CURRENCY_CODE),
                 )
             ]
         )

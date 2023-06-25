@@ -1,0 +1,4 @@
+check_id: FV-D004-0003
+dimension: Provider
+check:
+  dimension_required

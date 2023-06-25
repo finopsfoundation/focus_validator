@@ -1,6 +1,5 @@
 check_id: FV-D001-0001
 dimension: ChargeType
-validation_config:
-  check_friendly_name: "ChargeType is a required dimension"
-  check:
-    dimension_required
+check_friendly_name: "ChargeType is a required dimension"
+check:
+  dimension_required

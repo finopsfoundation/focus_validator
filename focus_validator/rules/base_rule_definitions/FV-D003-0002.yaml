@@ -1,7 +1,4 @@
 check_id: FV-D003-0002
 dimension: InvoiceIssuer
-data_type: string
-validation_config:
-  check_friendly_name: "InvoiceIssuer must have unique values."
-  check:
-    check_unique
+check:
+  allow_nulls: false

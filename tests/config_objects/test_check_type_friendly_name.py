@@ -1,10 +1,11 @@
 from unittest import TestCase
+from uuid import uuid4
 
 from polyfactory.factories.pydantic_factory import ModelFactory
 from pydantic import ValidationError
 
-from focus_validator.config_objects.common import DataTypeConfig, DataTypes
-from focus_validator.config_objects.rule import ValidationConfig
+from focus_validator.config_objects import Rule
+from focus_validator.config_objects.common import DataTypes, DataTypeCheck
 
 
 class TestCheckTypeFriendlyName(TestCase):
@@ -14,7 +15,7 @@ class TestCheckTypeFriendlyName(TestCase):
         in hope of catching any validation error
         :return:
         """
-        model_factory = ModelFactory.create_factory(model=ValidationConfig)
+        model_factory = ModelFactory.create_factory(model=Rule)
 
         for _ in range(1000):  # there is no way to generate all values for a field type
             random_model = model_factory.build()
@@ -23,13 +24,16 @@ class TestCheckTypeFriendlyName(TestCase):
                 [
                     "CheckUnique",
                     "AllowNullsCheck",
-                    "ValueIn",
+                    "ValueInCheck",
                     "DimensionRequired",
+                    "DataTypeCheck",
                 ],  # needs to be updated as more checks are introduced
             )
 
     def test_random_value_is_ignored(self):
-        sample = ValidationConfig(
+        sample = Rule(
+            check_id=str(uuid4()),
+            dimension=str(uuid4()),
             check="check_unique",
             check_friendly_name="some-check",
             check_type_friendly_name="some-name",
@@ -37,26 +41,32 @@ class TestCheckTypeFriendlyName(TestCase):
         self.assertEqual(sample.check_type_friendly_name, "CheckUnique")
 
     def test_data_type_config(self):
-        model_factory = ModelFactory.create_factory(model=DataTypeConfig)
+        model_factory = ModelFactory.create_factory(model=Rule)
 
-        sample_data_type = model_factory.build()
+        sample_data_type = model_factory.build(
+            **{"check": DataTypeCheck(data_type=DataTypes.STRING)}
+        )
         self.assertEqual(sample_data_type.check_type_friendly_name, "DataTypeCheck")
 
     def test_data_type_config_deny_update(self):
-        model_factory = ModelFactory.create_factory(model=DataTypeConfig)
+        model_factory = ModelFactory.create_factory(model=Rule)
 
         sample_data_type = model_factory.build()
         with self.assertRaises(TypeError) as cm:
             sample_data_type.check_type_friendly_name = "new_value"
         self.assertIn(
-            '"DataTypeConfig" is immutable and does not support item assignment',
+            '"Rule" is immutable and does not support item assignment',
             str(cm.exception),
         )
-        self.assertEqual(sample_data_type.check_type_friendly_name, "DataTypeCheck")
 
     def test_assign_bad_type(self):
         with self.assertRaises(ValidationError) as cm:
-            DataTypeConfig(
-                data_type=DataTypes.DECIMAL, check_type_friendly_name="some-check"
+            Rule(
+                check_id=str(uuid4()),
+                dimension=str(uuid4()),
+                check=DataTypeCheck(data_type="bad-type"),
+                check_type_friendly_name="some-check",
             )
-        self.assertIn("unexpected value; permitted: 'DataTypeCheck'", str(cm.exception))
+        self.assertIn(
+            "value is not a valid enumeration member; permitted:", str(cm.exception)
+        )

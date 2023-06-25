@@ -15,7 +15,7 @@ class ConsoleOutputter:
         rows = []
         for value in result_set.checklist.values():
             if isinstance(value.rule_ref, Rule):
-                check_type = value.rule_ref.validation_config.check_type_friendly_name
+                check_type = value.rule_ref.check_type_friendly_name
             else:
                 check_type = "ERRORED"
 
