@@ -19,7 +19,7 @@ class TestValidateDefaultConfigs(TestCase):
                     override_filename=None,
                     rule_set_path="focus_validator/rules/version_sets",
                     rules_version=version,
-                    dimension_namespace=None,
+                    column_namespace=None,
                 )
                 spec_rules.load_rules()
 
@@ -35,26 +35,22 @@ class TestValidateDefaultConfigs(TestCase):
         for root, dirs, files in os.walk(
             "focus_validator/rules/version_sets", topdown=False
         ):
-            dimension_test_suites = []
+            column_test_suites = []
             for file_path in files:
                 rule_path = os.path.join(root, file_path)
                 rule = Rule.load_yaml(rule_path=rule_path)
 
-                dimension_name = rule.dimension
+                column_name = rule.column
                 self.assertIsNotNone(re.match(check_id_pattern, rule.check_id))
 
-                dimension_id = rule.check_id.split("-")[1]
+                column_id = rule.check_id.split("-")[1]
                 local_check_id = rule.check_id.split("-")[2]
-                dimension_test_suites.append(
-                    (dimension_name, dimension_id, local_check_id)
-                )
+                column_test_suites.append((column_name, column_id, local_check_id))
 
-            # sort dimension test suites to allow grouping by dimension
-            dimension_test_suites = sorted(
-                dimension_test_suites, key=lambda item: item[0]
-            )
-            for dimension_name, test_suites in groupby(
-                dimension_test_suites, key=lambda item: item[0]
+            # sort column test suites to allow grouping by column
+            column_test_suites = sorted(column_test_suites, key=lambda item: item[0])
+            for column_name, test_suites in groupby(
+                column_test_suites, key=lambda item: item[0]
             ):
                 test_suites = list(test_suites)
                 self.assertEqual(

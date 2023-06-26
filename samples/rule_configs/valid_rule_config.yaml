@@ -1,5 +1,5 @@
 check_id: FV-D001-0001
-dimension: ChargeType
+column: ChargeType
 check_friendly_name: "ChargeType must have a value from the list: {values}."
 check:
   value_in:

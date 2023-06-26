@@ -1,4 +1,4 @@
 check_id: FV-D002-0001
-dimension: ResourceID
+column: ResourceID
 check:
   data_type: string

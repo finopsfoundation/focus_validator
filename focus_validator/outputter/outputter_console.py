@@ -32,7 +32,7 @@ class ConsoleOutputter:
             columns={
                 "check_name": "Check Name",
                 "check_type": "Check Type",
-                "dimension": "Dimension",
+                "column": "Column",
                 "friendly_name": "Friendly Name",
                 "error": "Error",
                 "status": "Status",
@@ -43,7 +43,7 @@ class ConsoleOutputter:
             columns=[
                 "Check Name",
                 "Check Type",
-                "Dimension",
+                "Column",
                 "Friendly Name",
                 "Error",
                 "Status",

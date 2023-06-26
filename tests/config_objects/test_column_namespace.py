@@ -12,32 +12,32 @@ from focus_validator.config_objects.common import (
 from focus_validator.validator import Validator
 
 
-class TestDimensionNamespace(TestCase):
+class TestColumnNamespace(TestCase):
     def test_load_rule_config_with_namespace(self):
         validator = Validator(
             data_filename="samples/multiple_failure_example_namespaced.csv",
             output_type="console",
             output_destination=None,
-            dimension_namespace="F",
+            column_namespace="F",
         )
         validator.load()
         result = validator.spec_rules.validate(focus_data=validator.focus_data)
         self.assertIsNotNone(result.failure_cases)
 
     def test_load_rule_config_without_namespace(self):
-        random_dimension_name = str(uuid4())
+        random_column_name = str(uuid4())
         random_test_name = str(uuid4())
 
         schema, checklist = Rule.generate_schema(
             rules=[
                 Rule(
                     check_id=random_test_name,
-                    dimension=random_dimension_name,
+                    column=random_column_name,
                     check=DataTypeCheck(data_type=DataTypes.STRING),
                 ),
                 Rule(
                     check_id=random_test_name,
-                    dimension=random_dimension_name,
+                    column=random_column_name,
                     check=AllowNullsCheck(allow_nulls=False),
                 ),
             ]
@@ -46,5 +46,5 @@ class TestDimensionNamespace(TestCase):
         sample_data = pd.read_csv("samples/multiple_failure_example_namespaced.csv")
         result = schema.validate(
             sample_data
-        )  # should not fail as dimensions are namespaced
+        )  # should not fail as columns are namespaced
         self.assertIsNotNone(result)

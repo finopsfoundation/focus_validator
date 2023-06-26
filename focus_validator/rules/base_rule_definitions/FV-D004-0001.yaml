@@ -1,4 +1,4 @@
 check_id: FV-D004-0001
-dimension: Provider
+column: Provider
 check:
   data_type: string

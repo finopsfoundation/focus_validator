@@ -1,5 +1,5 @@
 check_id: FV-D001-0003
-dimension: ChargeType
+column: ChargeType
 check:
   value_in:
     - "Adjustment"

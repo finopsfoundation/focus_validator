@@ -25,7 +25,7 @@ class TestCheckTypeFriendlyName(TestCase):
                     "CheckUnique",
                     "AllowNullsCheck",
                     "ValueInCheck",
-                    "DimensionRequired",
+                    "ColumnRequired",
                     "DataTypeCheck",
                 ],  # needs to be updated as more checks are introduced
             )
@@ -33,7 +33,7 @@ class TestCheckTypeFriendlyName(TestCase):
     def test_random_value_is_ignored(self):
         sample = Rule(
             check_id=str(uuid4()),
-            dimension=str(uuid4()),
+            column=str(uuid4()),
             check="check_unique",
             check_friendly_name="some-check",
             check_type_friendly_name="some-name",
@@ -63,7 +63,7 @@ class TestCheckTypeFriendlyName(TestCase):
         with self.assertRaises(ValidationError) as cm:
             Rule(
                 check_id=str(uuid4()),
-                dimension=str(uuid4()),
+                column=str(uuid4()),
                 check=DataTypeCheck(data_type="bad-type"),
                 check_type_friendly_name="some-check",
             )

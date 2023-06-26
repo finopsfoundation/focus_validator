@@ -31,9 +31,9 @@ class UnittestFormatter:
             self.timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
         self.results = {}
 
-    def add_testsuite(self, name, dimension):
+    def add_testsuite(self, name, column):
         if name not in self.results:
-            self.results[name] = {"tests": {}, "time": "0", "dimension": dimension}
+            self.results[name] = {"tests": {}, "time": "0", "column": column}
 
     def add_testcase(self, testsuite, name, result, message, check_type_name):
         self.results[testsuite]["tests"][name] = {
@@ -59,7 +59,7 @@ class UnittestFormatter:
             ts = ET.SubElement(
                 testsuites,
                 "testsuite",
-                name=f'{testsuite}-{self.results[testsuite]["dimension"]}',
+                name=f'{testsuite}-{self.results[testsuite]["column"]}',
                 time="0",
             )
             for testcase in sorted(self.results[testsuite]["tests"].keys()):
@@ -134,7 +134,7 @@ class UnittestOutputter:
 
         # If there are any errors load them in first
         if result_statuses["errored"]:
-            formatter.add_testsuite(name="Base", dimension="Unknown")
+            formatter.add_testsuite(name="Base", column="Unknown")
             for testcase in [r for r in rows if r.get("error", False)]:
                 formatter.add_testcase(
                     testsuite="Base",
@@ -151,9 +151,7 @@ class UnittestOutputter:
         ]:
             test_suite_id = testcase["check_name"].rsplit("-", 1)[0]
             if test_suite_id not in added_testsuites:
-                formatter.add_testsuite(
-                    name=test_suite_id, dimension=testcase["dimension"]
-                )
+                formatter.add_testsuite(name=test_suite_id, column=testcase["column"])
 
             formatter.add_testcase(
                 testsuite=test_suite_id,

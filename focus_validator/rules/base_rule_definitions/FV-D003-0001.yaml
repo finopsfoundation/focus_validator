@@ -1,4 +1,4 @@
 check_id: FV-D003-0001
-dimension: InvoiceIssuer
+column: InvoiceIssuer
 check:
   data_type: string

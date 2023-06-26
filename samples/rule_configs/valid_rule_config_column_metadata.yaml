@@ -1,4 +1,4 @@
 check_id: FV-D001
-dimension: ChargeType
+column: ChargeType
 check:
   data_type: string

@@ -12,7 +12,7 @@ class TestOutputterConsole(TestCase):
             data_filename="samples/multiple_failure_example_namespaced.csv",
             output_type="console",
             output_destination=None,
-            dimension_namespace="F",
+            column_namespace="F",
         )
         validator.load()
         result = validator.spec_rules.validate(focus_data=validator.focus_data)
@@ -24,7 +24,7 @@ class TestOutputterConsole(TestCase):
             [
                 "Check Name",
                 "Check Type",
-                "Dimension",
+                "Column",
                 "Friendly Name",
                 "Error",
                 "Status",
@@ -53,7 +53,7 @@ class TestOutputterConsole(TestCase):
                 {
                     "Check Name": "bad_rule_path",
                     "Check Type": "ERRORED",
-                    "Dimension": "Unknown",
+                    "Column": "Unknown",
                     "Friendly Name": None,
                     "Error": "ValueError: random-error",
                     "Status": "Errored",

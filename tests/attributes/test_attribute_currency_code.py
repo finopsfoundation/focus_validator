@@ -16,20 +16,20 @@ from focus_validator.rules.spec_rules import ValidationResult
 # noinspection DuplicatedCode
 class TestAttributeCurrencyType(TestCase):
     def __eval_function__(self, sample_value, should_fail):
-        random_dimension_name = str(uuid4())
+        random_column_name = str(uuid4())
         random_check_id = str(uuid4())
 
         schema, checklist = Rule.generate_schema(
             rules=[
                 Rule(
                     check_id=random_check_id,
-                    dimension=random_dimension_name,
+                    column=random_column_name,
                     check=DataTypeCheck(data_type=DataTypes.CURRENCY_CODE),
                 )
             ]
         )
 
-        sample_data = pd.DataFrame([{random_dimension_name: sample_value}])
+        sample_data = pd.DataFrame([{random_column_name: sample_value}])
 
         try:
             schema.validate(sample_data, lazy=True)

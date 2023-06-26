@@ -13,7 +13,7 @@ from focus_validator.config_objects import (
 from focus_validator.exceptions import UnsupportedVersion
 
 
-def convert_missing_dimension_errors(df, checklist):
+def convert_missing_column_errors(df, checklist):
     def process_row(row):
         if (
             row["schema_context"] == "DataFrameSchema"
@@ -21,11 +21,11 @@ def convert_missing_dimension_errors(df, checklist):
         ):
             for check_name, check_obj in checklist.items():
                 if (
-                    row["failure_case"] == check_obj.dimension
-                    and check_obj.rule_ref.check == "dimension_required"
+                    row["failure_case"] == check_obj.column
+                    and check_obj.rule_ref.check == "column_required"
                 ):
                     row["check"] = f"{check_name}:::{check_obj.friendly_name}"
-                    row["column"] = check_obj.dimension
+                    row["column"] = check_obj.column
                     row["failure_case"] = None
                     return row
         else:
@@ -35,13 +35,13 @@ def convert_missing_dimension_errors(df, checklist):
     return filtered_df
 
 
-def convert_dtype_dimension_errors(df, checklist):
+def convert_dtype_column_errors(df, checklist):
     def process_row(row):
         if row["schema_context"] == "Column" and row["check"].startswith("dtype"):
             for check_name, check_obj in checklist.items():
-                if row["column"] == check_obj.dimension:
+                if row["column"] == check_obj.column:
                     row["check"] = f"{check_name}:::{check_obj.friendly_name}"
-                    row["column"] = check_obj.dimension
+                    row["column"] = check_obj.column
                     row["failure_case"] = None
                     return row
         else:
@@ -52,10 +52,10 @@ def convert_dtype_dimension_errors(df, checklist):
 
 
 def restructure_failure_cases_df(failure_cases: pd.DataFrame, checklist):
-    failure_cases = convert_missing_dimension_errors(failure_cases, checklist)
-    failure_cases = convert_dtype_dimension_errors(failure_cases, checklist)
+    failure_cases = convert_missing_column_errors(failure_cases, checklist)
+    failure_cases = convert_dtype_column_errors(failure_cases, checklist)
     failure_cases = failure_cases.rename(
-        columns={"column": "Dimension", "index": "Row #", "failure_case": "Values"}
+        columns={"column": "Column", "index": "Row #", "failure_case": "Values"}
     )
 
     failure_cases[["Check Name", "Description"]] = failure_cases["check"].str.split(
@@ -70,7 +70,7 @@ def restructure_failure_cases_df(failure_cases: pd.DataFrame, checklist):
 
     failure_cases["Row #"] = failure_cases["Row #"] + 1
     failure_cases = failure_cases[
-        ["Dimension", "Check Name", "Description", "Values", "Row #"]
+        ["Column", "Check Name", "Description", "Values", "Row #"]
     ]
 
     return failure_cases
@@ -107,19 +107,19 @@ class ValidationResult:
 
 class SpecRules:
     def __init__(
-        self, override_filename, rule_set_path, rules_version, dimension_namespace
+        self, override_filename, rule_set_path, rules_version, column_namespace
     ):
         self.override_filename = override_filename
         self.override_config = None
         self.rules_version = rules_version
         self.rule_set_path = rule_set_path
         if self.rules_version not in self.supported_versions():
-            raise UnsSpecRulesupportedVersion(
+            raise UnsupportedVersion(
                 f"FOCUS version {self.rules_version} not supported."
             )
         self.rules_path = os.path.join(self.rule_set_path, self.rules_version)
         self.rules = []
-        self.dimension_namespace = dimension_namespace
+        self.column_namespace = column_namespace
 
     def supported_versions(self):
         return sorted([x for x in os.walk(self.rule_set_path)][0][1])
@@ -136,7 +136,7 @@ class SpecRules:
     def load_rules(self):
         for rule_path in self.get_rule_paths():
             self.rules.append(
-                Rule.load_yaml(rule_path, dimension_namespace=self.dimension_namespace)
+                Rule.load_yaml(rule_path, column_namespace=self.column_namespace)
             )
 
     def get_rule_paths(self):

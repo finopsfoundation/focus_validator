@@ -1,5 +1,5 @@
 check_id: FV-D001-0001
-dimension: ChargeType
-check_friendly_name: "ChargeType is a required dimension"
+column: ChargeType
+check_friendly_name: "ChargeType is a required column"
 check:
-  dimension_required
+  column_required

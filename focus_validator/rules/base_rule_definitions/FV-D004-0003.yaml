@@ -1,4 +1,4 @@
 check_id: FV-D004-0003
-dimension: Provider
+column: Provider
 check:
-  dimension_required
+  column_required

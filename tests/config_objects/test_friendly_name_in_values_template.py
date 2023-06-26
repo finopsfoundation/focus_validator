@@ -11,7 +11,7 @@ class TestFriendlyNameInValuesTemplate(TestCase):
     def test_check_value_in(self):
         rule = Rule(
             check_id=str(uuid4()),
-            dimension=str(uuid4()),
+            column=str(uuid4()),
             check=ValueInCheck(value_in=["foo", "bar"]),
             check_friendly_name="Values in {values}",
         )
