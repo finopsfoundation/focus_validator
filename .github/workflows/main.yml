@@ -18,7 +18,7 @@ jobs:
               shell: sh
               run: |
                 pip3 install -r requirements.txt
-                python3 -m focus_validator.main --data-file samples/all_pass.csv  --output-type unittest --output-destination reports/focus_tests.xml
+                python3 -m focus_validator.main --data-file tests/samples/all_pass.csv  --output-type unittest --output-destination reports/focus_tests.xml
             - name: FOCUS Validation Report
               uses: dorny/test-reporter@v1
               if: success() || failure()    # run this step even if previous step failed
