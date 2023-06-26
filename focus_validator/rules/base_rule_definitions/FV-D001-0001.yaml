@@ -1,4 +1,4 @@
 check_id: FV-D001-0001
-column: ChargeType
+column_id: ChargeType
 check:
   data_type: string

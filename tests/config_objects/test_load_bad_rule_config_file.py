@@ -39,7 +39,7 @@ class TestLoadBadRuleConfigFile(TestCase):
         self.assertIsNone(checklist["FV-D001-0001"].error)
         self.assertIsNotNone(checklist["FV-D001-0001"].friendly_name)
 
-        self.assertEqual(checklist["FV-D001"].column, "ChargeType")
+        self.assertEqual(checklist["FV-D001"].column_id, "ChargeType")
         self.assertEqual(checklist["FV-D001"].status, ChecklistObjectStatus.PENDING)
         self.assertIsNone(checklist["FV-D001"].error)
         self.assertIsNotNone(checklist["FV-D001"].friendly_name)
@@ -56,7 +56,7 @@ class TestLoadBadRuleConfigFile(TestCase):
             )
             self.assertIsNotNone(checklist[errored_file_paths].error)
             self.assertIsNone(checklist[errored_file_paths].friendly_name)
-            self.assertEqual(checklist[errored_file_paths].column, "Unknown")
+            self.assertEqual(checklist[errored_file_paths].column_id, "Unknown")
 
     def test_load_schema_without_valid_column_metadata(self):
         rules = [
@@ -74,4 +74,4 @@ class TestLoadBadRuleConfigFile(TestCase):
             "ConfigurationError: No configuration found for column.",
         )
         self.assertIsNotNone(checklist["FV-D001-0001"].friendly_name)
-        self.assertEqual(checklist["FV-D001-0001"].column, "ChargeType")
+        self.assertEqual(checklist["FV-D001-0001"].column_id, "ChargeType")

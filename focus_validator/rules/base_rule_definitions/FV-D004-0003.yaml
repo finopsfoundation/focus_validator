@@ -1,4 +1,4 @@
 check_id: FV-D004-0003
-column: Provider
+column_id: Provider
 check:
   column_required

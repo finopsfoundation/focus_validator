@@ -1,4 +1,4 @@
 check_id: FV-D003-0002
-column: InvoiceIssuer
+column_id: InvoiceIssuer
 check:
   allow_nulls: false

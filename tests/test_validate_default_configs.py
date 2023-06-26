@@ -40,18 +40,16 @@ class TestValidateDefaultConfigs(TestCase):
                 rule_path = os.path.join(root, file_path)
                 rule = Rule.load_yaml(rule_path=rule_path)
 
-                column_name = rule.column
+                column_id = rule.column_id
                 self.assertIsNotNone(re.match(check_id_pattern, rule.check_id))
 
-                column_id = rule.check_id.split("-")[1]
+                check_column_id = rule.check_id.split("-")[1]
                 local_check_id = rule.check_id.split("-")[2]
-                column_test_suites.append((column_name, column_id, local_check_id))
+                column_test_suites.append((column_id, check_column_id, local_check_id))
 
             # sort column test suites to allow grouping by column
             column_test_suites = sorted(column_test_suites, key=lambda item: item[0])
-            for column_name, test_suites in groupby(
-                column_test_suites, key=lambda item: item[0]
-            ):
+            for _, test_suites in groupby(column_test_suites, key=lambda item: item[0]):
                 test_suites = list(test_suites)
                 self.assertEqual(
                     len(set([test_suite[1] for test_suite in test_suites])), 1

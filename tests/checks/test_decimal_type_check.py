@@ -12,13 +12,13 @@ from focus_validator.rules.spec_rules import ValidationResult
 
 class TestDecimalTypeCheck(TestCase):
     def test_decimal_column(self):
-        random_column_name = str(uuid4())
+        random_column_id = str(uuid4())
 
         schema, checklist = Rule.generate_schema(
             rules=[
                 Rule(
-                    check_id=random_column_name,
-                    column=random_column_name,
+                    check_id=random_column_id,
+                    column_id=random_column_id,
                     check=DataTypeCheck(data_type=DataTypes.DECIMAL),
                 ),
             ]
@@ -26,28 +26,28 @@ class TestDecimalTypeCheck(TestCase):
 
         sample_df = pd.DataFrame(
             [
-                {random_column_name: 0.1},
-                {random_column_name: 1},
-                {random_column_name: 1.001},
+                {random_column_id: 0.1},
+                {random_column_id: 1},
+                {random_column_id: 1.001},
             ]
         )
-        values = schema.validate(sample_df)[random_column_name].values
+        values = schema.validate(sample_df)[random_column_id].values
         self.assertEqual(list(values), [0.1, 1.0, 1.001])
 
     def test_decimal_column_bad_data_type(self):
-        random_column_name = str(uuid4())
+        random_column_id = str(uuid4())
         random_check_name = str(uuid4())
 
         schema, checklist = Rule.generate_schema(
             rules=[
                 Rule(
                     check_id="some-check",
-                    column=random_column_name,
+                    column_id=random_column_id,
                     check="column_required",
                 ),
                 Rule(
                     check_id=random_check_name,
-                    column=random_column_name,
+                    column_id=random_column_id,
                     check=DataTypeCheck(data_type=DataTypes.DECIMAL),
                 ),
             ]
@@ -55,9 +55,9 @@ class TestDecimalTypeCheck(TestCase):
 
         sample_df = pd.DataFrame(
             [
-                {random_column_name: "a"},
-                {random_column_name: 1},
-                {random_column_name: 1.001},
+                {random_column_id: "a"},
+                {random_column_id: 1},
+                {random_column_id: 1.001},
             ]
         )
         try:
@@ -72,7 +72,7 @@ class TestDecimalTypeCheck(TestCase):
             result.failure_cases.to_dict(orient="records"),
             [
                 {
-                    "Column": random_column_name,
+                    "Column": random_column_id,
                     "Check Name": random_check_name,
                     "Description": "Ensures that column is of decimal type.",
                     "Values": None,

@@ -16,7 +16,7 @@ class TestCheckFriendlyName(TestCase):
         random_column_name = str(uuid4())
 
         model_factory = ModelFactory.create_factory(
-            model=Rule, check_friendly_name=None, column=random_column_name
+            model=Rule, check_friendly_name=None, column_id=random_column_name
         )
 
         for _ in range(1000):  # there is no way to generate all values for a field type
@@ -64,7 +64,7 @@ class TestCheckFriendlyName(TestCase):
         sample_rule = Rule(
             check="check_unique",
             check_id="sample-check",
-            column="sample-column",
+            column_id="sample-column",
             check_friendly_name=random_friendly_name,
         )
         self.assertIsNotNone(random_friendly_name, sample_rule.check_friendly_name)

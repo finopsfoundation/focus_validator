@@ -151,7 +151,9 @@ class UnittestOutputter:
         ]:
             test_suite_id = testcase["check_name"].rsplit("-", 1)[0]
             if test_suite_id not in added_testsuites:
-                formatter.add_testsuite(name=test_suite_id, column=testcase["column"])
+                formatter.add_testsuite(
+                    name=test_suite_id, column=testcase["column_id"]
+                )
 
             formatter.add_testcase(
                 testsuite=test_suite_id,

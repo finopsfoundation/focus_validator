@@ -1,4 +1,4 @@
 check_id: FV-D004-0002
-column: Provider
+column_id: Provider
 check:
   allow_nulls: false

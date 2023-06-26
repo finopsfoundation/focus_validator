@@ -32,7 +32,7 @@ class ConsoleOutputter:
             columns={
                 "check_name": "Check Name",
                 "check_type": "Check Type",
-                "column": "Column",
+                "column_id": "Column",
                 "friendly_name": "Friendly Name",
                 "error": "Error",
                 "status": "Status",

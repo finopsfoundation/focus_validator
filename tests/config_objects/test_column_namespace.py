@@ -25,19 +25,19 @@ class TestColumnNamespace(TestCase):
         self.assertIsNotNone(result.failure_cases)
 
     def test_load_rule_config_without_namespace(self):
-        random_column_name = str(uuid4())
+        random_column_id = str(uuid4())
         random_test_name = str(uuid4())
 
         schema, checklist = Rule.generate_schema(
             rules=[
                 Rule(
                     check_id=random_test_name,
-                    column=random_column_name,
+                    column_id=random_column_id,
                     check=DataTypeCheck(data_type=DataTypes.STRING),
                 ),
                 Rule(
                     check_id=random_test_name,
-                    column=random_column_name,
+                    column_id=random_column_id,
                     check=AllowNullsCheck(allow_nulls=False),
                 ),
             ]

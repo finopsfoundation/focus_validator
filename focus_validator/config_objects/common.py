@@ -34,17 +34,19 @@ class ChecklistObjectStatus(Enum):
     PENDING = "pending"
 
 
-def generate_check_friendly_name(check, column):
+def generate_check_friendly_name(check, column_id):
     if check == "check_unique":
-        return f"{column}, requires unique values."
+        return f"{column_id}, requires unique values."
     elif check == "column_required":
-        return f"{column} is a required column."
+        return f"{column_id} is a required column."
     elif isinstance(check, ValueInCheck):
-        return f"{column} must have a value from the list: {','.join(check.value_in)}."
+        return (
+            f"{column_id} must have a value from the list: {','.join(check.value_in)}."
+        )
     elif isinstance(check, AllowNullsCheck):
         if check.allow_nulls:
-            return f"{column} allows null values."
+            return f"{column_id} allows null values."
         else:
-            return f"{column} does not allow null values."
+            return f"{column_id} does not allow null values."
     elif isinstance(check, DataTypeCheck):
-        return f"{column} requires values of type {check.data_type.value}."
+        return f"{column_id} requires values of type {check.data_type.value}."

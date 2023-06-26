@@ -33,7 +33,7 @@ class TestCheckTypeFriendlyName(TestCase):
     def test_random_value_is_ignored(self):
         sample = Rule(
             check_id=str(uuid4()),
-            column=str(uuid4()),
+            column_id=str(uuid4()),
             check="check_unique",
             check_friendly_name="some-check",
             check_type_friendly_name="some-name",
@@ -63,10 +63,11 @@ class TestCheckTypeFriendlyName(TestCase):
         with self.assertRaises(ValidationError) as cm:
             Rule(
                 check_id=str(uuid4()),
-                column=str(uuid4()),
+                column_id=str(uuid4()),
                 check=DataTypeCheck(data_type="bad-type"),
                 check_type_friendly_name="some-check",
             )
+        self.assertEqual(len(cm.exception.errors()), 1)
         self.assertIn(
             "value is not a valid enumeration member; permitted:", str(cm.exception)
         )

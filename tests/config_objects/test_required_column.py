@@ -36,7 +36,7 @@ class TestRequiredColumn(TestCase):
         self.assertFalse(schema.columns["ChargeType"].required)
 
     def test_check_summary_has_correct_mappings(self):
-        random_column_name = str(uuid4())
+        random_column_id = str(uuid4())
         random_test_name = str(uuid4())
 
         sample_data = pd.read_csv("samples/multiple_failure_examples.csv")
@@ -44,12 +44,12 @@ class TestRequiredColumn(TestCase):
             rules=[
                 Rule(
                     check_id=str(uuid4()),
-                    column=random_column_name,
+                    column_id=random_column_id,
                     check=DataTypeCheck(data_type=DataTypes.STRING),
                 ),
                 Rule(
                     check_id=random_test_name,
-                    column=random_column_name,
+                    column_id=random_column_id,
                     check="column_required",
                     check_friendly_name="Column required.",
                 ),
@@ -69,11 +69,11 @@ class TestRequiredColumn(TestCase):
 
         self.assertEqual(result.failure_cases.shape[0], 4)
         missing_column_errors = result.failure_cases[
-            result.failure_cases["Column"] == random_column_name
+            result.failure_cases["Column"] == random_column_id
         ]
 
         raw_values = missing_column_errors.to_dict()
-        self.assertEqual(raw_values["Column"], {1: random_column_name})
+        self.assertEqual(raw_values["Column"], {1: random_column_id})
         self.assertEqual(raw_values["Check Name"], {1: random_test_name})
         self.assertEqual(
             raw_values["Description"],

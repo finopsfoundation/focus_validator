@@ -21,11 +21,11 @@ def convert_missing_column_errors(df, checklist):
         ):
             for check_name, check_obj in checklist.items():
                 if (
-                    row["failure_case"] == check_obj.column
+                    row["failure_case"] == check_obj.column_id
                     and check_obj.rule_ref.check == "column_required"
                 ):
                     row["check"] = f"{check_name}:::{check_obj.friendly_name}"
-                    row["column"] = check_obj.column
+                    row["column"] = check_obj.column_id
                     row["failure_case"] = None
                     return row
         else:
@@ -39,9 +39,9 @@ def convert_dtype_column_errors(df, checklist):
     def process_row(row):
         if row["schema_context"] == "Column" and row["check"].startswith("dtype"):
             for check_name, check_obj in checklist.items():
-                if row["column"] == check_obj.column:
+                if row["column"] == check_obj.column_id:
                     row["check"] = f"{check_name}:::{check_obj.friendly_name}"
-                    row["column"] = check_obj.column
+                    row["column"] = check_obj.column_id
                     row["failure_case"] = None
                     return row
         else:

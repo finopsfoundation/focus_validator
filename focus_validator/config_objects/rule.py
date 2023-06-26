@@ -26,7 +26,7 @@ class InvalidRule(BaseModel):
 
 class Rule(BaseModel):
     check_id: str
-    column: str
+    column_id: str
     check: Union[SIMPLE_CHECKS, AllowNullsCheck, ValueInCheck, DataTypeCheck]
 
     check_friendly_name: str = None  # auto generated or else can be overwritten
@@ -42,7 +42,7 @@ class Rule(BaseModel):
     def root_val(cls, values):
         check = values.get("check")
         check_friendly_name = values.get("check_friendly_name")
-        column = values.get("column")
+        column_id = values.get("column_id")
         if check is not None:
             if isinstance(check, str):
                 check_type_friendly_name = "".join(
@@ -52,9 +52,9 @@ class Rule(BaseModel):
                 check_type_friendly_name = check.__class__.__name__
             values["check_type_friendly_name"] = check_type_friendly_name
 
-            if check_friendly_name is None and column is not None:
+            if check_friendly_name is None and column_id is not None:
                 values["check_friendly_name"] = generate_check_friendly_name(
-                    check=check, column=column
+                    check=check, column_id=column_id
                 )
 
         return values
@@ -98,7 +98,7 @@ class Rule(BaseModel):
             if isinstance(rule, InvalidRule):
                 checklist[rule.rule_path] = ChecklistObject(
                     check_name=rule.rule_path,
-                    column="Unknown",
+                    column_id="Unknown",
                     error=f"{rule.error_type}: {rule.error}",
                     status=ChecklistObjectStatus.ERRORED,
                     rule_ref=rule,
@@ -132,14 +132,14 @@ class Rule(BaseModel):
 
                 checklist[rule.check_id] = ChecklistObject(
                     check_name=rule.check_id,
-                    column=rule.column,
+                    column_id=rule.column_id,
                     status=ChecklistObjectStatus.SKIPPED
                     if rule.check_id in overrides
                     else ChecklistObjectStatus.PENDING,
                     friendly_name=f"Ensures that column is of {data_type.value} type.",
                     rule_ref=rule,
                 )
-                schema_dict[rule.column] = pa.Column(
+                schema_dict[rule.column_id] = pa.Column(
                     pandera_type,
                     required=False,
                     checks=column_checks,
@@ -148,19 +148,19 @@ class Rule(BaseModel):
             else:
                 validation_rules.append(rule)
 
-        for column_name, column_rules in groupby(
-            sorted(validation_rules, key=lambda item: item.column),
-            key=lambda item: item.column,
+        for column_id, column_rules in groupby(
+            sorted(validation_rules, key=lambda item: item.column_id),
+            key=lambda item: item.column_id,
         ):
             column_rules: List[Rule] = list(column_rules)
             try:
-                pa_column = schema_dict[column_name]
+                pa_column = schema_dict[column_id]
             except KeyError:
                 pa_column = None
             for rule in column_rules:
                 checklist[rule.check_id] = check_list_object = ChecklistObject(
                     check_name=rule.check_id,
-                    column=column_name,
+                    column_id=column_id,
                     friendly_name=rule.check_friendly_name,
                     status=ChecklistObjectStatus.PENDING,
                     rule_ref=rule,
@@ -206,7 +206,7 @@ class Rule(BaseModel):
 
 class ChecklistObject(BaseModel):
     check_name: str
-    column: str
+    column_id: str
     friendly_name: Optional[str]
     error: Optional[str]
     status: ChecklistObjectStatus

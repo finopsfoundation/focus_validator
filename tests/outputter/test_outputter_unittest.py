@@ -13,17 +13,17 @@ from focus_validator.rules.spec_rules import ValidationResult
 class TestOutputterUnittest(TestCase):
     def test_unittest_output_all_valid_rules(self):
         random_check_id = f"FV-D00{randint(0, 9)}"
-        random_column = str(uuid4())
+        random_column_id = str(uuid4())
 
         rules = [
             Rule(
                 check_id=f"{random_check_id}-0001",
-                column=random_column,
+                column_id=random_column_id,
                 check=DataTypeCheck(data_type=DataTypes.DECIMAL),
             ),
             Rule(
                 check_id=f"{random_check_id}-0002",
-                column=random_column,
+                column_id=random_column_id,
                 check="column_required",
             ),
         ]
@@ -43,7 +43,7 @@ class TestOutputterUnittest(TestCase):
         self.assertEqual(testsuites.get("name"), "FOCUS Validations")
         for testsuite in testsuites:
             self.assertEqual(
-                testsuite.get("name"), f"{random_check_id}-{random_column}"
+                testsuite.get("name"), f"{random_check_id}-{random_column_id}"
             )
             self.assertEqual(
                 len(testsuite), 2
