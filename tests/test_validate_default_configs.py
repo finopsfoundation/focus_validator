@@ -39,6 +39,7 @@ class TestValidateDefaultConfigs(TestCase):
             for file_path in files:
                 rule_path = os.path.join(root, file_path)
                 rule = Rule.load_yaml(rule_path=rule_path)
+                self.assertIsInstance(rule, Rule)
 
                 column_id = rule.column_id
                 self.assertIsNotNone(re.match(check_id_pattern, rule.check_id))
