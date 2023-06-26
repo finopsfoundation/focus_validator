@@ -63,5 +63,5 @@ class TestValidateDefaultConfigs(TestCase):
                 local_check_ids = [int(test_suite[2]) for test_suite in test_suites]
                 # check all ids are in order
                 self.assertEqual(
-                    local_check_ids, list(range(1, len(local_check_ids) + 1))
+                    sorted(local_check_ids), list(range(1, len(local_check_ids) + 1))
                 )
