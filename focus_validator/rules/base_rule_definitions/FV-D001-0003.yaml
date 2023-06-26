@@ -6,4 +6,3 @@ check:
     - "Purchase"
     - "Tax"
     - "Usage"
-check_friendly_name: "ChargeType must have a value from the list: {values}."
