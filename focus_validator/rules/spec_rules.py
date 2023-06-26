@@ -114,7 +114,7 @@ class SpecRules:
         self.rules_version = rules_version
         self.rule_set_path = rule_set_path
         if self.rules_version not in self.supported_versions():
-            raise UnsupportedVersion(
+            raise UnsSpecRulesupportedVersion(
                 f"FOCUS version {self.rules_version} not supported."
             )
         self.rules_path = os.path.join(self.rule_set_path, self.rules_version)

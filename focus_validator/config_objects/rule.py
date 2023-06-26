@@ -69,7 +69,6 @@ class Rule(BaseModel):
                     msg="Check type: {} not implemented.".format(check)
                 )
         elif isinstance(check, ValueInCheck):
-            error_string = error_string.format(", ".join(check.value_in))
             return pa.Check.check_value_in(
                 allowed_values=check.value_in, error=error_string
             )

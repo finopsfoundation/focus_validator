@@ -137,35 +137,23 @@ class UnittestOutputter:
                     check_type_name=None,
                 )
 
-        # Add the testsuites to the Formatter
-        for testsuite in [
-            r for r in rows if re.match(r"^FV-D[0-9]{3}$", r["check_name"])
-        ]:
-            formatter.add_testsuite(
-                name=testsuite["check_name"], dimension=testsuite["dimension"]
-            )
-            formatter.add_testcase(
-                testsuite=testsuite["check_name"],
-                name=testsuite["check_name"],
-                result=testsuite["status"].value,
-                message=testsuite["friendly_name"],
-                check_type_name=testsuite["rule_ref"]["validation_config"][
-                    "check_type_friendly_name"
-                ],
-            )
-
         # Add the testcases to the testsuites
+        added_testsuites = {}
         for testcase in [
             r for r in rows if re.match(r"^FV-D[0-9]{3}-[0-9]{4}$", r["check_name"])
         ]:
+            test_suite_id = testcase["check_name"].rsplit("-", 1)[0]
+            if test_suite_id not in added_testsuites:
+                formatter.add_testsuite(
+                    name=test_suite_id, dimension=testcase["dimension"]
+                )
+
             formatter.add_testcase(
-                testsuite=testcase["check_name"].rsplit("-", 1)[0],
+                testsuite=test_suite_id,
                 name=testcase["check_name"],
                 result=testcase["status"].value,
                 message=testcase["friendly_name"],
-                check_type_name=testcase["rule_ref"]["validation_config"][
-                    "check_type_friendly_name"
-                ],
+                check_type_name=testcase["rule_ref"]["check_type_friendly_name"],
             )
 
         tree = formatter.generate_unittest()
