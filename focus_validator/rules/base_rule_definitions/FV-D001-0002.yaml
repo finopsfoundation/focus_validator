@@ -1,9 +1,3 @@
 check_id: FV-D001-0002
 dimension: ChargeType
-check:
-  value_in:
-    - "Adjustment"
-    - "Purchase"
-    - "Tax"
-    - "Usage"
-check_friendly_name: "ChargeType must have a value from the list: {values}."
+check: dimension_required

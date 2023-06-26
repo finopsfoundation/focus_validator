@@ -37,16 +37,26 @@ class TestOutputterConsole(TestCase):
                 InvalidRule(
                     rule_path="bad_rule_path",
                     error="random-error",
-                    error_type="ValueError"
+                    error_type="ValueError",
                 )
             ]
         )
 
-        validation_result = ValidationResult(
-            failure_cases=None, checklist=checklist
-        )
+        validation_result = ValidationResult(failure_cases=None, checklist=checklist)
         validation_result.process_result()
 
         outputter = ConsoleOutputter(output_destination=None)
         checklist = outputter.__restructure_check_list__(result_set=validation_result)
-        print(checklist)
+        self.assertEqual(
+            checklist.to_dict(orient="records"),
+            [
+                {
+                    "Check Name": "bad_rule_path",
+                    "Check Type": "ERRORED",
+                    "Dimension": "Unknown",
+                    "Friendly Name": None,
+                    "Error": "ValueError: random-error",
+                    "Status": "Errored",
+                }
+            ],
+        )
