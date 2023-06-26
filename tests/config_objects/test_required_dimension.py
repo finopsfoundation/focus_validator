@@ -32,7 +32,6 @@ class TestRequiredDimension(TestCase):
         schema, _ = Rule.generate_schema(
             rules=rules, override_config=Override(overrides=["FV-D001-0001"])
         )
-        print(schema.columns)
         self.assertIn("ChargeType", schema.columns)
         self.assertFalse(schema.columns["ChargeType"].required)
 
