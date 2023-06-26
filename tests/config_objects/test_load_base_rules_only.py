@@ -11,7 +11,7 @@ class TestLoadBaseRulesOnly(TestCase):
     def test_load_without_any_subsequent_rules(self):
         rules = [
             Rule.load_yaml(
-                "samples/rule_configs/valid_rule_config_column_metadata.yaml"
+                "tests/samples/rule_configs/valid_rule_config_column_metadata.yaml"
             )
         ]
         schema, _ = Rule.generate_schema(rules=rules)

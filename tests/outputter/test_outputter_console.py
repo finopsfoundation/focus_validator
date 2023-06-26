@@ -9,7 +9,7 @@ from focus_validator.validator import Validator
 class TestOutputterConsole(TestCase):
     def test_failure_output(self):
         validator = Validator(
-            data_filename="samples/multiple_failure_example_namespaced.csv",
+            data_filename="tests/samples/multiple_failure_example_namespaced.csv",
             output_type="console",
             output_destination=None,
             column_namespace="F",

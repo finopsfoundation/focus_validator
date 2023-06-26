@@ -13,10 +13,12 @@ class TestRequiredColumn(TestCase):
     def test_load_column_required_config(self):
         rules = [
             Rule.load_yaml(
-                "samples/rule_configs/valid_rule_config_column_metadata.yaml"
+                "tests/samples/rule_configs/valid_rule_config_column_metadata.yaml"
             ),
-            Rule.load_yaml("samples/rule_configs/valid_rule_config.yaml"),
-            Rule.load_yaml("samples/rule_configs/valid_rule_config_required.yaml"),
+            Rule.load_yaml("tests/samples/rule_configs/valid_rule_config.yaml"),
+            Rule.load_yaml(
+                "tests/samples/rule_configs/valid_rule_config_required.yaml"
+            ),
         ]
         schema, _ = Rule.generate_schema(rules=rules)
         self.assertIn("ChargeType", schema.columns)
@@ -25,9 +27,11 @@ class TestRequiredColumn(TestCase):
     def test_load_column_required_config_but_ignored(self):
         rules = [
             Rule.load_yaml(
-                "samples/rule_configs/valid_rule_config_column_metadata.yaml"
+                "tests/samples/rule_configs/valid_rule_config_column_metadata.yaml"
             ),
-            Rule.load_yaml("samples/rule_configs/valid_rule_config_required.yaml"),
+            Rule.load_yaml(
+                "tests/samples/rule_configs/valid_rule_config_required.yaml"
+            ),
         ]
         schema, _ = Rule.generate_schema(
             rules=rules, override_config=Override(overrides=["FV-D001-0001"])
@@ -39,7 +43,7 @@ class TestRequiredColumn(TestCase):
         random_column_id = str(uuid4())
         random_test_name = str(uuid4())
 
-        sample_data = pd.read_csv("samples/multiple_failure_examples.csv")
+        sample_data = pd.read_csv("tests/samples/multiple_failure_examples.csv")
         schema, checklist = Rule.generate_schema(
             rules=[
                 Rule(
@@ -54,9 +58,9 @@ class TestRequiredColumn(TestCase):
                     check_friendly_name="Column required.",
                 ),
                 Rule.load_yaml(
-                    "samples/rule_configs/valid_rule_config_column_metadata.yaml"
+                    "tests/samples/rule_configs/valid_rule_config_column_metadata.yaml"
                 ),
-                Rule.load_yaml("samples/rule_configs/valid_rule_config.yaml"),
+                Rule.load_yaml("tests/samples/rule_configs/valid_rule_config.yaml"),
             ]
         )
 

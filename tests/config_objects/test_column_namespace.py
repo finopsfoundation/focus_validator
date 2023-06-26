@@ -15,7 +15,7 @@ from focus_validator.validator import Validator
 class TestColumnNamespace(TestCase):
     def test_load_rule_config_with_namespace(self):
         validator = Validator(
-            data_filename="samples/multiple_failure_example_namespaced.csv",
+            data_filename="tests/samples/multiple_failure_example_namespaced.csv",
             output_type="console",
             output_destination=None,
             column_namespace="F",
@@ -43,7 +43,9 @@ class TestColumnNamespace(TestCase):
             ]
         )
 
-        sample_data = pd.read_csv("samples/multiple_failure_example_namespaced.csv")
+        sample_data = pd.read_csv(
+            "tests/samples/multiple_failure_example_namespaced.csv"
+        )
         result = schema.validate(
             sample_data
         )  # should not fail as columns are namespaced

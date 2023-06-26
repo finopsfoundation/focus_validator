@@ -7,28 +7,38 @@ from focus_validator.config_objects.rule import InvalidRule
 
 class TestLoadBadRuleConfigFile(TestCase):
     def test_load_empty_config(self):
-        rule = Rule.load_yaml("samples/rule_configs/bad_rule_config_empty_file.yaml")
+        rule = Rule.load_yaml(
+            "tests/samples/rule_configs/bad_rule_config_empty_file.yaml"
+        )
         self.assertIsInstance(rule, InvalidRule)
 
     def test_load_incomplete_config(self):
-        rule = Rule.load_yaml("samples/rule_configs/bad_rule_config_missing_check.yaml")
+        rule = Rule.load_yaml(
+            "tests/samples/rule_configs/bad_rule_config_missing_check.yaml"
+        )
         self.assertIsInstance(rule, InvalidRule)
 
     def test_load_bad_yaml(self):
-        rule = Rule.load_yaml("samples/rule_configs/bad_rule_config_invalid_yaml.yaml")
+        rule = Rule.load_yaml(
+            "tests/samples/rule_configs/bad_rule_config_invalid_yaml.yaml"
+        )
         self.assertIsInstance(rule, InvalidRule)
 
     def test_load_valid_rule(self):
-        rule = Rule.load_yaml("samples/rule_configs/valid_rule_config.yaml")
+        rule = Rule.load_yaml("tests/samples/rule_configs/valid_rule_config.yaml")
         self.assertIsInstance(rule, Rule)
 
     def test_load_schema(self):
         rules = [
-            Rule.load_yaml("samples/rule_configs/bad_rule_config_empty_file.yaml"),
-            Rule.load_yaml("samples/rule_configs/bad_rule_config_missing_check.yaml"),
-            Rule.load_yaml("samples/rule_configs/valid_rule_config.yaml"),
             Rule.load_yaml(
-                "samples/rule_configs/valid_rule_config_column_metadata.yaml"
+                "tests/samples/rule_configs/bad_rule_config_empty_file.yaml"
+            ),
+            Rule.load_yaml(
+                "tests/samples/rule_configs/bad_rule_config_missing_check.yaml"
+            ),
+            Rule.load_yaml("tests/samples/rule_configs/valid_rule_config.yaml"),
+            Rule.load_yaml(
+                "tests/samples/rule_configs/valid_rule_config_column_metadata.yaml"
             ),
         ]
 
@@ -48,8 +58,8 @@ class TestLoadBadRuleConfigFile(TestCase):
         )
 
         for errored_file_paths in [
-            "samples/rule_configs/bad_rule_config_empty_file.yaml",
-            "samples/rule_configs/bad_rule_config_missing_check.yaml",
+            "tests/samples/rule_configs/bad_rule_config_empty_file.yaml",
+            "tests/samples/rule_configs/bad_rule_config_missing_check.yaml",
         ]:
             self.assertEqual(
                 checklist[errored_file_paths].status, ChecklistObjectStatus.ERRORED
@@ -60,9 +70,13 @@ class TestLoadBadRuleConfigFile(TestCase):
 
     def test_load_schema_without_valid_column_metadata(self):
         rules = [
-            Rule.load_yaml("samples/rule_configs/bad_rule_config_empty_file.yaml"),
-            Rule.load_yaml("samples/rule_configs/bad_rule_config_missing_check.yaml"),
-            Rule.load_yaml("samples/rule_configs/valid_rule_config.yaml"),
+            Rule.load_yaml(
+                "tests/samples/rule_configs/bad_rule_config_empty_file.yaml"
+            ),
+            Rule.load_yaml(
+                "tests/samples/rule_configs/bad_rule_config_missing_check.yaml"
+            ),
+            Rule.load_yaml("tests/samples/rule_configs/valid_rule_config.yaml"),
         ]
 
         _, checklist = Rule.generate_schema(rules=rules, override_config=None)
