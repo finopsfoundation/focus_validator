@@ -15,7 +15,7 @@ class ConsoleOutputter:
         rows = []
         for value in result_set.checklist.values():
             if isinstance(value.rule_ref, Rule):
-                check_type = value.rule_ref.validation_config.check_type_friendly_name
+                check_type = value.rule_ref.check_type_friendly_name
             else:
                 check_type = "ERRORED"
 
@@ -32,7 +32,7 @@ class ConsoleOutputter:
             columns={
                 "check_name": "Check Name",
                 "check_type": "Check Type",
-                "dimension": "Dimension",
+                "column_id": "Column",
                 "friendly_name": "Friendly Name",
                 "error": "Error",
                 "status": "Status",
@@ -43,7 +43,7 @@ class ConsoleOutputter:
             columns=[
                 "Check Name",
                 "Check Type",
-                "Dimension",
+                "Column",
                 "Friendly Name",
                 "Error",
                 "Status",

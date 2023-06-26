@@ -1,4 +1,6 @@
+import logging
 import re
+import sys
 import xml.etree.cElementTree as ET
 from datetime import datetime, timezone
 
@@ -29,9 +31,9 @@ class UnittestFormatter:
             self.timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
         self.results = {}
 
-    def add_testsuite(self, name, dimension):
+    def add_testsuite(self, name, column):
         if name not in self.results:
-            self.results[name] = {"tests": {}, "time": "0", "dimension": dimension}
+            self.results[name] = {"tests": {}, "time": "0", "column": column}
 
     def add_testcase(self, testsuite, name, result, message, check_type_name):
         self.results[testsuite]["tests"][name] = {
@@ -57,7 +59,7 @@ class UnittestFormatter:
             ts = ET.SubElement(
                 testsuites,
                 "testsuite",
-                name=f'{testsuite}-{self.results[testsuite]["dimension"]}',
+                name=f'{testsuite}-{self.results[testsuite]["column"]}',
                 time="0",
             )
             for testcase in sorted(self.results[testsuite]["tests"].keys()):
@@ -97,7 +99,12 @@ class UnittestFormatter:
                         message=self.results[testsuite]["tests"][testcase]["message"],
                     )
         tree = ET.ElementTree(testsuites)
-        ET.indent(tree)
+        if sys.version_info < (3, 9):
+            logging.warning(
+                "produced output not indent due to lack of support before 3.9"
+            )
+        else:
+            ET.indent(tree)
         return tree
 
 
@@ -127,7 +134,7 @@ class UnittestOutputter:
 
         # If there are any errors load them in first
         if result_statuses["errored"]:
-            formatter.add_testsuite(name="Base", dimension="Unknown")
+            formatter.add_testsuite(name="Base", column="Unknown")
             for testcase in [r for r in rows if r.get("error", False)]:
                 formatter.add_testcase(
                     testsuite="Base",
@@ -137,35 +144,23 @@ class UnittestOutputter:
                     check_type_name=None,
                 )
 
-        # Add the testsuites to the Formatter
-        for testsuite in [
-            r for r in rows if re.match(r"^FV-D[0-9]{3}$", r["check_name"])
-        ]:
-            formatter.add_testsuite(
-                name=testsuite["check_name"], dimension=testsuite["dimension"]
-            )
-            formatter.add_testcase(
-                testsuite=testsuite["check_name"],
-                name=testsuite["check_name"],
-                result=testsuite["status"].value,
-                message=testsuite["friendly_name"],
-                check_type_name=testsuite["rule_ref"]["validation_config"][
-                    "check_type_friendly_name"
-                ],
-            )
-
         # Add the testcases to the testsuites
+        added_testsuites = {}
         for testcase in [
             r for r in rows if re.match(r"^FV-D[0-9]{3}-[0-9]{4}$", r["check_name"])
         ]:
+            test_suite_id = testcase["check_name"].rsplit("-", 1)[0]
+            if test_suite_id not in added_testsuites:
+                formatter.add_testsuite(
+                    name=test_suite_id, column=testcase["column_id"]
+                )
+
             formatter.add_testcase(
-                testsuite=testcase["check_name"].rsplit("-", 1)[0],
+                testsuite=test_suite_id,
                 name=testcase["check_name"],
                 result=testcase["status"].value,
                 message=testcase["friendly_name"],
-                check_type_name=testcase["rule_ref"]["validation_config"][
-                    "check_type_friendly_name"
-                ],
+                check_type_name=testcase["rule_ref"]["check_type_friendly_name"],
             )
 
         tree = formatter.generate_unittest()

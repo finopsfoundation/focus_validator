@@ -1,6 +1,4 @@
 check_id: FV-D004-0001
-dimension: Provider
-validation_config:
-  check_friendly_name: "Provider cannot accept null values."
-  check:
-    allow_nulls: false
+column_id: Provider
+check:
+  data_type: string

@@ -9,10 +9,10 @@ from focus_validator.validator import Validator
 class TestOutputterConsole(TestCase):
     def test_failure_output(self):
         validator = Validator(
-            data_filename="samples/multiple_failure_example_namespaced.csv",
+            data_filename="tests/samples/multiple_failure_example_namespaced.csv",
             output_type="console",
             output_destination=None,
-            dimension_namespace="F",
+            column_namespace="F",
         )
         validator.load()
         result = validator.spec_rules.validate(focus_data=validator.focus_data)
@@ -24,7 +24,7 @@ class TestOutputterConsole(TestCase):
             [
                 "Check Name",
                 "Check Type",
-                "Dimension",
+                "Column",
                 "Friendly Name",
                 "Error",
                 "Status",
@@ -37,16 +37,26 @@ class TestOutputterConsole(TestCase):
                 InvalidRule(
                     rule_path="bad_rule_path",
                     error="random-error",
-                    error_type="ValueError"
+                    error_type="ValueError",
                 )
             ]
         )
 
-        validation_result = ValidationResult(
-            failure_cases=None, checklist=checklist
-        )
+        validation_result = ValidationResult(failure_cases=None, checklist=checklist)
         validation_result.process_result()
 
         outputter = ConsoleOutputter(output_destination=None)
         checklist = outputter.__restructure_check_list__(result_set=validation_result)
-        print(checklist)
+        self.assertEqual(
+            checklist.to_dict(orient="records"),
+            [
+                {
+                    "Check Name": "bad_rule_path",
+                    "Check Type": "ERRORED",
+                    "Column": "Unknown",
+                    "Friendly Name": None,
+                    "Error": "ValueError: random-error",
+                    "Status": "Errored",
+                }
+            ],
+        )

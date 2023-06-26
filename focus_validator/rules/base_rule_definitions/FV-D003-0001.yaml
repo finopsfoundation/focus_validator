@@ -1,7 +1,4 @@
 check_id: FV-D003-0001
-dimension: InvoiceIssuer
-data_type: string
-validation_config:
-  check_friendly_name: "InvoiceIssuer cannot accept null values."
-  check:
-    allow_nulls: false
+column_id: InvoiceIssuer
+check:
+  data_type: string

@@ -6,29 +6,30 @@ from pandera.errors import SchemaErrors
 
 from focus_validator.config_objects import Rule
 from focus_validator.config_objects.common import (
-    DataTypeConfig,
     DataTypes,
     ChecklistObjectStatus,
+    DataTypeCheck,
 )
 from focus_validator.rules.spec_rules import ValidationResult
 
 
+# noinspection DuplicatedCode
 class TestAttributeDatetime(TestCase):
     def __eval_function__(self, sample_value, should_fail):
-        random_dimension_name = str(uuid4())
+        random_column_id = str(uuid4())
         random_check_id = str(uuid4())
 
         schema, checklist = Rule.generate_schema(
             rules=[
                 Rule(
                     check_id=random_check_id,
-                    dimension=random_dimension_name,
-                    validation_config=DataTypeConfig(data_type=DataTypes.DATETIME),
+                    column_id=random_column_id,
+                    check=DataTypeCheck(data_type=DataTypes.DATETIME),
                 )
             ]
         )
 
-        sample_data = pd.DataFrame([{random_dimension_name: sample_value}])
+        sample_data = pd.DataFrame([{random_column_id: sample_value}])
 
         try:
             schema.validate(sample_data, lazy=True)

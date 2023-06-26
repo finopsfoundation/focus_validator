@@ -1,6 +1,3 @@
 check_id: FV-D001-0002
-dimension: ChargeType
-validation_config:
-  check_friendly_name: "ChargeType cannot have null values."
-  check:
-    allow_nulls: false
+column_id: ChargeType
+check: column_required
