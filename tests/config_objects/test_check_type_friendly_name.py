@@ -9,7 +9,7 @@ from focus_validator.config_objects.common import DataTypes, DataTypeCheck
 
 
 class TestCheckTypeFriendlyName(TestCase):
-    def test_generate_name_for_validation_configs(self):
+    def test_generate_name_for_check_types(self):
         """
         there is no way to generate all values for a field type hence generating random instances
         in hope of catching any validation error
@@ -48,7 +48,7 @@ class TestCheckTypeFriendlyName(TestCase):
         )
         self.assertEqual(sample_data_type.check_type_friendly_name, "DataTypeCheck")
 
-    def test_data_type_config_deny_update(self):
+    def test_check_type_config_deny_update(self):
         model_factory = ModelFactory.create_factory(model=Rule)
 
         sample_data_type = model_factory.build()

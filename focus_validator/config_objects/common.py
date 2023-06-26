@@ -32,3 +32,21 @@ class ChecklistObjectStatus(Enum):
     FAILED = "failed"
     SKIPPED = "skipped"
     PENDING = "pending"
+
+
+def generate_check_friendly_name(check, dimension):
+    if check == "check_unique":
+        return f"{dimension}, requires unique values."
+    elif check == "dimension_required":
+        return f"{dimension} is a required dimension."
+    elif isinstance(check, ValueInCheck):
+        return (
+            f"{dimension} must have a value from the list: {','.join(check.value_in)}."
+        )
+    elif isinstance(check, AllowNullsCheck):
+        if check.allow_nulls:
+            return f"{dimension} allows null values."
+        else:
+            return f"{dimension} does not allow null values."
+    elif isinstance(check, DataTypeCheck):
+        return f"{dimension} requires values of type {check.data_type.value}."

@@ -12,6 +12,7 @@ from focus_validator.config_objects.common import (
     DataTypes,
     ChecklistObjectStatus,
     DataTypeCheck,
+    generate_check_friendly_name,
 )
 from focus_validator.config_objects.override import Override
 from focus_validator.exceptions import FocusNotImplementedError
@@ -38,6 +39,8 @@ class Rule(BaseModel):
     @root_validator
     def root_val(cls, values):
         check = values.get("check")
+        check_friendly_name = values.get("check_friendly_name")
+        dimension = values.get("dimension")
         if check is not None:
             if isinstance(check, str):
                 check_type_friendly_name = "".join(
@@ -46,19 +49,17 @@ class Rule(BaseModel):
             else:
                 check_type_friendly_name = check.__class__.__name__
             values["check_type_friendly_name"] = check_type_friendly_name
-        return values
 
-    def parse_friendly_name(self):
-        check_friendly_name = self.check_friendly_name
-        if isinstance(self.check, ValueInCheck):
-            check_friendly_name = check_friendly_name.replace(
-                "{values}", ",".join(self.check.value_in)
-            )
-        return check_friendly_name
+            if check_friendly_name is None and dimension is not None:
+                values["check_friendly_name"] = generate_check_friendly_name(
+                    check=check, dimension=dimension
+                )
+
+        return values
 
     def generate_pandera_rule(self, check_id):
         check = self.check
-        error_string = "{}::: {}".format(check_id, self.parse_friendly_name())
+        error_string = "{}::: {}".format(check_id, self.check_friendly_name)
 
         if isinstance(check, str):
             if check == "check_unique":
@@ -82,7 +83,7 @@ class Rule(BaseModel):
     @classmethod
     def generate_schema(
         cls,
-        rules: List["Rule"],
+        rules: List[Union["Rule", InvalidRule]],
         override_config: Override = None,
     ):
         schema_dict = {}
@@ -159,7 +160,7 @@ class Rule(BaseModel):
                 checklist[rule.check_id] = check_list_object = ChecklistObject(
                     check_name=rule.check_id,
                     dimension=dimension_name,
-                    friendly_name=rule.parse_friendly_name(),
+                    friendly_name=rule.check_friendly_name,
                     status=ChecklistObjectStatus.PENDING,
                     rule_ref=rule,
                 )
