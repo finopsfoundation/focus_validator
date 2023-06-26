@@ -33,8 +33,10 @@ class Rule(BaseModel):
     check_type_friendly_name: str = None
 
     class Config:
-        extra = "forbid"
-        frozen = True
+        extra = "forbid"  # prevents config from containing any undesirable keys
+        frozen = (
+            True  # prevents any modification to any attribute onces loaded from config
+        )
 
     @root_validator
     def root_val(cls, values):
