@@ -1,4 +1,6 @@
+import logging
 import re
+import sys
 import xml.etree.cElementTree as ET
 from datetime import datetime, timezone
 
@@ -97,7 +99,12 @@ class UnittestFormatter:
                         message=self.results[testsuite]["tests"][testcase]["message"],
                     )
         tree = ET.ElementTree(testsuites)
-        ET.indent(tree)
+        if sys.version_info < (3, 9):
+            logging.warning(
+                "produced output not indent due to lack of support before 3.9"
+            )
+        else:
+            ET.indent(tree)
         return tree
 
 
