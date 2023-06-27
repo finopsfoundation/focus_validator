@@ -75,7 +75,6 @@ class TestValidateDefaultConfigs(TestCase):
                 self.assertIsInstance(rule, Rule)
 
                 if isinstance(rule.check, DataTypeCheck):
-                    print(rule.check_id)
                     if rule.check.data_type == DataTypes.DECIMAL:
                         self.assertIsNotNone(
                             re.match(metric_check_id_pattern, rule.check_id),
