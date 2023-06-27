@@ -1,0 +1,4 @@
+check_id: FV-D016-0001
+column_id: ChargePeriodStart
+check:
+  data_type: datetime
