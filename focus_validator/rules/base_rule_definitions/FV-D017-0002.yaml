@@ -1,0 +1,4 @@
+check_id: FV-D017-0002
+column_id: ChargePeriodEnd
+check:
+  allow_nulls: false
