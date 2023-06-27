@@ -1,0 +1,4 @@
+check_id: FV-D013-0001
+column_id: Region
+check:
+  data_type: string
