@@ -1,4 +1,4 @@
-check_id: FV-D016-0002
+check_id: FV-D014-0002
 column_id: AvailabilityZone
 check:
   allow_nulls: true
