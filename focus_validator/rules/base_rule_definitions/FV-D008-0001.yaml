@@ -1,0 +1,4 @@
+check_id: FV-D008-0001
+column_id: ResourceName
+check:
+  data_type: string
