@@ -147,7 +147,7 @@ class UnittestOutputter:
         # Add the testcases to the testsuites
         added_testsuites = {}
         for testcase in [
-            r for r in rows if re.match(r"^FV-D[0-9]{3}-[0-9]{4}$", r["check_name"])
+            r for r in rows if re.match(r"^FV-[D,M][0-9]{3}-[0-9]{4}$", r["check_name"])
         ]:
             test_suite_id = testcase["check_name"].rsplit("-", 1)[0]
             if test_suite_id not in added_testsuites:

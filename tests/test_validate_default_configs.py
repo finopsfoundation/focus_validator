@@ -6,6 +6,7 @@ from unittest import TestCase
 import pandas as pd
 
 from focus_validator.config_objects import ChecklistObjectStatus, Rule
+from focus_validator.config_objects.common import DataTypeCheck, DataTypes
 from focus_validator.rules.spec_rules import SpecRules
 
 
@@ -30,7 +31,7 @@ class TestValidateDefaultConfigs(TestCase):
                     )
 
     def test_default_rules_with_sample_data(self):
-        check_id_pattern = re.compile(r"FV-D\d{3}-\d{4}$")
+        check_id_pattern = re.compile(r"FV-[D,M]\d{3}-\d{4}$")
 
         for root, dirs, files in os.walk(
             "focus_validator/rules/version_sets", topdown=False
@@ -60,3 +61,27 @@ class TestValidateDefaultConfigs(TestCase):
                 self.assertEqual(
                     sorted(local_check_ids), list(range(1, len(local_check_ids) + 1))
                 )
+
+    def test_metric_file_format_metric_vs_dimension(self):
+        metric_check_id_pattern = re.compile(r"FV-M\d{3}-\d{4}$")
+        dimension_check_id_pattern = re.compile(r"FV-D\d{3}-\d{4}$")
+
+        for root, dirs, files in os.walk(
+            "focus_validator/rules/version_sets", topdown=False
+        ):
+            for file_path in files:
+                rule_path = os.path.join(root, file_path)
+                rule = Rule.load_yaml(rule_path=rule_path)
+                self.assertIsInstance(rule, Rule)
+
+                if isinstance(rule.check, DataTypeCheck):
+                    if rule.check.data_type == DataTypes.DECIMAL:
+                        self.assertIsNotNone(
+                            re.match(metric_check_id_pattern, rule.check_id),
+                            "For metric column type check_id format should be FV-MYYY-YYYY",
+                        )
+                    else:
+                        self.assertIsNotNone(
+                            re.match(dimension_check_id_pattern, rule.check_id),
+                            "For metric column type check_id format should be FV-DYYY-YYYY",
+                        )
