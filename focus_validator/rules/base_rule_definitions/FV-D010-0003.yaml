@@ -1,4 +1,4 @@
-check_id: FV-D011-0004
+check_id: FV-D010-0003
 column_id: BilledCurrency
 check:
   column_required
