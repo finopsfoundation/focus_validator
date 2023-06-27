@@ -10,6 +10,7 @@ from focus_validator.outputter.outputter_unittest import UnittestOutputter
 from focus_validator.rules.spec_rules import ValidationResult
 
 
+# noinspection DuplicatedCode
 class TestOutputterUnittest(TestCase):
     def test_unittest_output_all_valid_rules(self):
         random_check_id = f"FV-D00{randint(0, 9)}"
@@ -81,3 +82,47 @@ class TestOutputterUnittest(TestCase):
         self.assertEqual(testsuites.get("failures"), "0")
         self.assertEqual(testsuites.get("skipped"), "0")
         self.assertEqual(testsuites.get("errors"), "1")
+
+    def test_outputter_with_metric_dimension(self):
+        random_check_id = f"FV-M00{randint(0, 9)}"
+        random_column_id = str(uuid4())
+
+        rules = [
+            Rule(
+                check_id=f"{random_check_id}-0001",
+                column_id=random_column_id,
+                check=DataTypeCheck(data_type=DataTypes.DECIMAL),
+            ),
+            Rule(
+                check_id=f"{random_check_id}-0002",
+                column_id=random_column_id,
+                check="column_required",
+            ),
+        ]
+
+        _, checklist = Rule.generate_schema(rules=rules)
+        result = ValidationResult(checklist=checklist)
+        result.process_result()
+
+        buffer = io.BytesIO()
+        outputter = UnittestOutputter(output_destination=buffer)
+        outputter.write(result_set=result)
+
+        buffer.seek(0)
+        output = buffer.read()
+        testsuites = ET.fromstring(output)
+        self.assertEqual(len(testsuites), 1)  # assert one column in sample rules config
+        self.assertEqual(testsuites.get("name"), "FOCUS Validations")
+        for testsuite in testsuites:
+            self.assertEqual(
+                testsuite.get("name"), f"{random_check_id}-{random_column_id}"
+            )
+            self.assertEqual(
+                len(testsuite), 2
+            )  # assert two tests in sample rules config
+            self.assertEqual(
+                testsuite[0].get("name"), f"{random_check_id}-0001 :: DataTypeCheck"
+            )
+            self.assertEqual(
+                testsuite[1].get("name"), f"{random_check_id}-0002 :: ColumnRequired"
+            )
