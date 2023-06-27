@@ -1,0 +1,4 @@
+check_id: FV-D009-0002
+column_id: ServiceName
+check:
+  allow_nulls: false
