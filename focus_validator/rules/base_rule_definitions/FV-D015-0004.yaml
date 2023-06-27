@@ -1,4 +1,4 @@
-check_id: FV-D017-0004
+check_id: FV-D015-0004
 column_id: ServiceCategory
 check_friendly_name: "ServiceCategory must have a value defined in spec."
 check:
