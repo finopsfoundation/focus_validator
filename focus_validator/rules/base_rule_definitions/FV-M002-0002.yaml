@@ -1,0 +1,4 @@
+check_id: FV-M002-0002
+column_id: AmortizedCost
+check:
+  allow_nulls: false
