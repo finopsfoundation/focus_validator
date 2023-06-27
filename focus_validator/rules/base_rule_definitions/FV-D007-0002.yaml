@@ -1,0 +1,4 @@
+check_id: FV-D007-0002
+column_id: Publisher
+check:
+  allow_nulls: false
