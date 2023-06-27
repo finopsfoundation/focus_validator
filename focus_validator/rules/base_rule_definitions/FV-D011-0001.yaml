@@ -1,4 +1,4 @@
-check_id: FV-D012-0001
+check_id: FV-D011-0001
 column_id: BillingPeriodEnd
 check:
   data_type: datetime
