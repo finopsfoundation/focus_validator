@@ -1,0 +1,4 @@
+check_id: FV-D018-0002
+column_id: SubAccountName
+check:
+  allow_nulls: true
