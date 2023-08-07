@@ -1,4 +1,0 @@
-black[d]
-polyfactory
-pytest~=7.3
-pytest-cov~=4.1
