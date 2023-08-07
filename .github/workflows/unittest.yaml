@@ -38,4 +38,4 @@ jobs:
           poetry install
       - name: Test with pytest
         run: |
-          pytest --cov=focus_validator tests/
+          poetry run pytest -v
