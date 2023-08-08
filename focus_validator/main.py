@@ -4,7 +4,8 @@ import sys
 
 from focus_validator.validator import Validator
 
-if __name__ == "__main__":
+
+def main():
     parser = argparse.ArgumentParser(description="FOCUS specification validator.")
     parser.add_argument(
         "--data-file",
@@ -70,4 +71,8 @@ if __name__ == "__main__":
         for version in validator.get_supported_versions():
             print(version)
     else:
-        results = validator.validate()
+        validator.validate()
+
+
+if __name__ == "__main__":
+    main()

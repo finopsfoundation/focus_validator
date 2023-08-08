@@ -159,6 +159,12 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-
 # Ignore any reports generated locally
 reports/
+
+.DS_Store
+.idea/*
+.python-version
+.vscode/*
+
+poetry.lock

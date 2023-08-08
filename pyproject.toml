@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "focus-spec-validator"
+version = "0.5.0"
+description = "FOCUS spec validator."
+authors = []
+readme = "README.md"
+packages = [{include = "focus_validator"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+pandas = "^1"
+tabulate = "*"
+pyarrow = "*"
+pydantic = "^1"
+python-magic = "*"
+pyyaml = "*"
+requests = "*"
+pandera = "^0.16"
+
+[tool.poetry.group.dev.dependencies]
+black = {extras = ["d"], version = "^23.7.0"}
+polyfactory = "^2.7.0"
+pytest = "^7.4.0"
+pytest-cov = "^4.1.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+focus-validator = "focus_validator.main:main"
