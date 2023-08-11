@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{include = "focus_validator"}]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.8.1"
 pandas = "^1"
 tabulate = "*"
 pyarrow = "*"
@@ -22,6 +22,16 @@ black = {extras = ["d"], version = "^23.7.0"}
 polyfactory = "^2.7.0"
 pytest = "^7.4.0"
 pytest-cov = "^4.1.0"
+mypy = "^1.4.1"
+types-setuptools = "^68.0.0.3"
+types-tabulate = "^0.9.0.3"
+pandas-stubs = "^2.0.2.230605"
+types-pyyaml = "^6.0.12.11"
+types-requests = "^2.31.0.2"
+pandera = {extras = ["mypy"], version = "^0.16.1"}
+isort = "^5.12.0"
+flake8 = "^6.1.0"
+pre-commit = "^3.3.3"
 
 [build-system]
 requires = ["poetry-core"]

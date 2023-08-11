@@ -1,34 +1,21 @@
+name: Lint
+
 on:
   push:
-    branches:
-      - main
-      - dev
-      - issue/**
-  pull_request:
-    branches:
-      - main
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
-
     steps:
       - uses: actions/checkout@v3
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
       - name: Install poetry
         uses: abatilo/actions-poetry@v2
       - name: Setup a local virtual environment
         run: |
           poetry config virtualenvs.create true --local
           poetry config virtualenvs.in-project true --local
-          poetry lock
       - uses: actions/cache@v3
         name: Define a cache for the virtual environment based on the dependencies lock file
         with:
@@ -37,6 +24,15 @@ jobs:
       - name: Install dependencies
         run: |
           poetry install
-      - name: Test with pytest
+      - name: mypy
         run: |
-          poetry run pytest --cov=focus_validator --cov-fail-under=90
+          poetry run mypy focus_validator/
+      - name: isort
+        run: |
+          poetry run isort focus_validator/ -c
+      - name: black
+        run: |
+          poetry run black focus_validator/ --check
+      - name: flake8
+        run: |
+          poetry run flake8 focus_validator/

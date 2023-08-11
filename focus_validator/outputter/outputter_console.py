@@ -60,4 +60,10 @@ class ConsoleOutputter:
 
         if result_set.failure_cases is not None:
             print("Checks summary:")
-            print(tabulate(result_set.failure_cases, headers="keys", tablefmt="psql"))
+            print(
+                tabulate(
+                    tabular_data=result_set.failure_cases,  # type: ignore
+                    headers="keys",
+                    tablefmt="psql",
+                )
+            )

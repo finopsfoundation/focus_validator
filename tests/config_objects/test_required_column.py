@@ -4,8 +4,11 @@ from uuid import uuid4
 import pandas as pd
 from pandera.errors import SchemaErrors
 
-from focus_validator.config_objects import Rule, Override
-from focus_validator.config_objects.common import DataTypes, DataTypeCheck
+from focus_validator.config_objects import Override, Rule
+from focus_validator.config_objects.common import DataTypeCheck, DataTypes
+from focus_validator.config_objects.focus_to_pandera_schema_converter import (
+    FocusToPanderaSchemaConverter,
+)
 from focus_validator.rules.spec_rules import ValidationResult
 
 
@@ -20,7 +23,7 @@ class TestRequiredColumn(TestCase):
                 "tests/samples/rule_configs/valid_rule_config_required.yaml"
             ),
         ]
-        schema, _ = Rule.generate_schema(rules=rules)
+        schema, _ = FocusToPanderaSchemaConverter.generate_pandera_schema(rules=rules)
         self.assertIn("ChargeType", schema.columns)
         self.assertTrue(schema.columns["ChargeType"].required)
 
@@ -33,7 +36,7 @@ class TestRequiredColumn(TestCase):
                 "tests/samples/rule_configs/valid_rule_config_required.yaml"
             ),
         ]
-        schema, _ = Rule.generate_schema(
+        schema, _ = FocusToPanderaSchemaConverter.generate_pandera_schema(
             rules=rules, override_config=Override(overrides=["FV-D001-0001"])
         )
         self.assertIn("ChargeType", schema.columns)
@@ -44,7 +47,7 @@ class TestRequiredColumn(TestCase):
         random_test_name = str(uuid4())
 
         sample_data = pd.read_csv("tests/samples/multiple_failure_examples.csv")
-        schema, checklist = Rule.generate_schema(
+        schema, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
             rules=[
                 Rule(
                     check_id=str(uuid4()),

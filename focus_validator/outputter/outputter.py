@@ -1,7 +1,7 @@
+from focus_validator.exceptions import FocusNotImplementedError
 from focus_validator.outputter.outputter_console import ConsoleOutputter
 from focus_validator.outputter.outputter_unittest import UnittestOutputter
 from focus_validator.rules.spec_rules import ValidationResult
-from focus_validator.exceptions import FocusNotImplementedError
 
 
 class Outputter:

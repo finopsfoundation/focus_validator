@@ -2,6 +2,9 @@ from unittest import TestCase
 
 from focus_validator.config_objects import Rule
 from focus_validator.config_objects.common import ChecklistObjectStatus
+from focus_validator.config_objects.focus_to_pandera_schema_converter import (
+    FocusToPanderaSchemaConverter,
+)
 from focus_validator.config_objects.rule import InvalidRule
 
 
@@ -42,7 +45,9 @@ class TestLoadBadRuleConfigFile(TestCase):
             ),
         ]
 
-        _, checklist = Rule.generate_schema(rules=rules, override_config=None)
+        _, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
+            rules=rules, override_config=None
+        )
         self.assertEqual(
             checklist["FV-D001-0001"].status, ChecklistObjectStatus.PENDING
         )
@@ -79,7 +84,9 @@ class TestLoadBadRuleConfigFile(TestCase):
             Rule.load_yaml("tests/samples/rule_configs/valid_rule_config.yaml"),
         ]
 
-        _, checklist = Rule.generate_schema(rules=rules, override_config=None)
+        _, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
+            rules=rules, override_config=None
+        )
         self.assertEqual(
             checklist["FV-D001-0001"].status, ChecklistObjectStatus.ERRORED
         )

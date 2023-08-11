@@ -5,6 +5,9 @@ import pandera as pa
 
 from focus_validator.config_objects import Rule
 from focus_validator.config_objects.common import ValueInCheck
+from focus_validator.config_objects.focus_to_pandera_schema_converter import (
+    FocusToPanderaSchemaConverter,
+)
 
 
 class TestFriendlyNameInValuesTemplate(TestCase):
@@ -15,5 +18,7 @@ class TestFriendlyNameInValuesTemplate(TestCase):
             check=ValueInCheck(value_in=["foo", "bar"]),
             check_friendly_name="Values in {values}",
         )
-        pa_check = rule.generate_pandera_rule(check_id=str(uuid4()))
+        pa_check = FocusToPanderaSchemaConverter.__generate_pandera_check__(
+            rule=rule, check_id=str(uuid4())
+        )
         self.assertIsInstance(pa_check, pa.Check)

@@ -6,9 +6,12 @@ from pandera.errors import SchemaErrors
 from focus_validator.config_objects import Rule
 from focus_validator.config_objects.common import (
     AllowNullsCheck,
-    DataTypes,
     ChecklistObjectStatus,
     DataTypeCheck,
+    DataTypes,
+)
+from focus_validator.config_objects.focus_to_pandera_schema_converter import (
+    FocusToPanderaSchemaConverter,
 )
 from focus_validator.rules.spec_rules import ValidationResult
 
@@ -52,7 +55,9 @@ class TestNullValueCheck(TestCase):
             [{"test_dimension": "NULL"}, {"test_dimension": "some-value"}]
         )
 
-        schema, checklist = Rule.generate_schema(rules=rules, override_config=None)
+        schema, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
+            rules=rules, override_config=None
+        )
         validation_result = self.__validate_helper__(
             schema=schema, checklist=checklist, sample_data=sample_data
         )
@@ -65,7 +70,9 @@ class TestNullValueCheck(TestCase):
         sample_data = pd.DataFrame(
             [{"test_dimension": "val1"}, {"test_dimension": "val2"}]
         )
-        schema, checklist = Rule.generate_schema(rules=rules, override_config=None)
+        schema, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
+            rules=rules, override_config=None
+        )
         validation_result = self.__validate_helper__(
             schema=schema, checklist=checklist, sample_data=sample_data
         )
@@ -78,7 +85,9 @@ class TestNullValueCheck(TestCase):
         sample_data = pd.DataFrame(
             [{"test_dimension": "NULL"}, {"test_dimension": "val2"}]
         )
-        schema, checklist = Rule.generate_schema(rules=rules, override_config=None)
+        schema, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
+            rules=rules, override_config=None
+        )
         validation_result = self.__validate_helper__(
             schema=schema, checklist=checklist, sample_data=sample_data
         )
@@ -106,7 +115,9 @@ class TestNullValueCheck(TestCase):
         )
         sample_data = pd.DataFrame([{"test_dimension": "NULL"}, {"test_dimension": ""}])
 
-        schema, checklist = Rule.generate_schema(rules=rules, override_config=None)
+        schema, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
+            rules=rules, override_config=None
+        )
         validation_result = self.__validate_helper__(
             schema=schema, checklist=checklist, sample_data=sample_data
         )
@@ -136,7 +147,9 @@ class TestNullValueCheck(TestCase):
             [{"test_dimension": "NULL"}, {"test_dimension": None}]
         )
 
-        schema, checklist = Rule.generate_schema(rules=rules, override_config=None)
+        schema, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
+            rules=rules, override_config=None
+        )
         validation_result = self.__validate_helper__(
             schema=schema, checklist=checklist, sample_data=sample_data
         )
