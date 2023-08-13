@@ -1,0 +1,4 @@
+check_id: FV-D018-0003
+column_id: SubAccountName
+check:
+  column_required
