@@ -7,6 +7,9 @@ from pandera.errors import SchemaErrors
 
 from focus_validator.config_objects import Rule
 from focus_validator.config_objects.common import DataTypeCheck, DataTypes
+from focus_validator.config_objects.focus_to_pandera_schema_converter import (
+    FocusToPanderaSchemaConverter,
+)
 from focus_validator.rules.spec_rules import ValidationResult
 
 
@@ -14,7 +17,7 @@ class TestDecimalTypeCheck(TestCase):
     def test_decimal_column(self):
         random_column_id = str(uuid4())
 
-        schema, checklist = Rule.generate_schema(
+        schema, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
             rules=[
                 Rule(
                     check_id=random_column_id,
@@ -38,7 +41,7 @@ class TestDecimalTypeCheck(TestCase):
         random_column_id = str(uuid4())
         random_check_name = str(uuid4())
 
-        schema, checklist = Rule.generate_schema(
+        schema, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
             rules=[
                 Rule(
                     check_id="some-check",

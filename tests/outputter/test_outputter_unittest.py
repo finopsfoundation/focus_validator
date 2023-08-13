@@ -4,8 +4,11 @@ from random import randint
 from unittest import TestCase
 from uuid import uuid4
 
-from focus_validator.config_objects import Rule, InvalidRule
+from focus_validator.config_objects import InvalidRule, Rule
 from focus_validator.config_objects.common import DataTypeCheck, DataTypes
+from focus_validator.config_objects.focus_to_pandera_schema_converter import (
+    FocusToPanderaSchemaConverter,
+)
 from focus_validator.outputter.outputter_unittest import UnittestOutputter
 from focus_validator.rules.spec_rules import ValidationResult
 
@@ -29,7 +32,9 @@ class TestOutputterUnittest(TestCase):
             ),
         ]
 
-        _, checklist = Rule.generate_schema(rules=rules)
+        _, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
+            rules=rules
+        )
         result = ValidationResult(checklist=checklist)
         result.process_result()
 
@@ -66,7 +71,9 @@ class TestOutputterUnittest(TestCase):
                 error=random_error, error_type=random_error_type, rule_path=random_path
             )
         ]
-        _, checklist = Rule.generate_schema(rules=rules)
+        _, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
+            rules=rules
+        )
         result = ValidationResult(checklist=checklist)
         result.process_result()
 
@@ -100,7 +107,9 @@ class TestOutputterUnittest(TestCase):
             ),
         ]
 
-        _, checklist = Rule.generate_schema(rules=rules)
+        _, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
+            rules=rules
+        )
         result = ValidationResult(checklist=checklist)
         result.process_result()
 

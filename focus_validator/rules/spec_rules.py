@@ -1,14 +1,17 @@
 import os
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 import pandas as pd
 from pandera.errors import SchemaErrors
 
 from focus_validator.config_objects import (
+    ChecklistObject,
+    ChecklistObjectStatus,
     Override,
     Rule,
-    ChecklistObjectStatus,
-    ChecklistObject,
+)
+from focus_validator.config_objects.focus_to_pandera_schema_converter import (
+    FocusToPanderaSchemaConverter,
 )
 from focus_validator.exceptions import UnsupportedVersion
 
@@ -81,7 +84,9 @@ class ValidationResult:
     failure_cases: Optional[pd.DataFrame]
 
     def __init__(
-        self, checklist: Dict[str, ChecklistObject], failure_cases: pd.DataFrame = None
+        self,
+        checklist: Dict[str, ChecklistObject],
+        failure_cases: Optional[pd.DataFrame] = None,
     ):
         self.__failure_cases__ = failure_cases
         self.__checklist__ = checklist
@@ -145,7 +150,10 @@ class SpecRules:
                 yield os.path.join(root, name)
 
     def validate(self, focus_data):
-        pandera_schema, checklist = Rule.generate_schema(
+        (
+            pandera_schema,
+            checklist,
+        ) = FocusToPanderaSchemaConverter.generate_pandera_schema(
             rules=self.rules, override_config=self.override_config
         )
         try:

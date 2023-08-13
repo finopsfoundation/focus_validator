@@ -5,9 +5,12 @@ import pandas as pd
 
 from focus_validator.config_objects import Rule
 from focus_validator.config_objects.common import (
-    DataTypes,
     AllowNullsCheck,
     DataTypeCheck,
+    DataTypes,
+)
+from focus_validator.config_objects.focus_to_pandera_schema_converter import (
+    FocusToPanderaSchemaConverter,
 )
 from focus_validator.validator import Validator
 
@@ -28,7 +31,7 @@ class TestColumnNamespace(TestCase):
         random_column_id = str(uuid4())
         random_test_name = str(uuid4())
 
-        schema, checklist = Rule.generate_schema(
+        schema, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
             rules=[
                 Rule(
                     check_id=random_test_name,
