@@ -1,10 +1,8 @@
 name: Publish
-on: push
-#  create:
-#    branches:
-#      - main
-#    tags:
-#      - 'v*'
+on:
+  create:
+    tags:
+      - 'v*'
 
 jobs:
   publish:
