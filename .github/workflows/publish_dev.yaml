@@ -16,11 +16,6 @@ jobs:
 #    environment:
 #      name: pypi
 #      url: https://test.pypi.org/p/vmittal-focus
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
-        os: [ ubuntu-latest ]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
