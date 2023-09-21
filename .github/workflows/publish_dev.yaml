@@ -11,6 +11,7 @@ jobs:
   publish:
     permissions:
       id-token: write
+      contents: read
     environment:
       name: pypi
       url: https://test.pypi.org/p/vmittal-focus
