@@ -9,6 +9,9 @@ on: push
 
 jobs:
   publish:
+    if: >
+          (github.ref == 'refs/heads/main' && startsWith(github.event.ref, 'refs/tags/v\d.\d.\d$')) ||
+          (github.ref == 'refs/heads/dev' && startsWith(github.event.ref, 'refs/tags/v\d.\d.\d(dev|rc)\d$'))
     permissions:
       id-token: write
       contents: read
