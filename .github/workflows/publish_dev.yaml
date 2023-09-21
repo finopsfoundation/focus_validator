@@ -12,11 +12,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
-#    environment: release
-#    environment:
-#      name: pypi
-#      url: https://test.pypi.org/p/vmittal-focus
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - name: Set up Python ${{ matrix.python-version }}
