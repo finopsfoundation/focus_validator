@@ -1,13 +1,17 @@
+---
 name: Release
-on:
-  create:
-    branches:
-      - main
-    tags:
-      - 'v*'
+on: push
+#  create:
+#    branches:
+#      - main
+#    tags:
+#      - 'v*'
 
 jobs:
   publish:
+    environment:
+      name: pypi
+      url: https://test.pypi.org/p/vmittal-focus
     strategy:
       fail-fast: false
       matrix:
