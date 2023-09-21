@@ -1,19 +1,20 @@
-name: Release
-on:
-  create:
-    branches:
-      - main
-    tags:
-      - 'v*'
+name: Publish
+on: push
+#  create:
+#    branches:
+#      - main
+#    tags:
+#      - 'v*'
 
 jobs:
   publish:
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
-        os: [ ubuntu-latest ]
-    runs-on: ${{ matrix.os }}
+    if: >
+          (github.ref == 'refs/heads/main' && startsWith(github.event.ref, 'refs/tags/v\d.\d.\d$')) ||
+          (github.ref == 'refs/heads/dev' && startsWith(github.event.ref, 'refs/tags/v\d.\d.\d(dev|rc)\d$'))
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - name: Set up Python ${{ matrix.python-version }}
@@ -29,3 +30,4 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          verbose: true
