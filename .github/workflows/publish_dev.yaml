@@ -1,5 +1,5 @@
 ---
-name: Release
+name: Publish dev
 on: push
 #  create:
 #    branches:
@@ -9,6 +9,8 @@ on: push
 
 jobs:
   publish:
+    permissions:
+      id-token: write
     environment:
       name: pypi
       url: https://test.pypi.org/p/vmittal-focus
