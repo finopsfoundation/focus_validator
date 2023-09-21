@@ -12,9 +12,9 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    environment:
-      name: pypi
-      url: https://test.pypi.org/p/vmittal-focus
+#    environment:
+#      name: pypi
+#      url: https://test.pypi.org/p/vmittal-focus
     strategy:
       fail-fast: false
       matrix:
