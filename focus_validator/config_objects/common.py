@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import List, Literal
 
-from pydantic.v1 import BaseModel
+from pydantic import BaseModel
 
 
 class AllowNullsCheck(BaseModel):

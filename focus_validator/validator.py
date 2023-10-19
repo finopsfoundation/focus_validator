@@ -1,10 +1,12 @@
-from pkg_resources import resource_filename
+import importlib.resources
 
 from focus_validator.data_loaders import data_loader
 from focus_validator.outputter.outputter import Outputter
 from focus_validator.rules.spec_rules import SpecRules
 
-DEFAULT_VERSION_SETS_PATH = resource_filename("focus_validator.rules", "version_sets")
+DEFAULT_VERSION_SETS_PATH = str(
+    importlib.resources.files("focus_validator.rules").joinpath("version_sets")
+)
 
 
 class Validator:

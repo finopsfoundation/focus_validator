@@ -52,10 +52,10 @@ class TestCheckTypeFriendlyName(TestCase):
         model_factory = ModelFactory.create_factory(model=Rule)
 
         sample_data_type = model_factory.build()
-        with self.assertRaises(TypeError) as cm:
+        with self.assertRaises(ValidationError) as cm:
             sample_data_type.check_type_friendly_name = "new_value"
         self.assertIn(
-            '"Rule" is immutable and does not support item assignment',
+            "Instance is frozen",
             str(cm.exception),
         )
 
@@ -69,5 +69,6 @@ class TestCheckTypeFriendlyName(TestCase):
             )
         self.assertEqual(len(cm.exception.errors()), 1)
         self.assertIn(
-            "value is not a valid enumeration member; permitted:", str(cm.exception)
+            "Input should be 'string', 'decimal', 'datetime' or 'currency-code'",
+            str(cm.exception),
         )

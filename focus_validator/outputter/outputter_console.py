@@ -19,7 +19,7 @@ class ConsoleOutputter:
             else:
                 check_type = "ERRORED"
 
-            row_obj = value.dict()
+            row_obj = value.model_dump()
             row_obj.update(
                 {
                     "check_type": check_type,

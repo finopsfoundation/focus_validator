@@ -1,7 +1,8 @@
 from typing import Optional, Union
 
 import yaml
-from pydantic.v1 import BaseModel, root_validator
+from pydantic import BaseModel, model_validator, ConfigDict
+from pydantic_core.core_schema import ValidationInfo
 
 from focus_validator.config_objects.common import (
     SIMPLE_CHECKS,
@@ -34,18 +35,24 @@ class Rule(BaseModel):
     ] = None  # auto generated or else can be overwritten
     check_type_friendly_name: Optional[str] = None
 
-    class Config:
-        extra = "forbid"  # prevents config from containing any undesirable keys
-        frozen = (
-            True  # prevents any modification to any attribute onces loaded from config
-        )
+    model_config = ConfigDict(
+        extra="forbid",  # prevents config from containing any undesirable keys
+        frozen=True,  # prevents any modification to any attribute onces loaded from config
+    )
 
-    @root_validator
+    # @root_validator
+    @model_validator(mode="before")
+    @classmethod
     def root_val(cls, values):
         """
         Root validator that checks for all options passed in the config and generate missing options.
         """
 
+        print(values)
+        # values = info.data or {}
+        # print(info.data)
+        # print(info)
+        # print(RuntimeError(info.data))
         check = values.get("check")
         check_friendly_name = values.get("check_friendly_name")
         column_id = values.get("column_id")
@@ -80,7 +87,7 @@ class Rule(BaseModel):
             ):
                 rule_obj["column"] = f"{column_namespace}:{rule_obj['column']}"
 
-            return Rule.parse_obj(rule_obj)
+            return Rule.model_validate(rule_obj)
         except Exception as e:
             return InvalidRule(
                 rule_path=rule_path, error=str(e), error_type=e.__class__.__name__
