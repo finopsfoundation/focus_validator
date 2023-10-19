@@ -10,7 +10,7 @@ include = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.8.1"
+python = "^3.8.3 || 3.12"
 pandas = "^2"
 tabulate = "*"
 pyarrow = "*"
@@ -20,6 +20,9 @@ pyyaml = "*"
 requests = "*"
 # pandera next release supports pydantic, need to revert back to once available
 pandera = { git = "https://github.com/unionai-oss/pandera", branch = "main" }
+
+# for Python 3.12, force higher version of numpy
+numpy = {version = "^1.26", python = "~3.12"}
 
 [tool.poetry.group.dev.dependencies]
 black = { extras = ["d"], version = "^23.7.0" }
