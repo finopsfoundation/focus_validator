@@ -48,11 +48,6 @@ class Rule(BaseModel):
         Root validator that checks for all options passed in the config and generate missing options.
         """
 
-        print(values)
-        # values = info.data or {}
-        # print(info.data)
-        # print(info)
-        # print(RuntimeError(info.data))
         check = values.get("check")
         check_friendly_name = values.get("check_friendly_name")
         column_id = values.get("column_id")
