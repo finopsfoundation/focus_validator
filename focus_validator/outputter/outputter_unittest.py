@@ -121,7 +121,7 @@ class UnittestOutputter:
             )
 
         # format the results for processing
-        rows = [v.dict() for v in result_set.checklist.values()]
+        rows = [v.model_dump() for v in result_set.checklist.values()]
 
         # Setup a Formatter and initiate with result totals
         formatter = UnittestFormatter(

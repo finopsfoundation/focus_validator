@@ -20,6 +20,7 @@ jobs:
         uses: abatilo/actions-poetry@v2
       - name: Install dependencies
         run: |
+          find -type l -exec bash -c 'ln -f "$(readlink -m "$0")" "$0"' {} \;
           poetry build
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
