@@ -38,6 +38,10 @@ def check_value_in(pandas_obj: pd.Series, allowed_values):
 def check_datetime_dtype(pandas_obj: pd.Series):
     def __validate_date_obj__(value: Union[str, datetime]):
         if isinstance(value, str):
+            # fix of python 3.10 and lower, strings ending with Z are not parsed automatically
+            if value.endswith('Z'):
+                value = value.replace("Z", "+00:00")
+
             try:
                 value = datetime.fromisoformat(value)
             except ValueError:
