@@ -1,7 +1,7 @@
 from typing import Optional, Union
 
 import yaml
-from pydantic import BaseModel, model_validator, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from pydantic_core.core_schema import ValidationInfo
 
 from focus_validator.config_objects.common import (
