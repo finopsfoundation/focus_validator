@@ -26,6 +26,7 @@ numpy = [
     {version = "~1.24", python = "~3.8"},
     {version = "~1.26", python = "~3.12"}
 ]
+pytz = "^2023.3.post1"
 
 [tool.poetry.group.dev.dependencies]
 black = { extras = ["d"], version = "^23.7.0" }

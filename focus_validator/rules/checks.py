@@ -1,5 +1,5 @@
-import re
-from datetime import datetime
+from datetime import datetime, UTC
+from typing import Union
 
 import pandas as pd
 from pandera import extensions
@@ -36,17 +36,19 @@ def check_value_in(pandas_obj: pd.Series, allowed_values):
 
 @extensions.register_check_method()
 def check_datetime_dtype(pandas_obj: pd.Series):
-    pattern = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+    def __validate_date_obj__(value: Union[str, datetime]):
+        if isinstance(value, str):
+            try:
+                value = datetime.fromisoformat(value)
+            except ValueError:
+                # failed to parse iso string
+                return False
 
-    def __validate_date_obj__(value: str):
-        if not (isinstance(value, str) and re.match(pattern, value)):
+        if not isinstance(value, datetime):
             return False
 
-        try:
-            datetime.strptime(value[:-1], "%Y-%m-%dT%H:%M:%S")
-            return True
-        except ValueError:
-            return False
+        # match timezone to ensure datetime is in UTC
+        return value.tzinfo == UTC
 
     return pd.Series(map(__validate_date_obj__, pandas_obj.values))
 
