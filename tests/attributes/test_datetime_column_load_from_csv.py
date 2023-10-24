@@ -1,8 +1,9 @@
 import tempfile
-from datetime import datetime, UTC
+from datetime import datetime
 from unittest import TestCase
 from uuid import uuid4
 
+import pytz
 import pandas as pd
 import pytz
 from pandera.errors import SchemaErrors
@@ -76,7 +77,7 @@ class TestDatetimeColumnLoadFromCSV(TestCase):
         """
 
         random_column_id = str(uuid4())
-        utc_datetime = datetime.now(UTC)
+        utc_datetime = datetime.now(tz=pytz.UTC)
 
         sample_df = pd.DataFrame([{random_column_id: utc_datetime}])
 

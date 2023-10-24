@@ -1,4 +1,4 @@
 check_id: FV-D018-0001
 column_id: SubAccountName
 check:
-  data_type: datetime
+  data_type: string
