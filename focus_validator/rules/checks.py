@@ -1,4 +1,4 @@
-from datetime import datetime, UTC
+from datetime import datetime
 from typing import Union
 
 import pandas as pd
@@ -48,7 +48,7 @@ def check_datetime_dtype(pandas_obj: pd.Series):
             return False
 
         # match timezone to ensure datetime is in UTC
-        return value.tzinfo == UTC
+        return value.tzname() == "UTC"
 
     return pd.Series(map(__validate_date_obj__, pandas_obj.values))
 
