@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Union
 
+import numpy as np
 import pandas as pd
 from pandera import extensions
 
@@ -48,11 +49,10 @@ def check_datetime_dtype(pandas_obj: pd.Series):
                 # failed to parse iso string
                 return False
 
-        if not isinstance(value, datetime):
-            return False
-
-        # match timezone to ensure datetime is in UTC
-        return value.tzname() == "UTC"
+        if isinstance(value, datetime):
+            return value.tzname() == "UTC"
+        else:
+            return isinstance(value, np.datetime64)
 
     return pd.Series(map(__validate_date_obj__, pandas_obj.values))
 
