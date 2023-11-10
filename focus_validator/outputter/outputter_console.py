@@ -1,3 +1,4 @@
+import math
 import pandas as pd
 from tabulate import tabulate
 
@@ -27,6 +28,7 @@ class ConsoleOutputter:
                 }
             )
             rows.append(row_obj)
+
         df = pd.DataFrame(rows)
         df.rename(
             columns={
@@ -59,11 +61,35 @@ class ConsoleOutputter:
         print(tabulate(checklist, headers="keys", tablefmt="psql"))
 
         if result_set.failure_cases is not None:
+            aggregated_failures = result_set.failure_cases.groupby(by=['Check Name', 'Column', 'Description'], as_index=False).aggregate(lambda x: maybe_collapse_range(x.unique().tolist()))
+
             print("Checks summary:")
             print(
                 tabulate(
-                    tabular_data=result_set.failure_cases,  # type: ignore
+                    tabular_data=aggregated_failures, # type: ignore
                     headers="keys",
                     tablefmt="psql",
                 )
             )
+
+def maybe_collapse_range(l):
+    start = None
+    i = None
+    collapsed = []
+    for n in sorted(l):
+        if not isinstance(n, int) and not (isinstance(n, float) and not math.isnan(n)):
+            return l
+        elif i is None:
+            start = i = n
+        elif n == i + 1:
+            i = n
+        elif i:
+            if i == start: collapsed.append(f'{int(start)}')
+            else: collapsed.append(f'{int(start)}-{int(i)}')
+            start = i = n
+
+    if start is not None:
+        if i == start: collapsed.append(int(start))
+        else: collapsed.append(f'{int(start)}-{int(i)}')
+
+    return collapsed
