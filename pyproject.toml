@@ -6,8 +6,16 @@ authors = []
 readme = "README.md"
 packages = [{ include = "focus_validator" }]
 include = [
-    { path = "focus_validator/rules/version_sets/0.5/*", format = ["sdist", "wheel"] }
+    { path = "focus_validator/rules/version_sets/0.5/*" }
 ]
+# TODO: For some reason, this doesn't exclude anything
+exclude = [
+    { path = "focus_validator/rules/base_rule_definitions/*" }
+]
+
+[tool.poetry.build]
+generate-setup-file = false
+script = "build.py"
 
 [tool.poetry.dependencies]
 python = "^3.8.3"
@@ -45,7 +53,7 @@ pre-commit = "^3.3.3"
 bump2version = "^1.0.1"
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core", "pyyaml"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
