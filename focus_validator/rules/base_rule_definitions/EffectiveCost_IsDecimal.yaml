@@ -1,0 +1,3 @@
+column_id: EffectiveCost
+check:
+  data_type: decimal

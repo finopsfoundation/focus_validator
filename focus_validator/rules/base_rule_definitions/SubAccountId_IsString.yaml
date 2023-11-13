@@ -1,0 +1,3 @@
+column_id: SubAccountId
+check:
+  data_type: string

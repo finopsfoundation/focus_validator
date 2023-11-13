@@ -1,0 +1,6 @@
+column_id: ChargeFrequency
+check:
+  value_in:
+    - "One-Time"
+    - "Recurring"
+    - "Usage-Based"

@@ -1,0 +1,3 @@
+column_id: CommitmentDiscountId
+check:
+  allow_nulls: true

@@ -1,0 +1,3 @@
+column_id: UsageUnit
+check:
+  data_type: string

@@ -33,7 +33,7 @@ def main():
         help="Allow transitional rules in validation",
     )
     parser.add_argument(
-        "--validate-version", default="0.5", help="Version of FOCUS to validate against"
+        "--validate-version", default="1.0", help="Version of FOCUS to validate against"
     )
     parser.add_argument(
         "--rule-set-path",

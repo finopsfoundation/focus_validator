@@ -1,0 +1,3 @@
+column_id: Tags
+check:
+  column_required

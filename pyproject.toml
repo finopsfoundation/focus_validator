@@ -6,7 +6,8 @@ authors = []
 readme = "README.md"
 packages = [{ include = "focus_validator" }]
 include = [
-    { path = "focus_validator/rules/version_sets/0.5/*" }
+    { path = "focus_validator/rules/version_sets/0.5/*" },
+    { path = "focus_validator/rules/version_sets/1.0/*" }
 ]
 # TODO: For some reason, this doesn't exclude anything
 exclude = [

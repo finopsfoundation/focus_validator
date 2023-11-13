@@ -85,6 +85,6 @@ class TestCheckTypeFriendlyName(TestCase):
             )
         self.assertEqual(len(cm.exception.errors()), 1)
         self.assertIn(
-            "Input should be 'string', 'decimal', 'datetime' or 'currency-code'",
+            "Input should be 'string', 'decimal', 'datetime', 'currency-code' or 'stringified-json-object'",
             str(cm.exception),
         )

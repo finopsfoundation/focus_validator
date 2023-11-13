@@ -1,7 +1,6 @@
 import math
 
 import pandas as pd
-from tabulate import tabulate
 
 from focus_validator.config_objects import Rule
 from focus_validator.rules.spec_rules import ValidationResult
@@ -56,33 +55,36 @@ class ConsoleOutputter:
 
     def write(self, result_set: ValidationResult):
         self.result_set = result_set
-
-        checklist = self.__restructure_check_list__(result_set)
-        print("Checklist:")
-        print(tabulate(checklist, headers="keys", tablefmt="psql"))
-
         if result_set.failure_cases is not None:
             aggregated_failures = result_set.failure_cases.groupby(
-                by=["Check Name", "Column", "Description"], as_index=False
+                by=["Check Name", "Description"], as_index=False
             ).aggregate(lambda x: collapse_occurrence_range(x.unique().tolist()))
 
-            print("Checks summary:")
-            print(
-                tabulate(
-                    tabular_data=aggregated_failures,  # type: ignore
-                    headers="keys",
-                    tablefmt="psql",
+            print("Errors encountered:")
+            for _, fail in aggregated_failures.iterrows():
+                print(
+                    f'{fail["Check Name"]} failed:\n\tDescription: {fail["Description"]}\n\tRows: {fail["Row #"] if fail["Row #"] else "(whole file)"}\n\tExample values: {fail["Values"] if fail["Values"] else "(none)"}\n'
                 )
-            )
+            print("Validation failed!")
+        else:
+            print("Validation succeeded.")
 
 
 def collapse_occurrence_range(occurrence_range: list):
     start = None
     i = None
     collapsed = []
+
+    # Edge case
+    if len(occurrence_range) == 1:
+        if isinstance(occurrence_range[0], float) and math.isnan(occurrence_range[0]):
+            return ""
+        if occurrence_range[0] is None:
+            return ""
+
     for n in sorted(occurrence_range):
         if not isinstance(n, int) and not (isinstance(n, float) and not math.isnan(n)):
-            return occurrence_range
+            return ",".join([str(x) for x in occurrence_range])
         elif i is None:
             start = i = int(n)
         elif n == i + 1:
@@ -100,4 +102,4 @@ def collapse_occurrence_range(occurrence_range: list):
         else:
             collapsed.append(f"{start}-{i}")
 
-    return collapsed
+    return ",".join(collapsed)

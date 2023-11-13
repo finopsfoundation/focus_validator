@@ -1,0 +1,3 @@
+column_id: ResourceType
+check:
+  data_type: string

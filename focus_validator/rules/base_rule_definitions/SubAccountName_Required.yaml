@@ -1,3 +1,2 @@
 column_id: SubAccountName
-check:
-  column_required
+check: column_required

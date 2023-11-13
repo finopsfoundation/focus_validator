@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from typing import Union
 
@@ -108,3 +109,15 @@ def check_currency_code_dtype(pandas_obj: pd.Series):
     return pd.Series(
         map(lambda v: isinstance(v, str) and v in currency_codes, pandas_obj.values)
     )
+
+
+@extensions.register_check_method()
+def check_stringified_json_object_dtype(pandas_obj: pd.Series):
+    def __validate_stringified_json_object__(value: str):
+        try:
+            parsed = json.loads(value)
+            return isinstance(parsed, dict)
+        except Exception:
+            return False
+
+    return pd.Series(map(__validate_stringified_json_object__, pandas_obj.values))

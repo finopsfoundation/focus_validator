@@ -1,0 +1,3 @@
+column_id: Tags
+check:
+  data_type: stringified-json-object

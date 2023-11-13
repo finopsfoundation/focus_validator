@@ -1,0 +1,3 @@
+column_id: ChargeFrequency
+check:
+  data_type: string

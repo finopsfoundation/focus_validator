@@ -1,0 +1,9 @@
+column_id: SkuPriceId
+check_friendly_name: SkuPriceId must be set for certain values of ChargeType
+check:
+  sql_query: |
+    SELECT CASE
+        WHEN ChargeType IN ('Purchase', 'Usage', 'Refund') AND SkuPriceId IS NULL THEN FALSE
+        ELSE TRUE
+    END AS check_output
+    FROM df;

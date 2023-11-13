@@ -37,6 +37,7 @@ class DataTypes(Enum):
     DECIMAL = "decimal"
     DATETIME = "datetime"
     CURRENCY_CODE = "currency-code"
+    STRINGIFIED_JSON_OBJECT = "stringified-json-object"
 
 
 class DataTypeCheck(BaseModel):
