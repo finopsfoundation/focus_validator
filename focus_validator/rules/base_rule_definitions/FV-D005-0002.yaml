@@ -1,4 +1,0 @@
-check_id: FV-D005-0002
-column_id: BillingAccountName
-check:
-  allow_nulls: True

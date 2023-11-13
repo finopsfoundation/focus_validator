@@ -1,4 +1,0 @@
-check_id: FV-D017-0001
-column_id: ChargePeriodEnd
-check:
-  data_type: datetime

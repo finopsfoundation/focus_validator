@@ -1,3 +1,0 @@
-check_id: FV-D001-0002
-column_id: ChargeType
-check: column_required

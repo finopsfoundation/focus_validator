@@ -1,0 +1,3 @@
+column_id: BilledCurrency
+check:
+  data_type: currency-code

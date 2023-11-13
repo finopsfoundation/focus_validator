@@ -1,3 +1,4 @@
+import os
 from itertools import groupby
 from typing import Dict, List, Optional, Set, Union
 
@@ -151,7 +152,7 @@ class FocusToPanderaSchemaConverter:
         for rule in rules:
             if isinstance(rule, InvalidRule):
                 checklist[rule.rule_path] = ChecklistObject(
-                    check_name=rule.rule_path,
+                    check_name=os.path.splitext(os.path.basename(rule.rule_path))[0],
                     column_id="Unknown",
                     error=f"{rule.error_type}: {rule.error}",
                     status=ChecklistObjectStatus.ERRORED,

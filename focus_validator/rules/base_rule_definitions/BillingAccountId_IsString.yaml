@@ -1,0 +1,3 @@
+column_id: BillingAccountId
+check:
+  data_type: string

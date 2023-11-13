@@ -1,0 +1,3 @@
+column_id: BilledCost
+check:
+  data_type: decimal

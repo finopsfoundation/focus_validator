@@ -1,0 +1,3 @@
+column_id: ChargePeriodStart
+check:
+  data_type: datetime

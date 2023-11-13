@@ -1,5 +1,4 @@
 column_id: ChargeType
-check_friendly_name: "ChargeType must have a value from the list: {values}."
 check:
   value_in:
     - "Adjustment"
