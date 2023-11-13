@@ -10,6 +10,7 @@ from focus_validator.config_objects.common import (
     DataTypeCheck,
     ValueInCheck,
     generate_check_friendly_name,
+    SQLQueryCheck,
 )
 
 
@@ -27,7 +28,9 @@ class Rule(BaseModel):
 
     check_id: str
     column_id: str
-    check: Union[SIMPLE_CHECKS, AllowNullsCheck, ValueInCheck, DataTypeCheck]
+    check: Union[
+        SIMPLE_CHECKS, AllowNullsCheck, ValueInCheck, DataTypeCheck, SQLQueryCheck
+    ]
 
     check_friendly_name: Optional[
         str

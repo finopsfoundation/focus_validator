@@ -8,6 +8,7 @@ from focus_validator.config_objects.common import (
     AllowNullsCheck,
     DataTypeCheck,
     ValueInCheck,
+    SQLQueryCheck,
 )
 
 
@@ -53,6 +54,8 @@ class TestCheckFriendlyName(TestCase):
                     random_model.check_friendly_name,
                     f"{random_column_name} must have a value from the list: {options}.",
                 )
+            elif isinstance(random_model.check, SQLQueryCheck):
+                pass
             else:
                 raise NotImplementedError(
                     f"check_type: {random_model.check} not implemented"

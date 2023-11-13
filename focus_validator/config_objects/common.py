@@ -1,7 +1,8 @@
 from enum import Enum
 from typing import List, Literal
 
-from pydantic import BaseModel
+import sqlglot
+from pydantic import BaseModel, field_validator
 
 
 class AllowNullsCheck(BaseModel):
@@ -10,6 +11,22 @@ class AllowNullsCheck(BaseModel):
 
 class ValueInCheck(BaseModel):
     value_in: List[str]
+
+
+class SQLQueryCheck(BaseModel):
+    sql_query: str
+
+    @field_validator("sql_query")
+    def check_sql_query(cls, sql_query):
+        returned_columns = [
+            column.alias
+            for column in sqlglot.parse_one(sql_query).find_all(sqlglot.exp.Alias)
+        ]
+
+        assert returned_columns == [
+            "check_output"
+        ], "SQL query must only return a column called 'check_output'"
+        return sql_query
 
 
 SIMPLE_CHECKS = Literal["check_unique", "column_required"]

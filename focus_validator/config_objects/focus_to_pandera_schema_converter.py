@@ -11,6 +11,7 @@ from focus_validator.config_objects.common import (
     DataTypeCheck,
     DataTypes,
     ValueInCheck,
+    SQLQueryCheck,
 )
 from focus_validator.config_objects.override import Override
 from focus_validator.exceptions import FocusNotImplementedError
@@ -39,6 +40,10 @@ class FocusToPanderaSchemaConverter:
         elif isinstance(check, ValueInCheck):
             return pa.Check.check_value_in(
                 allowed_values=check.value_in, error=error_string
+            )
+        elif isinstance(check, SQLQueryCheck):
+            return pa.Check.check_sql_query(
+                sql_query=check.sql_query, error=error_string
             )
         elif isinstance(check, AllowNullsCheck):
             return pa.Check.check_not_null(

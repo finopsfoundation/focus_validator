@@ -3,6 +3,7 @@ from typing import Union
 
 import numpy as np
 import pandas as pd
+import pandasql
 from pandera import extensions
 
 from focus_validator.utils.download_currency_codes import get_currency_codes
@@ -33,6 +34,13 @@ def check_unique(pandas_obj: pd.Series):
 @extensions.register_check_method()
 def check_value_in(pandas_obj: pd.Series, allowed_values):
     return pandas_obj.isin(allowed_values)
+
+
+@extensions.register_check_method()
+def check_sql_query(pandas_obj: pd.Series, sql_query: str):
+    df = pandas_obj.to_frame()
+    validated_df = pandasql.sqldf(sql_query, locals())["check_output"]
+    return validated_df
 
 
 @extensions.register_check_method()
