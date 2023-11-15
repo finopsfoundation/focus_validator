@@ -37,10 +37,8 @@ def check_value_in(pandas_obj: pd.Series, allowed_values):
 
 
 @extensions.register_check_method()
-def check_sql_query(pandas_obj: pd.Series, sql_query: str):
-    df = pandas_obj.to_frame()
-    validated_df = pandasql.sqldf(sql_query, locals())["check_output"]
-    return validated_df
+def check_sql_query(df: pd.Series, sql_query: str):
+    return pandasql.sqldf(sql_query, locals())["check_output"]
 
 
 @extensions.register_check_method()
