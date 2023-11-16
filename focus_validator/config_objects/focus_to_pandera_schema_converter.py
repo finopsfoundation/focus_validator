@@ -1,7 +1,9 @@
 from itertools import groupby
 from typing import Dict, List, Optional, Set, Union
 
+import pandas as pd
 import pandera as pa
+import sqlglot
 from pandera.api.pandas.types import PandasDtypeInputTypes
 
 from focus_validator.config_objects import ChecklistObject, InvalidRule, Rule
@@ -15,6 +17,14 @@ from focus_validator.config_objects.common import (
 )
 from focus_validator.config_objects.override import Override
 from focus_validator.exceptions import FocusNotImplementedError
+
+
+def __groupby_fnc__(df: pd.DataFrame, column_alias: List[str]):
+    """
+    Custom groupby function to be used with pandera check_sql_query, allowing null values
+    Default groupby function does not allow null values
+    """
+    return df.groupby(column_alias, dropna=False)
 
 
 class FocusToPanderaSchemaConverter:
@@ -42,8 +52,17 @@ class FocusToPanderaSchemaConverter:
                 allowed_values=check.value_in, error=error_string
             )
         elif isinstance(check, SQLQueryCheck):
+            column_alias = [
+                column.alias_or_name
+                for column in sqlglot.parse_one(check.sql_query).find_all(
+                    sqlglot.exp.Column
+                )
+            ]
             return pa.Check.check_sql_query(
-                sql_query=check.sql_query, error=error_string
+                sql_query=check.sql_query,
+                error=error_string,
+                column_alias=column_alias,
+                groupby=lambda df: __groupby_fnc__(df=df, column_alias=column_alias),
             )
         elif isinstance(check, AllowNullsCheck):
             return pa.Check.check_not_null(
@@ -110,7 +129,6 @@ class FocusToPanderaSchemaConverter:
         schema_dict: Dict[str, pa.Column],
         checklist,
         overrides,
-        dataframe_wide_checks,
     ):
         try:
             pa_column = schema_dict[column_id]
@@ -139,10 +157,7 @@ class FocusToPanderaSchemaConverter:
                     check = cls.__generate_pandera_check__(
                         rule=rule, check_id=rule.check_id
                     )
-                    if isinstance(rule.check, SQLQueryCheck):
-                        dataframe_wide_checks.append(check)
-                    else:
-                        pa_column.checks.append(check)
+                    pa_column.checks.append(check)
 
     @classmethod
     def generate_pandera_schema(
@@ -155,9 +170,6 @@ class FocusToPanderaSchemaConverter:
         overrides: Set[str] = set()
         if override_config:
             overrides = set(override_config.overrides)
-
-        # checks that are not column specific
-        dataframe_wide_checks = []
 
         validation_rules = []
         for rule in rules:
@@ -191,9 +203,8 @@ class FocusToPanderaSchemaConverter:
                 column_rules=list(column_rules),
                 overrides=overrides,
                 schema_dict=schema_dict,
-                dataframe_wide_checks=dataframe_wide_checks,
             )
         return (
-            pa.DataFrameSchema(schema_dict, strict=False, checks=dataframe_wide_checks),
+            pa.DataFrameSchema(schema_dict, strict=False),
             checklist,
         )
