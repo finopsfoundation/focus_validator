@@ -1,3 +1,4 @@
+import json
 from unittest import TestCase
 
 import pandas as pd
@@ -46,7 +47,7 @@ class TestSQLQueryCheck(TestCase):
             schema.validate(sample_data, lazy=True)
             failure_cases = None
         except SchemaErrors as e:
-            failure_cases = e.failure_cases
+            failure_cases: pd.DataFrame = e.failure_cases
 
         validation_result = ValidationResult(
             checklist=checklist, failure_cases=failure_cases
@@ -86,7 +87,12 @@ class TestSQLQueryCheck(TestCase):
             allow_nulls=True, data_type=DataTypes.STRING
         )
         sample_data = pd.DataFrame(
-            [{"test_dimension": "NULL"}, {"test_dimension": "some-value"}]
+            [
+                {"test_dimension": "NULL", "column_2": "some-value"},
+                {"test_dimension": "some-value", "column_2": "some-value"},
+                {"test_dimension": "some-value", "column_2": "some-value"},
+                {"test_dimension": "NULL", "column_2": "some-value"},
+            ]
         )
 
         schema, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
@@ -97,16 +103,26 @@ class TestSQLQueryCheck(TestCase):
         )
 
         failure_cases_dict = validation_result.failure_cases.to_dict(orient="records")
-        self.assertEqual(len(failure_cases_dict), 1)
+
+        self.assertEqual(len(failure_cases_dict), 2)
         self.assertEqual(
-            failure_cases_dict[0],
-            {
-                "Column": "test_dimension",
-                "Check Name": "sql_check_for_multiple_columns",
-                "Description": " None",
-                "Values": "NULL",
-                "Row #": 1,
-            },
+            failure_cases_dict,
+            [
+                {
+                    "Column": "test_dimension",
+                    "Check Name": "sql_check_for_multiple_columns",
+                    "Description": " None",
+                    "Values": {"test_dimension": "NULL"},
+                    "Row #": 1,
+                },
+                {
+                    "Column": "test_dimension",
+                    "Check Name": "sql_check_for_multiple_columns",
+                    "Description": " None",
+                    "Values": {"test_dimension": "NULL"},
+                    "Row #": 4,
+                },
+            ],
         )
 
     def test_pass_case(self):

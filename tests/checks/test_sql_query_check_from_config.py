@@ -1,7 +1,9 @@
+import json
 import tempfile
 from unittest import TestCase
 
 import pandas as pd
+from numpy import nan
 from pandera.errors import SchemaErrors
 
 from focus_validator.config_objects import Rule
@@ -67,6 +69,11 @@ class TestSQLQueryCheckConfig(TestCase):
                     "SkuPriceId": "random-value",
                     "ChargeType": "Purchase",
                 },
+                {
+                    "test_dimension": "some-value",
+                    "SkuPriceId": None,
+                    "ChargeType": "Purchase",
+                },
             ]
         )
 
@@ -85,17 +92,12 @@ class TestSQLQueryCheckConfig(TestCase):
         validation_result.process_result()
 
         failure_cases_dict = validation_result.failure_cases.to_dict(orient="records")
-        self.assertEqual(len(failure_cases_dict), 1)
+        self.assertEqual(len(failure_cases_dict), 2)
 
         # row # does not match nan, need to fix thsi
-        failure_cases_dict[0].pop("Row #")
-
+        # failure_cases_dict[0]
+        json_error_string = json.dumps(failure_cases_dict)
         self.assertEqual(
-            failure_cases_dict[0],
-            {
-                "Column": "SkuPriceId",
-                "Check Name": "SkuPriceId",
-                "Description": " SkuPriceId must be set for certain values of ChargeType",
-                "Values": "ValueError(\"[{'ChargeType': 'Purchase', 'SkuPriceId': nan}]\")",
-            },
+            json_error_string,
+            '[{"Column": "SkuPriceId", "Check Name": "SkuPriceId", "Description": " SkuPriceId must be set for certain values of ChargeType", "Values": {"ChargeType": "Purchase", "SkuPriceId": NaN}, "Row #": 2}, {"Column": "SkuPriceId", "Check Name": "SkuPriceId", "Description": " SkuPriceId must be set for certain values of ChargeType", "Values": {"ChargeType": "Purchase", "SkuPriceId": NaN}, "Row #": 4}]',
         )

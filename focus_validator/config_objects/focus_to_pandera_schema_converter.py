@@ -12,11 +12,15 @@ from focus_validator.config_objects.common import (
     ChecklistObjectStatus,
     DataTypeCheck,
     DataTypes,
-    ValueInCheck,
     SQLQueryCheck,
+    ValueInCheck,
 )
 from focus_validator.config_objects.override import Override
 from focus_validator.exceptions import FocusNotImplementedError
+
+# group index column adds a column to the dataframe which is used to group the dataframe, otherwise the default
+# groupby function does not carry forward all rows in the dataframe causing it to not have row numbers
+GROUP_INDEX_COLUMN = "group_index_column"
 
 
 def __groupby_fnc__(df: pd.DataFrame, column_alias: List[str]):
@@ -24,7 +28,8 @@ def __groupby_fnc__(df: pd.DataFrame, column_alias: List[str]):
     Custom groupby function to be used with pandera check_sql_query, allowing null values
     Default groupby function does not allow null values
     """
-    return df.groupby(column_alias, dropna=False)
+    df[GROUP_INDEX_COLUMN] = range(0, len(df))
+    return df.groupby(column_alias + [GROUP_INDEX_COLUMN], dropna=False)
 
 
 class FocusToPanderaSchemaConverter:

@@ -8,9 +8,9 @@ from focus_validator.config_objects.common import (
     AllowNullsCheck,
     ChecklistObjectStatus,
     DataTypeCheck,
+    SQLQueryCheck,
     ValueInCheck,
     generate_check_friendly_name,
-    SQLQueryCheck,
 )
 
 
