@@ -2,12 +2,14 @@ from unittest import TestCase
 from uuid import uuid4
 
 from polyfactory.factories.pydantic_factory import ModelFactory
+from pydantic import ValidationError
 
 from focus_validator.config_objects import Rule
 from focus_validator.config_objects.common import (
     AllowNullsCheck,
     DataTypeCheck,
     ValueInCheck,
+    SQLQueryCheck,
 )
 
 
@@ -20,7 +22,15 @@ class TestCheckFriendlyName(TestCase):
         )
 
         for _ in range(1000):  # there is no way to generate all values for a field type
-            random_model = model_factory.build()
+            try:
+                random_model = model_factory.build()
+            except ValidationError as e:
+                if "SQLQueryCheck" in str(e):
+                    # SQLQueryCheck is not supported by ModelFactory
+                    continue
+                else:
+                    raise e
+
             if random_model.check == "column_required":
                 self.assertEqual(
                     random_model.check_friendly_name,
@@ -53,6 +63,8 @@ class TestCheckFriendlyName(TestCase):
                     random_model.check_friendly_name,
                     f"{random_column_name} must have a value from the list: {options}.",
                 )
+            elif isinstance(random_model.check, SQLQueryCheck):
+                pass
             else:
                 raise NotImplementedError(
                     f"check_type: {random_model.check} not implemented"

@@ -3,7 +3,10 @@ from typing import Union
 
 import numpy as np
 import pandas as pd
+import pandasql
+import pandera as pa
 from pandera import extensions
+from pandera.errors import SchemaError
 
 from focus_validator.utils.download_currency_codes import get_currency_codes
 
@@ -33,6 +36,48 @@ def check_unique(pandas_obj: pd.Series):
 @extensions.register_check_method()
 def check_value_in(pandas_obj: pd.Series, allowed_values):
     return pandas_obj.isin(allowed_values)
+
+
+@extensions.register_check_method(check_type="groupby")
+def check_sql_query(df_groups, sql_query, column_alias):
+    grouped_elements = []
+    for values in list(df_groups):
+        row_obj = {}
+        for column_name, value in zip(column_alias + ["index"], values):
+            row_obj[column_name] = value
+        grouped_elements.append(row_obj)
+
+    df = pd.DataFrame(grouped_elements)
+    check_output = pandasql.sqldf(sql_query, locals())["check_output"]
+
+    # Getting the index of rows where the series values are False
+    false_indexes = [i for i, val in enumerate(check_output) if not val]
+    if false_indexes:
+        # Extracting those rows from the dataframe
+        extracted_rows = df.loc[false_indexes].to_dict("records")[:3]
+        false_indexes = [i for i, val in enumerate(check_output) if not val]
+
+        # for the given indexes in false_indexes list, we are extracting the rows from the dataframe and
+        # add column_alias value to failure_case column and index to index column
+        failure_cases = df[df.index.isin(false_indexes)]
+        failure_cases["failure_case"] = df.apply(
+            lambda row: {column: row[column] for column in column_alias}, axis=1
+        )
+        failure_cases["failure_case"] = df.apply(
+            lambda row: ",".join(
+                [f"{column}:{row[column]}" for column in column_alias]
+            ),
+            axis=1,
+        )
+
+        raise SchemaError(
+            schema=pa.DataFrameSchema(),
+            data=None,
+            message="",
+            failure_cases=failure_cases,
+        )
+
+    return True
 
 
 @extensions.register_check_method()

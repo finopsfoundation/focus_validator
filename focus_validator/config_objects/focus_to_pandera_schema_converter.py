@@ -2,7 +2,9 @@ import os
 from itertools import groupby
 from typing import Dict, List, Optional, Set, Union
 
+import pandas as pd
 import pandera as pa
+import sqlglot
 from pandera.api.pandas.types import PandasDtypeInputTypes
 
 from focus_validator.config_objects import ChecklistObject, InvalidRule, Rule
@@ -11,10 +13,24 @@ from focus_validator.config_objects.common import (
     ChecklistObjectStatus,
     DataTypeCheck,
     DataTypes,
+    SQLQueryCheck,
     ValueInCheck,
 )
 from focus_validator.config_objects.override import Override
 from focus_validator.exceptions import FocusNotImplementedError
+
+# group index column adds a column to the dataframe which is used to group the dataframe, otherwise the default
+# groupby function does not carry forward all rows in the dataframe causing it to not have row numbers
+GROUP_INDEX_COLUMN = "group_index_column"
+
+
+def __groupby_fnc__(df: pd.DataFrame, column_alias: List[str]):
+    """
+    Custom groupby function to be used with pandera check_sql_query, allowing null values
+    Default groupby function does not allow null values
+    """
+    df[GROUP_INDEX_COLUMN] = range(0, len(df))
+    return df.groupby(column_alias + [GROUP_INDEX_COLUMN], dropna=False)
 
 
 class FocusToPanderaSchemaConverter:
@@ -40,6 +56,19 @@ class FocusToPanderaSchemaConverter:
         elif isinstance(check, ValueInCheck):
             return pa.Check.check_value_in(
                 allowed_values=check.value_in, error=error_string
+            )
+        elif isinstance(check, SQLQueryCheck):
+            column_alias = [
+                column.alias_or_name
+                for column in sqlglot.parse_one(check.sql_query).find_all(
+                    sqlglot.exp.Column
+                )
+            ]
+            return pa.Check.check_sql_query(
+                sql_query=check.sql_query,
+                error=error_string,
+                column_alias=column_alias,
+                groupby=lambda df: __groupby_fnc__(df=df, column_alias=column_alias),
             )
         elif isinstance(check, AllowNullsCheck):
             return pa.Check.check_not_null(
@@ -181,4 +210,7 @@ class FocusToPanderaSchemaConverter:
                 overrides=overrides,
                 schema_dict=schema_dict,
             )
-        return pa.DataFrameSchema(schema_dict, strict=False), checklist
+        return (
+            pa.DataFrameSchema(schema_dict, strict=False),
+            checklist,
+        )
