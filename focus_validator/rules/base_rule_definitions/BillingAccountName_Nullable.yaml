@@ -1,0 +1,3 @@
+column_id: BillingAccountName
+check:
+  allow_nulls: True

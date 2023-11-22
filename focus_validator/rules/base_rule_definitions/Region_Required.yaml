@@ -1,0 +1,3 @@
+column_id: Region
+check:
+  column_required

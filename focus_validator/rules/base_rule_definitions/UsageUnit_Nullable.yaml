@@ -1,0 +1,3 @@
+column_id: UsageUnit
+check:
+  allow_nulls: true

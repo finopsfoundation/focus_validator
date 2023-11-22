@@ -7,7 +7,7 @@ DATAHUB_URL = "https://www.six-group.com/dam/download/financial-information/data
 CURRENCY_CODE_CSV_PATH = "focus_validator/utils/currency_codes.csv"
 
 
-def download_currency_codes():
+def download_currency_codes():  # pragma: no cover
     r = requests.get(DATAHUB_URL)
     root = ET.fromstring(r.content.decode())
 
@@ -25,5 +25,5 @@ def get_currency_codes():
     return set(df["currency_codes"].values)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     download_currency_codes()

@@ -1,0 +1,3 @@
+column_id: ChargeType
+validation_config:
+  check_friendly_name: "ChargeType must have a value from the list: {values}."

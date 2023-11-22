@@ -1,0 +1,3 @@
+column_id: SkuPriceId
+check:
+  data_type: string

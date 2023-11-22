@@ -1,0 +1,2 @@
+column_id: ChargeType
+check: column_required

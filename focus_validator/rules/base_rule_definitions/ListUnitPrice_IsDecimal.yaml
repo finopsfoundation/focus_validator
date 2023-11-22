@@ -1,0 +1,3 @@
+column_id: ListUnitPrice
+check:
+  data_type: decimal

@@ -1,0 +1,3 @@
+column_id: ResourceName
+check:
+  allow_nulls: true

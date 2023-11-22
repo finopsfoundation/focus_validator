@@ -1,0 +1,2 @@
+column_id: PricingCategory
+check: column_required

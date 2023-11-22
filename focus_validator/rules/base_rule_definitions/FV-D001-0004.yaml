@@ -1,4 +1,0 @@
-check_id: FV-D001-0004
-column_id: ChargeType
-check:
-  allow_nulls: false

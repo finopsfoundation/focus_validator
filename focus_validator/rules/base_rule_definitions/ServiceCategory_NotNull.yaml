@@ -1,0 +1,3 @@
+column_id: ServiceCategory
+check:
+  allow_nulls: false

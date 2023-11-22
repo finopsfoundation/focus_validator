@@ -1,0 +1,13 @@
+column_id: ChargeSubcategory
+check:
+  value_in:
+    # Allowed when ChargeType=Usage
+    - "On-Demand"
+    - "Used Commitment"
+    - "Unused Commitment"
+    - "Usage"
+    # Allowed when ChargeType=Adjustment
+    - "Refund"
+    - "Credit"
+    - "Rounding Error"
+    - "General Adjustment"

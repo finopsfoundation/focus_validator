@@ -1,0 +1,2 @@
+column_id: PricingUnit
+check: column_required

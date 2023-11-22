@@ -1,3 +1,4 @@
+import os
 from typing import Optional, Union
 
 import yaml
@@ -8,6 +9,7 @@ from focus_validator.config_objects.common import (
     AllowNullsCheck,
     ChecklistObjectStatus,
     DataTypeCheck,
+    SQLQueryCheck,
     ValueInCheck,
     generate_check_friendly_name,
 )
@@ -27,7 +29,9 @@ class Rule(BaseModel):
 
     check_id: str
     column_id: str
-    check: Union[SIMPLE_CHECKS, AllowNullsCheck, ValueInCheck, DataTypeCheck]
+    check: Union[
+        SIMPLE_CHECKS, AllowNullsCheck, ValueInCheck, DataTypeCheck, SQLQueryCheck
+    ]
 
     check_friendly_name: Optional[
         str
@@ -46,6 +50,8 @@ class Rule(BaseModel):
         """
         Root validator that checks for all options passed in the config and generate missing options.
         """
+        if values is None:
+            values = {}
 
         check = values.get("check")
         check_friendly_name = values.get("check_friendly_name")
@@ -59,10 +65,10 @@ class Rule(BaseModel):
                 check_type_friendly_name = check.__class__.__name__
             values["check_type_friendly_name"] = check_type_friendly_name
 
-            if check_friendly_name is None and column_id is not None:
-                values["check_friendly_name"] = generate_check_friendly_name(
-                    check=check, column_id=column_id
-                )
+        if check_friendly_name is None and column_id is not None:
+            values["check_friendly_name"] = generate_check_friendly_name(
+                check=check, column_id=column_id
+            )
 
         return values
 
@@ -70,6 +76,8 @@ class Rule(BaseModel):
     def load_yaml(
         rule_path, column_namespace: Optional[str] = None
     ) -> Union["Rule", InvalidRule]:
+        rule_path_basename = os.path.splitext(os.path.basename(rule_path))[0]
+
         try:
             with open(rule_path, "r") as f:
                 rule_obj = yaml.safe_load(f)
@@ -81,10 +89,15 @@ class Rule(BaseModel):
             ):
                 rule_obj["column"] = f"{column_namespace}:{rule_obj['column']}"
 
+            if isinstance(rule_obj, dict) and "check_id" not in rule_obj:
+                rule_obj["check_id"] = rule_path_basename
+
             return Rule.model_validate(rule_obj)
         except Exception as e:
             return InvalidRule(
-                rule_path=rule_path, error=str(e), error_type=e.__class__.__name__
+                rule_path=rule_path_basename,
+                error=str(e),
+                error_type=e.__class__.__name__,
             )
 
 

@@ -1,0 +1,3 @@
+column_id: AvailabilityZone
+check:
+  data_type: string

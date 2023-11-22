@@ -1,4 +1,0 @@
-check_id: FV-D011-0002
-column_id: BillingPeriodEnd
-check:
-  allow_nulls: false

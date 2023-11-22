@@ -1,0 +1,3 @@
+column_id: EffectiveCost
+check:
+  column_required

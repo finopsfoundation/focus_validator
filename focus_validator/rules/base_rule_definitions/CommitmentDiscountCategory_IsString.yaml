@@ -1,0 +1,3 @@
+column_id: CommitmentDiscountCategory
+check:
+  data_type: string

@@ -1,0 +1,2 @@
+column_id: SkuPriceId
+check: column_required

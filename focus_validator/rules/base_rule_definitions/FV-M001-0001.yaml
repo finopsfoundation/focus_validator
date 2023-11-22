@@ -1,4 +1,0 @@
-check_id: FV-M001-0001
-column_id: BilledCost
-check:
-  data_type: decimal
