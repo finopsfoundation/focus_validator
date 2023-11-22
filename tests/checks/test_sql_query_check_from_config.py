@@ -1,9 +1,7 @@
-import json
 import tempfile
 from unittest import TestCase
 
 import pandas as pd
-from numpy import nan
 from pandera.errors import SchemaErrors
 
 from focus_validator.config_objects import Rule
@@ -96,8 +94,22 @@ class TestSQLQueryCheckConfig(TestCase):
 
         # row # does not match nan, need to fix thsi
         # failure_cases_dict[0]
-        json_error_string = json.dumps(failure_cases_dict)
         self.assertEqual(
-            json_error_string,
-            '[{"Column": "SkuPriceId", "Check Name": "SkuPriceId", "Description": " SkuPriceId must be set for certain values of ChargeType", "Values": {"ChargeType": "Purchase", "SkuPriceId": NaN}, "Row #": 2}, {"Column": "SkuPriceId", "Check Name": "SkuPriceId", "Description": " SkuPriceId must be set for certain values of ChargeType", "Values": {"ChargeType": "Purchase", "SkuPriceId": NaN}, "Row #": 4}]',
+            failure_cases_dict,
+            [
+                {
+                    "Column": "SkuPriceId",
+                    "Check Name": "SkuPriceId",
+                    "Description": " SkuPriceId must be set for certain values of ChargeType",
+                    "Values": "ChargeType:Purchase,SkuPriceId:nan",
+                    "Row #": 2,
+                },
+                {
+                    "Column": "SkuPriceId",
+                    "Check Name": "SkuPriceId",
+                    "Description": " SkuPriceId must be set for certain values of ChargeType",
+                    "Values": "ChargeType:Purchase,SkuPriceId:nan",
+                    "Row #": 4,
+                },
+            ],
         )

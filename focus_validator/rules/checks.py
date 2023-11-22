@@ -63,6 +63,12 @@ def check_sql_query(df_groups, sql_query, column_alias):
         failure_cases["failure_case"] = df.apply(
             lambda row: {column: row[column] for column in column_alias}, axis=1
         )
+        failure_cases["failure_case"] = df.apply(
+            lambda row: ",".join(
+                [f"{column}:{row[column]}" for column in column_alias]
+            ),
+            axis=1,
+        )
 
         raise SchemaError(
             schema=pa.DataFrameSchema(),
