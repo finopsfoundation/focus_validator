@@ -60,16 +60,11 @@ def check_sql_query(df_groups, sql_query, column_alias):
 
         # for the given indexes in false_indexes list, we are extracting the rows from the dataframe and
         # add column_alias value to failure_case column and index to index column
-        failure_cases = df[df.index.isin(false_indexes)]
-        failure_cases["failure_case"] = df.apply(
-            lambda row: {column: row[column] for column in column_alias}, axis=1
-        )
-        failure_cases["failure_case"] = df.apply(
-            lambda row: ",".join(
-                [f"{column}:{row[column]}" for column in column_alias]
-            ),
-            axis=1,
-        )
+        failure_cases = df[df.index.isin(false_indexes)].copy()
+        failure_cases.loc[:, "failure_case"] = [
+            ",".join([f"{column}:{row[column]}" for column in column_alias])
+            for _, row in failure_cases.iterrows()
+        ]
 
         raise SchemaError(
             schema=pa.DataFrameSchema(),

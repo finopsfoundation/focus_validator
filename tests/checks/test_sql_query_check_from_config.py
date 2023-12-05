@@ -1,3 +1,4 @@
+import os
 import tempfile
 from unittest import TestCase
 
@@ -27,10 +28,13 @@ check:
 
 class TestSQLQueryCheckConfig(TestCase):
     def test_config_from_yaml(self):
-        with tempfile.NamedTemporaryFile() as f:
-            f.write(YAML_CONFIG.encode())
-            f.seek(0)
-            rule = Rule.load_yaml(f.name)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sample_file_path = os.path.join(temp_dir, "D001_S001.yaml")
+
+            with open(sample_file_path, "w") as fd:
+                fd.write(YAML_CONFIG)
+
+            rule = Rule.load_yaml(sample_file_path)
 
         dimension_checks = [
             Rule(

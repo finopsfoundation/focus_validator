@@ -12,7 +12,7 @@ class TestNullValueLoader(TestCase):
         sample_data = pd.DataFrame([{"value": "NULL"}])
 
         buffer = io.BytesIO()
-        sample_data.to_csv(buffer, index=False)
+        sample_data.to_csv(buffer, index=False, lineterminator="\n")
 
         buffer.seek(0)
         self.assertEqual(buffer.read(), b"value\nNULL\n")
@@ -27,7 +27,7 @@ class TestNullValueLoader(TestCase):
         sample_data = pd.DataFrame([{"value": None}])
 
         buffer = io.BytesIO()
-        sample_data.to_csv(buffer, index=False)
+        sample_data.to_csv(buffer, index=False, lineterminator="\n")
 
         buffer.seek(0)
         self.assertEqual(buffer.read(), b'value\n""\n')
