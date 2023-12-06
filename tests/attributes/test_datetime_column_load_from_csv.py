@@ -81,9 +81,10 @@ class TestDatetimeColumnLoadFromCSV(TestCase):
 
         sample_df = pd.DataFrame([{random_column_id: utc_datetime}])
 
-        with tempfile.NamedTemporaryFile(suffix=".csv") as temp_file:
+        with tempfile.NamedTemporaryFile(suffix=".csv", mode="r+") as temp_file:
             sample_df.to_csv(temp_file)
-            read_df = pd.read_csv(temp_file.name)
+            temp_file.seek(0)
+            read_df = pd.read_csv(temp_file)
 
         self.__assert_values__(
             random_column_id=random_column_id,
@@ -102,9 +103,10 @@ class TestDatetimeColumnLoadFromCSV(TestCase):
 
         sample_df = pd.DataFrame([{random_column_id: naive_datetime}])
 
-        with tempfile.NamedTemporaryFile(suffix=".csv") as temp_file:
+        with tempfile.NamedTemporaryFile(suffix=".csv", mode="r+") as temp_file:
             sample_df.to_csv(temp_file)
-            read_df = pd.read_csv(temp_file.name)
+            temp_file.seek(0)
+            read_df = pd.read_csv(temp_file)
 
         self.__assert_values__(
             random_column_id=random_column_id,
@@ -126,10 +128,11 @@ class TestDatetimeColumnLoadFromCSV(TestCase):
         # generate random dataframe
         sample_df = pd.DataFrame([{random_column_id: aware_datetime}])
 
-        with tempfile.NamedTemporaryFile(suffix=".csv") as temp_file:
+        with tempfile.NamedTemporaryFile(suffix=".csv", mode="r+") as temp_file:
             # write csv to temporary location and read to simulate df read
             sample_df.to_csv(temp_file)
-            read_df = pd.read_csv(temp_file.name)
+            temp_file.seek(0)
+            read_df = pd.read_csv(temp_file)
 
         self.__assert_values__(
             random_column_id=random_column_id,
@@ -150,10 +153,11 @@ class TestDatetimeColumnLoadFromCSV(TestCase):
         # generate random dataframe
         sample_df = pd.DataFrame([{random_column_id: bad_value}])
 
-        with tempfile.NamedTemporaryFile(suffix=".csv") as temp_file:
+        with tempfile.NamedTemporaryFile(suffix=".csv", mode="r+") as temp_file:
             # write csv to temporary location and read to simulate df read
             sample_df.to_csv(temp_file)
-            read_df = pd.read_csv(temp_file.name)
+            temp_file.seek(0)
+            read_df = pd.read_csv(temp_file)
 
         self.__assert_values__(
             random_column_id=random_column_id,

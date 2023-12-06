@@ -24,7 +24,6 @@ pandas = "^2"
 tabulate = "*"
 pyarrow = "*"
 pydantic = "^2"
-python-magic = "*"
 pyyaml = "*"
 requests = "*"
 pandera = { version = "^0.17.2" }

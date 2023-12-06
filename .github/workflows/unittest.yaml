@@ -13,12 +13,12 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
-        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
-
+        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
+        os: [ windows-latest, ubuntu-latest, macos-latest ]
     steps:
       - uses: actions/checkout@v3
       - name: Set up Python ${{ matrix.python-version }}
@@ -36,7 +36,7 @@ jobs:
         name: Define a cache for the virtual environment based on the dependencies lock file
         with:
           path: ./.venv
-          key: venv-${{ hashFiles('poetry.lock') }}
+          key: venv-${{ hashFiles('poetry.lock') }}-${{ matrix.os }}-${{ matrix.python-version }}
       - name: Install dependencies
         run: |
           poetry install
