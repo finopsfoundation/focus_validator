@@ -28,12 +28,7 @@ pyyaml = "*"
 requests = "*"
 pandera = { version = "^0.17.2" }
 sqlglot = "^18.7.0"
-
-# for Python 3.12, force higher version of numpy
-numpy = [
-    { version = "~1.24", python = "~3.8" },
-    { version = "~1.26", python = "~3.12" }
-]
+numpy = { version = "^1.26"}
 pytz = "^2023.3.post1"
 pandasql = "^0.7.3"
 
