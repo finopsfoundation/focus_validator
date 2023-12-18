@@ -105,7 +105,6 @@ class TestSQLQueryCheck(TestCase):
         failure_cases_dict = validation_result.failure_cases.to_dict(orient="records")
 
         self.assertEqual(len(failure_cases_dict), 2)
-        print(json.dumps(failure_cases_dict, indent=4))
         self.assertEqual(
             failure_cases_dict,
             [
