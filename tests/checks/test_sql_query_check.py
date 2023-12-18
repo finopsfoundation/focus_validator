@@ -105,20 +105,21 @@ class TestSQLQueryCheck(TestCase):
         failure_cases_dict = validation_result.failure_cases.to_dict(orient="records")
 
         self.assertEqual(len(failure_cases_dict), 2)
+        print(json.dumps(failure_cases_dict, indent=4))
         self.assertEqual(
             failure_cases_dict,
             [
                 {
                     "Column": "test_dimension",
                     "Check Name": "sql_check_for_multiple_columns",
-                    "Description": " None",
+                    "Description": " test_dimension requires values that return true when evaluated by the following SQL query: SELECT test_dimension, CASE WHEN test_dimension = 'some-value' THEN true ELSE false END AS check_output FROM df;",
                     "Values": "test_dimension:NULL,test_dimension:NULL",
                     "Row #": 1,
                 },
                 {
                     "Column": "test_dimension",
                     "Check Name": "sql_check_for_multiple_columns",
-                    "Description": " None",
+                    "Description": " test_dimension requires values that return true when evaluated by the following SQL query: SELECT test_dimension, CASE WHEN test_dimension = 'some-value' THEN true ELSE false END AS check_output FROM df;",
                     "Values": "test_dimension:NULL,test_dimension:NULL",
                     "Row #": 4,
                 },

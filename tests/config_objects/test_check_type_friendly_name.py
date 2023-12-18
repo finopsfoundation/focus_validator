@@ -49,11 +49,15 @@ class TestCheckTypeFriendlyName(TestCase):
         self.assertEqual(sample.check_type_friendly_name, "CheckUnique")
 
     def test_data_type_config(self):
+        # Ensures that the check_type_friendly_name is generated correctly for DataTypeCheck
+
         model_factory = ModelFactory.create_factory(model=Rule)
 
+        # generate random rule object
         sample_data_type = model_factory.build(
             **{"check": DataTypeCheck(data_type=DataTypes.STRING)}
         )
+
         self.assertEqual(sample_data_type.check_type_friendly_name, "DataTypeCheck")
 
     def test_check_type_config_deny_update(self):

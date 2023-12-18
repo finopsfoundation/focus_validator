@@ -68,3 +68,8 @@ def generate_check_friendly_name(check, column_id):
             return f"{column_id} does not allow null values."
     elif isinstance(check, DataTypeCheck):
         return f"{column_id} requires values of type {check.data_type.value}."
+    elif isinstance(check, SQLQueryCheck):
+        sql_query = " ".join([word.strip() for word in check.sql_query.split()])
+        return f"{column_id} requires values that return true when evaluated by the following SQL query: {sql_query}"
+    else:
+        raise NotImplementedError(f"Check {check} not implemented.")
