@@ -1,7 +1,7 @@
 import argparse
 import sys
 
-from focus_validator.validator import Validator, DEFAULT_VERSION_SETS_PATH
+from focus_validator.validator import DEFAULT_VERSION_SETS_PATH, Validator
 
 
 def main():
