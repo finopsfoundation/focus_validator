@@ -1,5 +1,4 @@
 import logging
-import re
 import sys
 import xml.etree.cElementTree as ET
 from datetime import datetime, timezone
