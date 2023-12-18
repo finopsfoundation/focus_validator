@@ -1,5 +1,4 @@
 name: Coverage
-
 on:
   push:
     branches:
@@ -10,14 +9,15 @@ on:
     branches:
       - main
       - dev
-
 jobs:
   coverage:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.9
         uses: actions/setup-python@v4
+        with:
+          python-version: 3.9
       - name: Install poetry
         uses: abatilo/actions-poetry@v2
       - name: Setup a local virtual environment

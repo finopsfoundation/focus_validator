@@ -10,7 +10,7 @@ tbd
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.9+
 - Poetry (Package & Dependency Manager)
 
 ### Installation
