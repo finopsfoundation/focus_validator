@@ -1,4 +1,4 @@
-name: Publish
+cdname: Publish
 on:
   create:
     tags:

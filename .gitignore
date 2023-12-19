@@ -168,3 +168,4 @@ reports/
 .vscode/*
 
 poetry.lock
+compose-dev.yaml

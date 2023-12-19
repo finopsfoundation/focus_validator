@@ -91,7 +91,7 @@ def write_fake_focuses_to_csv (fake_focuses, csv_filename):
             csv_writer.writerow(vars(focus))
 
 
-#Generate 10 fake focuses to a CSV file
+#Generate 1000 fake focuses to a CSV file
 fake_focuses = generate_fake_focus(1000)
 
 #Output to a CSV
