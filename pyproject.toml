@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "focus-spec-validator"
+name = "focus_validator"
 version = "0.5.2-dev2"
 description = "FOCUS spec validator."
 authors = []
@@ -19,7 +19,7 @@ generate-setup-file = false
 script = "build.py"
 
 [tool.poetry.dependencies]
-python = "^3.8.3"
+python = "^3.9"
 pandas = "^2"
 tabulate = "*"
 pyarrow = "*"
@@ -28,12 +28,7 @@ pyyaml = "*"
 requests = "*"
 pandera = { version = "^0.17.2" }
 sqlglot = "^18.7.0"
-
-# for Python 3.12, force higher version of numpy
-numpy = [
-    { version = "~1.24", python = "~3.8" },
-    { version = "~1.26", python = "~3.12" }
-]
+numpy = { version = "^1.26"}
 pytz = "^2023.3.post1"
 pandasql = "^0.7.3"
 

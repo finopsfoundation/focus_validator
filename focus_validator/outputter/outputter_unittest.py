@@ -1,5 +1,4 @@
 import logging
-import re
 import sys
 import xml.etree.cElementTree as ET
 from datetime import datetime, timezone
@@ -146,9 +145,9 @@ class UnittestOutputter:
 
         # Add the testcases to the testsuites
         added_testsuites = {}
-        for testcase in [
-            r for r in rows if re.match(r"^FV-[D,M][0-9]{3}-[0-9]{4}$", r["check_name"])
-        ]:
+        for testcase in rows:
+            if testcase["status"].value == "errored":
+                continue
             test_suite_id = testcase["check_name"].rsplit("-", 1)[0]
             if test_suite_id not in added_testsuites:
                 formatter.add_testsuite(

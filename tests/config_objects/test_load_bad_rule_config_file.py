@@ -50,20 +50,29 @@ class TestLoadBadRuleConfigFile(TestCase):
         )
 
         self.assertEqual(
-            checklist["bad_rule_config_empty_file"].status, ChecklistObjectStatus.ERRORED
+            checklist["bad_rule_config_empty_file"].status,
+            ChecklistObjectStatus.ERRORED,
         )
 
-        self.assertEqual(checklist["valid_rule_config_column_metadata"].column_id, "ChargeType")
-        self.assertEqual(checklist["valid_rule_config_column_metadata"].status, ChecklistObjectStatus.PENDING)
-        self.assertIsNone(checklist["valid_rule_config_column_metadata"].error)
-        self.assertIsNotNone(checklist["valid_rule_config_column_metadata"].friendly_name)
         self.assertEqual(
-            checklist["valid_rule_config_column_metadata"].friendly_name, "Ensures that column is of string type."
+            checklist["valid_rule_config_column_metadata"].column_id, "ChargeType"
+        )
+        self.assertEqual(
+            checklist["valid_rule_config_column_metadata"].status,
+            ChecklistObjectStatus.PENDING,
+        )
+        self.assertIsNone(checklist["valid_rule_config_column_metadata"].error)
+        self.assertIsNotNone(
+            checklist["valid_rule_config_column_metadata"].friendly_name
+        )
+        self.assertEqual(
+            checklist["valid_rule_config_column_metadata"].friendly_name,
+            "Ensures that column is of string type.",
         )
 
         for errored_checks in [
-            'bad_rule_config_empty_file',
-            'bad_rule_config_missing_check'
+            "bad_rule_config_empty_file",
+            "bad_rule_config_missing_check",
         ]:
             self.assertEqual(
                 checklist[errored_checks].status, ChecklistObjectStatus.ERRORED
@@ -87,8 +96,10 @@ class TestLoadBadRuleConfigFile(TestCase):
             rules=rules, override_config=None
         )
         self.assertEqual(
-            checklist["bad_rule_config_missing_check"].status, ChecklistObjectStatus.ERRORED
+            checklist["bad_rule_config_missing_check"].status,
+            ChecklistObjectStatus.ERRORED,
         )
+        print(checklist["bad_rule_config_missing_check"].error)
         self.assertRegex(
             checklist["bad_rule_config_missing_check"].error,
             "ValidationError:.*",

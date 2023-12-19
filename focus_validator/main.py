@@ -1,8 +1,7 @@
 import argparse
-import os
 import sys
 
-from focus_validator.validator import Validator
+from focus_validator.validator import DEFAULT_VERSION_SETS_PATH, Validator
 
 
 def main():
@@ -37,7 +36,7 @@ def main():
     )
     parser.add_argument(
         "--rule-set-path",
-        default=os.path.join("focus_validator", "rules", "version_sets"),
+        default=DEFAULT_VERSION_SETS_PATH,
         help="Path to rules definitions",
     )
     parser.add_argument(

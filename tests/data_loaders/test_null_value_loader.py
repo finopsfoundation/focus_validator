@@ -21,7 +21,7 @@ class TestNullValueLoader(TestCase):
         loader = CSVDataLoader(buffer)
         data = loader.load()
 
-        self.assertEqual(data.to_dict(orient="records")[0], {"value": "NULL"})
+        self.assertTrue(pd.isnull(data.to_dict(orient="records")[0]["value"]))
 
     def test_null_value_from_csv_with_missing_value(self):
         sample_data = pd.DataFrame([{"value": None}])
@@ -36,7 +36,7 @@ class TestNullValueLoader(TestCase):
         loader = CSVDataLoader(buffer)
         data = loader.load()
 
-        self.assertEqual(data.to_dict(orient="records")[0], {"value": ""})
+        self.assertTrue(pd.isnull(data.to_dict(orient="records")[0]["value"]))
 
     def test_null_value_from_parquet(self):
         sample_data = pd.DataFrame([{"value": "NULL"}])

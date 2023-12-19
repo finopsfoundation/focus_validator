@@ -72,7 +72,7 @@ class FocusToPanderaSchemaConverter:
             )
         elif isinstance(check, AllowNullsCheck):
             return pa.Check.check_not_null(
-                error=error_string, ignore_na=False, allow_nulls=check.allow_nulls
+                error=error_string, ignore_na=check.allow_nulls
             )
         else:
             raise FocusNotImplementedError(

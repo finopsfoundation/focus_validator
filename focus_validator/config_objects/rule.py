@@ -1,8 +1,9 @@
 import os
-from typing import Optional, Union
+from typing import Annotated, Optional, Union
 
 import yaml
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic_core.core_schema import ValidationInfo
 
 from focus_validator.config_objects.common import (
     SIMPLE_CHECKS,
@@ -33,44 +34,47 @@ class Rule(BaseModel):
         SIMPLE_CHECKS, AllowNullsCheck, ValueInCheck, DataTypeCheck, SQLQueryCheck
     ]
 
-    check_friendly_name: Optional[
-        str
+    check_friendly_name: Annotated[
+        Optional[str], Field(validate_default=True)
     ] = None  # auto generated or else can be overwritten
-    check_type_friendly_name: Optional[str] = None
+    check_type_friendly_name: Annotated[
+        Optional[str], Field(validate_default=True)
+    ] = None
 
     model_config = ConfigDict(
         extra="forbid",  # prevents config from containing any undesirable keys
         frozen=True,  # prevents any modification to any attribute onces loaded from config
     )
 
-    # @root_validator
-    @model_validator(mode="before")
-    @classmethod
-    def root_val(cls, values):
-        """
-        Root validator that checks for all options passed in the config and generate missing options.
-        """
-        if values is None:
-            values = {}
+    @field_validator("check_friendly_name")
+    def validate_or_generate_check_friendly_name(
+        cls, check_friendly_name, validation_info: ValidationInfo
+    ):
+        values = validation_info.data
+        if (
+            check_friendly_name is None
+            and values.get("check") is not None
+            and values.get("column_id") is not None
+        ):
+            check_friendly_name = generate_check_friendly_name(
+                check=values["check"], column_id=values["column_id"]
+            )
+        return check_friendly_name
 
-        check = values.get("check")
-        check_friendly_name = values.get("check_friendly_name")
-        column_id = values.get("column_id")
-        if check is not None:
+    @field_validator("check_type_friendly_name")
+    def validate_or_generate_check_type_friendly_name(
+        cls, check_type_friendly_name, validation_info: ValidationInfo
+    ):
+        values = validation_info.data
+        if values.get("check") is not None and values.get("column_id") is not None:
+            check = values.get("check")
             if isinstance(check, str):
                 check_type_friendly_name = "".join(
                     [word.title() for word in check.split("_")]
                 )
             else:
                 check_type_friendly_name = check.__class__.__name__
-            values["check_type_friendly_name"] = check_type_friendly_name
-
-        if check_friendly_name is None and column_id is not None:
-            values["check_friendly_name"] = generate_check_friendly_name(
-                check=check, column_id=column_id
-            )
-
-        return values
+        return check_type_friendly_name
 
     @staticmethod
     def load_yaml(
