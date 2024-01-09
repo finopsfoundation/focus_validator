@@ -4,7 +4,6 @@ import io
 import logging
 import os
 import pstats
-import subprocess
 import time
 import unittest
 

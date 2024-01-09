@@ -16,6 +16,7 @@ python-magic = "*"
 pyyaml = "*"
 requests = "*"
 pandera = "^0.16"
+polars = "^0.20.3"
 
 [tool.poetry.group.dev.dependencies]
 black = {extras = ["d"], version = "^23.7.0"}
