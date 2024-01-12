@@ -67,6 +67,14 @@ poetry run pytest
 
 Ensure you have `pytest` defined as a development dependency in your `pyproject.toml`.
 
+If running on legacy CPUs and the tests crash on the polars library, run the following locally only:
+
+```bash
+poetry add polars-lts-cpu
+```
+
+This will align the polars execution with your system hardware. It should NOT be committed back into the repository.
+
 ## License
 
 This project is licensed under the MIT License - see the `LICENSE` file for details.

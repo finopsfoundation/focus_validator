@@ -6,6 +6,7 @@ import os
 import pstats
 import time
 import unittest
+from ddt import ddt, data, unpack
 
 from tests.samples.csv_random_data_generate_at_scale import generate_and_write_fake_focuses
 from focus_validator.validator import Validator
@@ -13,91 +14,8 @@ from focus_validator.validator import Validator
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(funcName)s] - %(message)s')
 
-
+@ddt
 class TestPerformanceProfiler(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        # Set the environment variable for logging level
-        env = os.environ.copy()
-        env["LOG_LEVEL"] = "INFO"
-
-        #Generate 1000 fake focuses to a CSV file
-        cls.csv_filename_1000 = 'fake_focuses1000.csv'
-        cls.csv_filename_10000 = 'fake_focuses10000.csv'
-        cls.csv_filename_50000 = 'fake_focuses50000.csv'
-        cls.csv_filename_100000 = 'fake_focuses100000.csv'
-        cls.csv_filename_250000 = 'fake_focuses250000.csv'
-        cls.csv_filename_500000 = 'fake_focuses500000.csv'
-
-        logging.info("Generating file with 1,000 records. Expected time to generate 1.5 seconds")
-        cls.generate_test_file(str(cls.csv_filename_1000), 1000)
-
-        # logging.info("Generating file with 10,0000 records. Expected time to generate ~10 seconds")
-        # cls.generate_test_file(str(cls.csv_filename_10000), 10000)
-
-        # logging.info("Generating file with 50,0000 records. Expected time to generate ~60 seconds")
-        # cls.generate_test_file(str(cls.csv_filename_50000), 50000)
-
-        # logging.info("Generating file with 100,0000 records. Expected time to generate ~120 seconds")
-        # cls.generate_test_file(str(cls.csv_filename_100000), 100000)
-
-        # logging.info("Generating file with 250,0000 records. Expected time to generate ~260 seconds")
-        # cls.generate_test_file(str(cls.csv_filename_250000), 250000)
-
-        # logging.info("Generating file with 500,0000 records. Expected time to generate ~585 seconds")
-        # cls.generate_test_file(str(cls.csv_filename_500000), 500000)
-
-    @classmethod
-    def tearDownClass(cls):
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        
-        if os.path.exists(os.path.join(base_dir, 'fake_focuses.csv')):
-            os.remove(os.path.join(base_dir, 'fake_focuses.csv'))
-
-        if os.path.exists(os.path.join(base_dir, str(cls.csv_filename_1000))):
-            os.remove(os.path.join(base_dir, str(cls.csv_filename_1000)))
-        
-        if os.path.exists(os.path.join(base_dir, str(cls.csv_filename_10000))):
-            os.remove(os.path.join(base_dir, str(cls.csv_filename_10000)))
-        
-        if os.path.exists(os.path.join(base_dir, str(cls.csv_filename_50000))):
-            os.remove(os.path.join(base_dir, str(cls.csv_filename_50000)))
-        
-        if os.path.exists(os.path.join(base_dir, str(cls.csv_filename_100000))):
-            os.remove(os.path.join(base_dir, str(cls.csv_filename_100000)))
-        
-        if os.path.exists(os.path.join(base_dir, str(cls.csv_filename_250000))):
-            os.remove(os.path.join(base_dir, str(cls.csv_filename_250000)))
-        
-        if os.path.exists(os.path.join(base_dir, str(cls.csv_filename_500000))):
-            os.remove(os.path.join(base_dir, str(cls.csv_filename_500000)))
-    
-    @classmethod
-    def generate_test_file(cls, csv_filename, number_of_records):
-        #Generate fake focuses to a CSV file
-        # fake_focuses = generate_fake_focus(number_of_records)
-
-        # write_fake_focuses_to_csv(fake_focuses, csv_filename)
-        generate_and_write_fake_focuses(csv_filename, number_of_records)
-    
-    
-    def test_1000_record_csv_performance(self):
-        self.execute_profiler(str(self.csv_filename_1000), 5.0)
-
-    # def test_10000_record_csv_performance(self):
-    #     self.execute_profiler(str(self.csv_filename_10000), 10.0)
-    
-    # def test_50000_record_csv_performance(self):
-    #     self.execute_profiler(str(self.csv_filename_50000), 25.0)
-
-    # def test_100000_record_csv_performance(self):
-    #     self.execute_profiler(str(self.csv_filename_100000), 50.0)
-    
-    # def test_250000_record_csv_performance(self):
-    #     self.execute_profiler(str(self.csv_filename_250000), 100.0)
-        
-    # def test_500000_record_csv_performance(self):
-    #     self.execute_profiler(str(self.csv_filename_500000), 120.0)
     
     def profile_to_csv(self, profiling_result, csv_file):
         with open(csv_file, 'w', newline='') as f:
@@ -159,7 +77,31 @@ class TestPerformanceProfiler(unittest.TestCase):
         #Execution time check
         self.assertLess(duration, performance_threshold, f"Performance test exceeded threshold. Duration: {duration} seconds")
 
-    
+    @data(
+        # ("fake_focuses500000.csv", 60.0, 500000, "validate_500000_records"),
+        # ("fake_focuses250000.csv", 60.0, 250000, "validate_250000_records"),
+        # ("fake_focuses100000.csv", 30.0, 100000, "validate_100000_records"),
+        # ("fake_focuses50000.csv", 15.0, 50000, "validate_50000_records"),
+        # ("fake_focuses10000.csv", 7.0, 10000, "validate_10000_records"),
+        # ("fake_focuses5000.csv", 3.0, 5000, "validate_5000_records"),
+        ("fake_focuses2000.csv", 3.0, 2000, "validate_2000_records"),
+        ("fake_focuses2000.csv", 3.0, 1000, "validate_1000_records")
+    )
+    @unpack
+    def test_param_validator_performance(self, file_name, performance_threshold, number_of_records, case_id):
+        with self.subTest(case_id=case_id):
+            # Set the environment variable for logging level
+            env = os.environ.copy()
+            env["LOG_LEVEL"] = "INFO"
+
+            logging.info("Generating file with {number_of_records} records.")
+            generate_and_write_fake_focuses(file_name, number_of_records)
+            self.execute_profiler(str(file_name), performance_threshold)
+
+            logging.info("Cleaning up test file.")
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if os.path.exists(os.path.join(base_dir, file_name)):
+                os.remove(os.path.join(base_dir, file_name))
     
 if __name__ == '__main__':
     unittest.main()
