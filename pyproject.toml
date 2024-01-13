@@ -32,6 +32,8 @@ sqlglot = "^18.7.0"
 numpy = { version = "^1.26"}
 pytz = "^2023.3.post1"
 pandasql = "^0.7.3"
+polars = "^0.20.3"
+ddt = "^1.7.1"
 
 [tool.poetry.group.dev.dependencies]
 black = { extras = ["d"], version = "^23.7.0" }
