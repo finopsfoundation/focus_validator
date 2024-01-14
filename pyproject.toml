@@ -18,6 +18,7 @@ requests = "*"
 pandera = "^0.16"
 polars = "^0.20.3"
 ddt = "^1.7.1"
+bandit = "^1.7.6"
 
 [tool.poetry.group.dev.dependencies]
 black = {extras = ["d"], version = "^23.7.0"}
@@ -42,3 +43,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 focus-validator = "focus_validator.main:main"
+
+[tool.pytest.ini_options]
+log_cli = true
+log_cli_level = "INFO"
