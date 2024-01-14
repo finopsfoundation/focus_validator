@@ -7,6 +7,7 @@ import pstats
 import time
 import unittest
 from ddt import ddt, data, unpack
+from focus_validator.utils.profiler import Profiler
 
 from tests.samples.csv_random_data_generate_at_scale import generate_and_write_fake_focuses
 from focus_validator.validator import Validator
@@ -17,19 +18,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%
 @ddt
 class TestPerformanceProfiler(unittest.TestCase):
     
-    def profile_to_csv(self, profiling_result, csv_file):
-        with open(csv_file, 'w', newline='') as f:
-            w = csv.writer(f)
-            # Write the headers
-            headers = ['ncalls', 'tottime', 'percall', 'cumtime', 'percall', 'filename:lineno(function)']
-            w.writerow(headers)
-        
-            # Write each row
-            for row in profiling_result.stats.items():
-                func_name, (cc, nc, tt, ct, callers) = row
-                w.writerow([nc, tt, tt/nc, ct, ct/cc, func_name])
-
-    def execute_profiler(self, file_name, performance_threshold):
+    def measure_validator(self, file_name, performance_threshold):
         # Set the environment variable for logging level
         env = os.environ.copy()
         env["LOG_LEVEL"] = "INFO"
@@ -48,44 +37,29 @@ class TestPerformanceProfiler(unittest.TestCase):
             column_namespace=None,
         )
 
-        # Set up the profiler
-        profiler = cProfile.Profile()
-        profiler.enable()
-
-        # The original performance testing code
+        # The measure execution
         start_time = time.time()
-        validator.validate()
+        self.run_and_profile_validator(validator)
         end_time = time.time()
         duration = end_time - start_time
         logging.info(f"File: {file_name} Duration: {duration} seconds")
 
-        # Stop the profiler
-        profiler.disable()
-
-        # Save profiling data to a file
-        profiling_result = pstats.Stats(profiler)
-        profile_file_name = "profiling_data_" + file_name
-        self.profile_to_csv(profiling_result, profile_file_name)
-
-        # Optionally print out profiling report to the console
-        s = io.StringIO()
-        sortby = 'cumulative'  # Can be changed to 'time', 'calls', etc.
-        ps = pstats.Stats(profiler, stream=s).sort_stats(sortby)
-        ps.print_stats(10)
-        logging.info(s.getvalue())
-
         #Execution time check
         self.assertLess(duration, performance_threshold, f"Performance test exceeded threshold. Duration: {duration} seconds")
 
+    @Profiler(csv_format=True)
+    def run_and_profile_validator(self, validator):
+        validator.validate()
+
     @data(
-        # ("fake_focuses500000.csv", 60.0, 500000, "validate_500000_records"),
+        # ("fake_focuses500000.csv", 110.0, 500000, "validate_500000_records"),
         # ("fake_focuses250000.csv", 60.0, 250000, "validate_250000_records"),
-        # ("fake_focuses100000.csv", 30.0, 100000, "validate_100000_records"),
-        # ("fake_focuses50000.csv", 15.0, 50000, "validate_50000_records"),
-        # ("fake_focuses10000.csv", 7.0, 10000, "validate_10000_records"),
-        # ("fake_focuses5000.csv", 3.0, 5000, "validate_5000_records"),
-        ("fake_focuses2000.csv", 3.0, 2000, "validate_2000_records"),
-        ("fake_focuses2000.csv", 3.0, 1000, "validate_1000_records")
+        # ("fake_focuses100000.csv", 20.0, 100000, "validate_100000_records"),
+        # ("fake_focuses50000.csv", 11.0, 50000, "validate_50000_records"),
+        # ("fake_focuses10000.csv", 2.5, 10000, "validate_10000_records"),
+        # ("fake_focuses5000.csv", 1.8, 5000, "validate_5000_records"),
+        ("fake_focuses2000.csv", 1.0, 2000, "validate_2000_records"),
+        ("fake_focuses2000.csv", 1.0, 1000, "validate_1000_records")
     )
     @unpack
     def test_param_validator_performance(self, file_name, performance_threshold, number_of_records, case_id):
@@ -94,9 +68,9 @@ class TestPerformanceProfiler(unittest.TestCase):
             env = os.environ.copy()
             env["LOG_LEVEL"] = "INFO"
 
-            logging.info("Generating file with {number_of_records} records.")
+            logging.info(f"Generating file with {number_of_records} records.")
             generate_and_write_fake_focuses(file_name, number_of_records)
-            self.execute_profiler(str(file_name), performance_threshold)
+            self.measure_validator(str(file_name), performance_threshold)
 
             logging.info("Cleaning up test file.")
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -36,3 +36,6 @@ jobs:
       - name: flake8
         run: |
           poetry run flake8 focus_validator/
+      - name: bandit
+        run: |
+          poetry run bandit -r focus_converter/ -ll
