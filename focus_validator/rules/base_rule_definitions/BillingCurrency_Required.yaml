@@ -1,0 +1,2 @@
+column_id: BillingCurrency
+check: column_required

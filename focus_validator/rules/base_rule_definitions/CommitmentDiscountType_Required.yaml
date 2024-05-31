@@ -1,0 +1,2 @@
+column_id: CommitmentDiscountType
+check: column_required

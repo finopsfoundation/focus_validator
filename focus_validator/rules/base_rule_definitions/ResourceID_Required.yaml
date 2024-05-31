@@ -1,0 +1,2 @@
+column_id: ResourceID
+check: column_required

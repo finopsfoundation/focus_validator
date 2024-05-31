@@ -1,0 +1,4 @@
+column_id: ChargeClass
+check:
+  value_in:
+    - "Correction"
