@@ -1,0 +1,3 @@
+column_id: ChargeCategory
+check:
+  allow_nulls: false

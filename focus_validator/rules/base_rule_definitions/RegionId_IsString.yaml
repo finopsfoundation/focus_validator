@@ -1,0 +1,3 @@
+column_id: RegionId
+check:
+  data_type: string

@@ -1,0 +1,3 @@
+column_id: ConsumedQuantity
+check:
+  data_type: decimal

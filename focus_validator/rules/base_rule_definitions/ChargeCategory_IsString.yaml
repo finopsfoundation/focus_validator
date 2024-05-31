@@ -1,0 +1,3 @@
+column_id: ChargeCategory
+check:
+  data_type: string
