@@ -1,0 +1,3 @@
+column_id: PricingUnit
+check:
+  data_type: string

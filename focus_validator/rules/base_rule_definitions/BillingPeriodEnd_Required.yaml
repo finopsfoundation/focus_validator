@@ -1,0 +1,3 @@
+column_id: BillingPeriodEnd
+check:
+  column_required

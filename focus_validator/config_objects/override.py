@@ -1,7 +1,7 @@
 from typing import List
 
 import yaml
-from pydantic import BaseModel
+from pydantic.v1 import BaseModel
 
 
 class Override(BaseModel):

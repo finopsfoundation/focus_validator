@@ -48,30 +48,38 @@ class TestLoadBadRuleConfigFile(TestCase):
         _, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
             rules=rules, override_config=None
         )
-        self.assertEqual(
-            checklist["FV-D001-0001"].status, ChecklistObjectStatus.PENDING
-        )
-        self.assertIsNone(checklist["FV-D001-0001"].error)
-        self.assertIsNotNone(checklist["FV-D001-0001"].friendly_name)
 
-        self.assertEqual(checklist["FV-D001"].column_id, "ChargeType")
-        self.assertEqual(checklist["FV-D001"].status, ChecklistObjectStatus.PENDING)
-        self.assertIsNone(checklist["FV-D001"].error)
-        self.assertIsNotNone(checklist["FV-D001"].friendly_name)
         self.assertEqual(
-            checklist["FV-D001"].friendly_name, "Ensures that column is of string type."
+            checklist["bad_rule_config_empty_file"].status,
+            ChecklistObjectStatus.ERRORED,
         )
 
-        for errored_file_paths in [
-            "tests/samples/rule_configs/bad_rule_config_empty_file.yaml",
-            "tests/samples/rule_configs/bad_rule_config_missing_check.yaml",
+        self.assertEqual(
+            checklist["valid_rule_config_column_metadata"].column_id, "ChargeType"
+        )
+        self.assertEqual(
+            checklist["valid_rule_config_column_metadata"].status,
+            ChecklistObjectStatus.PENDING,
+        )
+        self.assertIsNone(checklist["valid_rule_config_column_metadata"].error)
+        self.assertIsNotNone(
+            checklist["valid_rule_config_column_metadata"].friendly_name
+        )
+        self.assertEqual(
+            checklist["valid_rule_config_column_metadata"].friendly_name,
+            "Ensures that column is of string type.",
+        )
+
+        for errored_checks in [
+            "bad_rule_config_empty_file",
+            "bad_rule_config_missing_check",
         ]:
             self.assertEqual(
-                checklist[errored_file_paths].status, ChecklistObjectStatus.ERRORED
+                checklist[errored_checks].status, ChecklistObjectStatus.ERRORED
             )
-            self.assertIsNotNone(checklist[errored_file_paths].error)
-            self.assertIsNone(checklist[errored_file_paths].friendly_name)
-            self.assertEqual(checklist[errored_file_paths].column_id, "Unknown")
+            self.assertIsNotNone(checklist[errored_checks].error)
+            self.assertIsNone(checklist[errored_checks].friendly_name)
+            self.assertEqual(checklist[errored_checks].column_id, "Unknown")
 
     def test_load_schema_without_valid_column_metadata(self):
         rules = [
@@ -88,11 +96,13 @@ class TestLoadBadRuleConfigFile(TestCase):
             rules=rules, override_config=None
         )
         self.assertEqual(
-            checklist["FV-D001-0001"].status, ChecklistObjectStatus.ERRORED
+            checklist["bad_rule_config_missing_check"].status,
+            ChecklistObjectStatus.ERRORED,
         )
-        self.assertEqual(
-            checklist["FV-D001-0001"].error,
-            "ConfigurationError: No configuration found for column.",
+        print(checklist["bad_rule_config_missing_check"].error)
+        self.assertRegex(
+            checklist["bad_rule_config_missing_check"].error,
+            "ValidationError:.*",
         )
-        self.assertIsNotNone(checklist["FV-D001-0001"].friendly_name)
-        self.assertEqual(checklist["FV-D001-0001"].column_id, "ChargeType")
+        self.assertIsNotNone(checklist["valid_rule_config"].friendly_name)
+        self.assertEqual(checklist["valid_rule_config"].column_id, "ChargeType")

@@ -1,26 +1,42 @@
 [tool.poetry]
-name = "focus-spec-validator"
-version = "0.5.0"
+name = "focus_validator"
+version = "1.0.0"
 description = "FOCUS spec validator."
 authors = []
 readme = "README.md"
-packages = [{include = "focus_validator"}]
+packages = [{ include = "focus_validator" }]
+include = [
+    { path = "focus_validator/rules/version_sets/0.5/*" },
+    { path = "focus_validator/rules/version_sets/1.0-preview/*" },
+    { path = "focus_validator/rules/version_sets/1.0/*" }
+]
+# TODO: For some reason, this doesn't exclude anything
+exclude = [
+    { path = "focus_validator/rules/base_rule_definitions/*" }
+]
+
+[tool.poetry.build]
+generate-setup-file = false
+script = "build.py"
 
 [tool.poetry.dependencies]
-python = "^3.8.1"
-pandas = "^1"
+python = "^3.9"
+pandas = "^2"
 tabulate = "*"
 pyarrow = "*"
-pydantic = "^1"
-python-magic = "*"
+pydantic = "^2"
 pyyaml = "*"
 requests = "*"
-pandera = "^0.16"
+pandera = { version = "^0.17.2" }
+sqlglot = "^18.7.0"
+numpy = { version = "^1.26"}
+pytz = "^2023.3.post1"
+pandasql = "^0.7.3"
 polars = "^0.20.3"
 ddt = "^1.7.1"
 
 [tool.poetry.group.dev.dependencies]
-black = {extras = ["d"], version = "^23.7.0"}
+black = { extras = ["d"], version = "^23.7.0" }
 polyfactory = "^2.7.0"
 pytest = "^7.4.0"
 pytest-cov = "^4.1.0"
@@ -30,14 +46,14 @@ types-tabulate = "^0.9.0.3"
 pandas-stubs = "^2.0.2.230605"
 types-pyyaml = "^6.0.12.11"
 types-requests = "^2.31.0.2"
-pandera = {extras = ["mypy"], version = "^0.16.1"}
+pandera = { version = "^0.17.2", extras = ["mypy"] }
 isort = "^5.12.0"
 flake8 = "^6.1.0"
 pre-commit = "^3.3.3"
 bump2version = "^1.0.1"
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core", "pyyaml"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]

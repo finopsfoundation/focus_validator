@@ -4,7 +4,6 @@ on:
     tags:
       - 'v\d\.\d\.\d'
       - 'v\d\.\d\.\d-(dev|rc)\d'
-
 jobs:
   publish:
     permissions:
@@ -12,14 +11,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Set up Python 3.8
+      - name: Set up Python 3.11
         uses: actions/setup-python@v4
         with:
-          python-version: 3.8
+          python-version: 3.11
       - name: Install poetry
         uses: abatilo/actions-poetry@v2
       - name: Install dependencies
         run: |
-          poetry build
+          find -type l -exec bash -c 'ln -f "$(readlink -m "$0")" "$0"' {} \;
+          poetry build --format=sdist
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

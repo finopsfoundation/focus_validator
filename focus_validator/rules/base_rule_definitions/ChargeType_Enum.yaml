@@ -1,0 +1,7 @@
+column_id: ChargeType
+check:
+  value_in:
+    - "Adjustment"
+    - "Purchase"
+    - "Tax"
+    - "Usage"

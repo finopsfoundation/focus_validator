@@ -1,4 +1,0 @@
-check_id: FV-D002-0002
-column_id: ResourceID
-check:
-  allow_nulls: true

@@ -1,0 +1,3 @@
+column_id: SkuId
+check:
+  allow_nulls: true

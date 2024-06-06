@@ -1,4 +1,0 @@
-check_id: FV-D012-0002
-column_id: BillingPeriodStart
-check:
-  allow_nulls: false

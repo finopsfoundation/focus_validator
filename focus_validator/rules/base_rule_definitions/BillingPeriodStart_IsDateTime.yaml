@@ -1,0 +1,3 @@
+column_id: BillingPeriodStart
+check:
+  data_type: datetime

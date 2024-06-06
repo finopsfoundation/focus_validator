@@ -83,7 +83,7 @@ class TestNullValueCheck(TestCase):
             allow_nulls=False, data_type=DataTypes.STRING
         )
         sample_data = pd.DataFrame(
-            [{"test_dimension": "NULL"}, {"test_dimension": "val2"}]
+            [{"test_dimension": None}, {"test_dimension": "val2"}]
         )
         schema, checklist = FocusToPanderaSchemaConverter.generate_pandera_schema(
             rules=rules, override_config=None
@@ -104,12 +104,14 @@ class TestNullValueCheck(TestCase):
                 "Column": "test_dimension",
                 "Check Name": "allow_null",
                 "Description": " test_dimension does not allow null values.",
-                "Values": "NULL",
+                "Values": None,
                 "Row #": 1,
             },
         )
 
-    def test_null_value_allowed_invalid_case_with_empty_strings(self):
+    def test_null_value_allowed_valid_case_with_empty_strings(self):
+        # ensure that check does not treat empty strings as null values
+
         rules = self.__generate_sample_rule_type_string__(
             allow_nulls=True, data_type=DataTypes.STRING
         )
@@ -123,23 +125,11 @@ class TestNullValueCheck(TestCase):
         )
         self.assertEqual(
             validation_result.checklist["allow_null"].status,
-            ChecklistObjectStatus.FAILED,
+            ChecklistObjectStatus.PASSED,
         )
-        self.assertIsNotNone(validation_result.failure_cases)
-        failure_cases_dict = validation_result.failure_cases.to_dict(orient="records")
-        self.assertEqual(len(failure_cases_dict), 1)
-        self.assertEqual(
-            failure_cases_dict[0],
-            {
-                "Column": "test_dimension",
-                "Check Name": "allow_null",
-                "Description": " test_dimension allows null values.",
-                "Values": "",
-                "Row #": 2,
-            },
-        )
+        self.assertIsNone(validation_result.failure_cases)
 
-    def test_null_value_allowed_invalid_case_with_nan_values(self):
+    def test_null_value_allowed_case_with_explicit_null_values(self):
         rules = self.__generate_sample_rule_type_string__(
             allow_nulls=True, data_type=DataTypes.STRING
         )
@@ -155,18 +145,6 @@ class TestNullValueCheck(TestCase):
         )
         self.assertEqual(
             validation_result.checklist["allow_null"].status,
-            ChecklistObjectStatus.FAILED,
+            ChecklistObjectStatus.PASSED,
         )
-        self.assertIsNotNone(validation_result.failure_cases)
-        failure_cases_dict = validation_result.failure_cases.to_dict(orient="records")
-        self.assertEqual(len(failure_cases_dict), 1)
-        self.assertEqual(
-            failure_cases_dict[0],
-            {
-                "Column": "test_dimension",
-                "Check Name": "allow_null",
-                "Description": " test_dimension allows null values.",
-                "Values": None,
-                "Row #": 2,
-            },
-        )
+        self.assertIsNone(validation_result.failure_cases)

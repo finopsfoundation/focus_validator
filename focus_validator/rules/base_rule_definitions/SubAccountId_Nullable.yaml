@@ -1,0 +1,3 @@
+column_id: SubAccountId
+check:
+  allow_nulls: true

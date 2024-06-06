@@ -1,0 +1,3 @@
+column_id: Publisher
+check:
+  allow_nulls: false

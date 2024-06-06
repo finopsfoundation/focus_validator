@@ -1,4 +1,0 @@
-check_id: FV-M002-0001
-column_id: AmortizedCost
-check:
-  data_type: decimal

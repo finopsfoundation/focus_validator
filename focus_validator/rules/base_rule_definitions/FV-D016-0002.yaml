@@ -1,4 +1,0 @@
-check_id: FV-D016-0002
-column_id: ChargePeriodStart
-check:
-  allow_nulls: false

@@ -1,3 +1,0 @@
-InvoiceIssuer,ResourceID,ChargeType,Provider,BillingAccountName,BillingAccountId,Publisher,ResourceName,ServiceName,BilledCurrency,BillingPeriodEnd,BillingPeriodStart,Region,ServiceCategory,ChargePeriodStart,ChargePeriodEnd,BilledCost,AmortizedCost
-test-entity-1,r1,Purchase,A,Account-1,a1,Publisher1,Test Resource 1,Sample-service-1,AUD,2023-06-01T00:00:00Z,2023-06-30T00:00:00Z,A,Compute,2023-06-01T00:00:00Z,2023-06-01T00:01:00Z,0.1,0.01
-test-entity-2,r2,Adjustment,B,NULL,a2,Publisher2,Test Resource 2,Sample-service-1,USD,2023-06-01T00:00:00Z,2023-06-30T00:00:00Z,B,Media,2023-06-01T00:00:00Z,2023-06-01T00:01:00Z,1,1

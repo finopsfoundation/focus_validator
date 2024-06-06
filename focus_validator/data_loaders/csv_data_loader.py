@@ -6,4 +6,4 @@ class CSVDataLoader:
         self.data_filename = data_filename
 
     def load(self):
-        return pd.read_csv(self.data_filename, keep_default_na=False)
+        return pd.read_csv(self.data_filename)

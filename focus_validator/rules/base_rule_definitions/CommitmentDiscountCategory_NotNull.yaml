@@ -1,0 +1,3 @@
+column_id: CommitmentDiscountCategory
+check:
+  allow_nulls: false

@@ -1,0 +1,3 @@
+column_id: BilledCost
+check:
+  allow_nulls: false

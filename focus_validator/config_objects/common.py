@@ -1,7 +1,8 @@
 from enum import Enum
 from typing import List, Literal
 
-from pydantic import BaseModel
+import sqlglot
+from pydantic import BaseModel, field_validator
 
 
 class AllowNullsCheck(BaseModel):
@@ -12,6 +13,22 @@ class ValueInCheck(BaseModel):
     value_in: List[str]
 
 
+class SQLQueryCheck(BaseModel):
+    sql_query: str
+
+    @field_validator("sql_query")
+    def check_sql_query(cls, sql_query):
+        returned_columns = [
+            column.alias
+            for column in sqlglot.parse_one(sql_query).find_all(sqlglot.exp.Alias)
+        ]
+
+        assert returned_columns == [
+            "check_output"
+        ], "SQL query must only return a column called 'check_output'"
+        return sql_query
+
+
 SIMPLE_CHECKS = Literal["check_unique", "column_required"]
 
 
@@ -20,6 +37,7 @@ class DataTypes(Enum):
     DECIMAL = "decimal"
     DATETIME = "datetime"
     CURRENCY_CODE = "currency-code"
+    STRINGIFIED_JSON_OBJECT = "stringified-json-object"
 
 
 class DataTypeCheck(BaseModel):
@@ -50,3 +68,8 @@ def generate_check_friendly_name(check, column_id):
             return f"{column_id} does not allow null values."
     elif isinstance(check, DataTypeCheck):
         return f"{column_id} requires values of type {check.data_type.value}."
+    elif isinstance(check, SQLQueryCheck):
+        sql_query = " ".join([word.strip() for word in check.sql_query.split()])
+        return f"{column_id} requires values that return true when evaluated by the following SQL query: {sql_query}"
+    else:
+        raise NotImplementedError(f"Check {check} not implemented.")

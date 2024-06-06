@@ -1,0 +1,2 @@
+column_id: RegionName
+check: column_required
