@@ -40,6 +40,13 @@ Using Poetry, you can install the project's dependencies with:
 ```bash
 poetry install
 ```
+#### 4. Install poetry shell
+
+Install poetry shell plugin:
+
+```bash
+poetry self add poetry-plugin-shell
+```
 
 ## Usage
 
