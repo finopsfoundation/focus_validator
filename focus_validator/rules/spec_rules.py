@@ -9,6 +9,7 @@ from focus_validator.config_objects import (
     ChecklistObjectStatus,
     Override,
     Rule,
+    JsonLoader,
 )
 from focus_validator.config_objects.focus_to_pandera_schema_converter import (
     FocusToPanderaSchemaConverter,
@@ -126,28 +127,39 @@ class SpecRules:
         self.rules = []
         self.column_namespace = column_namespace
 
+        self.json_rules = {}
+        self.json_checkfunctions = {}
+
     def supported_versions(self):
         return sorted([x for x in os.walk(self.rule_set_path)][0][1])
 
     def load(self):
         self.load_overrides()
+        self.load_config()
         self.load_rules()
 
     def load_overrides(self):
-        if not self.override_filename:
-            return {}
-        self.override_config = Override.load_yaml(self.override_filename)
+        pass
+        # if not self.override_filename:
+        #     return {}
+        # self.override_config = Override.load_yaml(self.override_filename)
+
+    def load_config(self):
+        pass
 
     def load_rules(self):
-        for rule_path in self.get_rule_paths():
-            self.rules.append(
-                Rule.load_yaml(rule_path, column_namespace=self.column_namespace)
-            )
+        # Load rules from JSON
+        json_rules_path = os.path.join(self.rules_path, f'cr-{self.rules_version}.json')
+        self.json_rules, self.json_checkfunctions = JsonLoader.load_json_rules(json_rules_path)
 
-    def get_rule_paths(self):
-        for root, dirs, files in os.walk(self.rules_path, topdown=False):
-            for name in files:
-                yield os.path.join(root, name)
+        for rule, ruleDescription in self.json_rules.items():
+            # Ignore dynamic types
+            if ruleDescription["Type"] == "Static":
+                # Just do Billed cost for now
+                if rule[:10] == "BilledCost":
+                    print("BILLED COST RULE")
+                    ruleObj = Rule.load_json(ruleDescription, rule_id=rule, column_namespace=self.column_namespace)
+                    self.rules.append(ruleObj)
 
     def validate(self, focus_data):
         (

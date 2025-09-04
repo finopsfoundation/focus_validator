@@ -27,7 +27,8 @@ pyarrow = "*"
 pydantic = "^2"
 pyyaml = "*"
 requests = "*"
-pandera = { version = "^0.17.2" }
+pandera = { version = "^0.22.1" }
+multimethod = ">=2.0,<2.1"
 sqlglot = "^18.7.0"
 numpy = { version = "^1.26"}
 pytz = "^2023.3.post1"
@@ -46,7 +47,7 @@ types-tabulate = "^0.9.0.3"
 pandas-stubs = "^2.0.2.230605"
 types-pyyaml = "^6.0.12.11"
 types-requests = "^2.31.0.2"
-pandera = { version = "^0.17.2", extras = ["mypy"] }
+pandera = { version = "^0.22.1", extras = ["mypy"] }
 isort = "^5.12.0"
 flake8 = "^6.1.0"
 pre-commit = "^3.3.3"
