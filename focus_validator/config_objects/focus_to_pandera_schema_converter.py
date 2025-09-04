@@ -13,7 +13,9 @@ from focus_validator.config_objects.common import (
     ChecklistObjectStatus,
     DataTypeCheck,
     DataTypes,
+    FormatCheck,
     SQLQueryCheck,
+    ValueComparisonCheck,
     ValueInCheck,
 )
 from focus_validator.config_objects.override import Override
@@ -74,6 +76,41 @@ class FocusToPanderaSchemaConverter:
             return pa.Check.check_not_null(
                 error=error_string, ignore_na=check.allow_nulls
             )
+        elif isinstance(check, ValueComparisonCheck):
+            if check.operator == "equals":
+                return pa.Check.eq(
+                    value=check.value, error=error_string
+                )
+            elif check.operator == "not_equals":
+                return pa.Check.ne(
+                    value=check.value, error=error_string
+                )
+            elif check.operator == "greater_equal":
+                return pa.Check.ge(
+                    min_val=check.value, error=error_string
+                )
+        elif isinstance(check, FormatCheck):
+            if check.format_type == "numeric":
+                # For numeric format, ensure values are numeric (handled by DataTypeCheck)
+                return pa.Check(
+                    lambda s: pd.to_numeric(s, errors='coerce').notna().all(),
+                    error=error_string
+                )
+            elif check.format_type == "datetime":
+                return pa.Check.check_datetime_dtype(
+                    ignore_na=True, error=error_string
+                )
+            elif check.format_type == "currency_code":
+                # Basic currency code validation (3-letter codes)
+                return pa.Check(
+                    lambda s: s.str.len() == 3,
+                    error=error_string
+                )
+            elif check.format_type == "string":
+                return pa.Check(
+                    lambda s: s.dtype == 'object',
+                    error=error_string
+                )
         else:
             raise FocusNotImplementedError(
                 msg="Check type: {} not implemented.".format(type(check))

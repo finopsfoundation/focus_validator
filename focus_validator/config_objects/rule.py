@@ -10,7 +10,10 @@ from focus_validator.config_objects.common import (
     AllowNullsCheck,
     ChecklistObjectStatus,
     DataTypeCheck,
+    DataTypes,
+    FormatCheck,
     SQLQueryCheck,
+    ValueComparisonCheck,
     ValueInCheck,
     generate_check_friendly_name,
 )
@@ -31,8 +34,9 @@ class Rule(BaseModel):
     check_id: str
     column_id: str
     check: Union[
-        SIMPLE_CHECKS, AllowNullsCheck, ValueInCheck, DataTypeCheck, SQLQueryCheck
+        SIMPLE_CHECKS, AllowNullsCheck, ValueInCheck, DataTypeCheck, SQLQueryCheck, ValueComparisonCheck, FormatCheck
     ]
+    description: Optional[str] = None  # human-readable description from Notes or MustSatisfy
 
     check_friendly_name: Annotated[
         Optional[str], Field(validate_default=True)
@@ -100,6 +104,81 @@ class Rule(BaseModel):
         except Exception as e:
             return InvalidRule(
                 rule_path=rule_path_basename,
+                error=str(e),
+                error_type=e.__class__.__name__,
+            )
+
+    @staticmethod
+    def _get_check_function_mappings():
+        # Dynamic mapping of CheckFunctions to check objects
+        return {
+            "ColumnPresent": lambda args: "column_required",
+
+            "CheckNotValue": lambda args: ValueComparisonCheck(
+                operator="not_equals",
+                value=args.get("Value")
+            ),
+            "CheckValue": lambda args: ValueComparisonCheck(
+                operator="equals",
+                value=args.get("Value")
+            ),
+            "CheckGreaterOrEqualThanValue": lambda args: ValueComparisonCheck(
+                operator="greater_equal",
+                value=args.get("Value")
+            ),
+
+            "TypeDecimal": lambda args: DataTypeCheck(data_type=DataTypes.DECIMAL),
+            "TypeString": lambda args: DataTypeCheck(data_type=DataTypes.STRING),
+
+            "FormatNumeric": lambda args: FormatCheck(format_type="numeric"),
+            "FormatDateTime": lambda args: FormatCheck(format_type="datetime"),
+            "FormatBillingCurrencyCode": lambda args: FormatCheck(format_type="currency_code"),
+            "FormatString": lambda args: FormatCheck(format_type="string"),
+        }
+
+    @staticmethod
+    def load_json(
+        rule_data: dict, rule_id: str = None, column_namespace: Optional[str] = None
+    ) -> Union["Rule", InvalidRule]:
+        try:
+            check_id = rule_id or "unknown"
+            validation_criteria = rule_data.get("ValidationCriteria", {})
+            requirement = validation_criteria.get("Requirement", {})
+
+            check_function = requirement.get("CheckFunction")
+            column_name = requirement.get("ColumnName", "")
+
+            if column_name and column_namespace:
+                column_id = f"{column_namespace}:{column_name}"
+            else:
+                column_id = column_name
+
+            # Get dynamic mappings and create check object
+            mappings = Rule._get_check_function_mappings()
+
+            if check_function in mappings:
+                check = mappings[check_function](requirement)
+            else:
+                # Fallback for unmapped functions
+                check = check_function.lower() if check_function else "unknown_check"
+
+            # Extract human-readable description from Notes or MustSatisfy
+            description = rule_data.get("Notes", "")
+            if not description or description == "":
+                description = validation_criteria.get("MustSatisfy", "")
+
+            rule_obj = {
+                "check_id": check_id,
+                "column_id": column_id,
+                "check": check,
+                "description": description
+            }
+
+            return Rule.model_validate(rule_obj)
+
+        except Exception as e:
+            return InvalidRule(
+                rule_path=rule_id or "unknown",
                 error=str(e),
                 error_type=e.__class__.__name__,
             )

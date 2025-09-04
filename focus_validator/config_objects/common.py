@@ -1,5 +1,7 @@
+import json
+import os
 from enum import Enum
-from typing import List, Literal
+from typing import Dict, List, Literal, Union
 
 import sqlglot
 from pydantic import BaseModel, field_validator
@@ -29,6 +31,17 @@ class SQLQueryCheck(BaseModel):
         return sql_query
 
 
+class ValueComparisonCheck(BaseModel):
+    # Handles CheckNotValue, CheckValue, CheckGreaterOrEqualThanValue
+    operator: Literal["equals", "not_equals", "greater_equal"]
+    value: Union[str, float, int, None]
+
+
+class FormatCheck(BaseModel):
+    # Handles FormatNumeric, FormatDateTime, FormatBillingCurrencyCode, etc
+    format_type: Literal["numeric", "datetime", "currency_code", "string"]
+
+
 SIMPLE_CHECKS = Literal["check_unique", "column_required"]
 
 
@@ -53,6 +66,8 @@ class ChecklistObjectStatus(Enum):
 
 
 def generate_check_friendly_name(check, column_id):
+    return "Rule that does something"
+    # TODO: Fix this for pydantic
     if check == "check_unique":
         return f"{column_id}, requires unique values."
     elif check == "column_required":
