@@ -2,7 +2,7 @@ import os
 from typing import Dict, Optional
 
 import pandas as pd
-from pandera.errors import SchemaErrors
+import duckdb
 
 from focus_validator.config_objects import (
     ChecklistObject,
@@ -11,8 +11,8 @@ from focus_validator.config_objects import (
     Rule,
     JsonLoader,
 )
-from focus_validator.config_objects.focus_to_pandera_schema_converter import (
-    FocusToPanderaSchemaConverter,
+from focus_validator.config_objects.focus_to_duckdb_converter import (
+    FocusToDuckDBSchemaConverter,
 )
 from focus_validator.exceptions import UnsupportedVersion
 
@@ -93,17 +93,10 @@ class ValidationResult:
         self.__checklist__ = checklist
 
     def process_result(self):
-        failure_cases = self.__failure_cases__
+        # For DuckDB validation, status is already set in the DuckDB converter
+        # Just ensure any remaining pending items are marked as passed
         checklist = self.__checklist__
-        if failure_cases is None:
-            self.failure_cases = None
-        else:
-            self.failure_cases = failure_cases = restructure_failure_cases_df(
-                failure_cases, checklist
-            )
-            failed = set(failure_cases["Check Name"])
-            for check_name in failed:
-                checklist[check_name].status = ChecklistObjectStatus.FAILED
+        self.failure_cases = self.__failure_cases__
 
         for check_list_object in checklist.values():
             if check_list_object.status == ChecklistObjectStatus.PENDING:
@@ -150,29 +143,39 @@ class SpecRules:
 
         for rule, ruleDescription in self.json_rules.items():
             # Ignore dynamic types and rules from new versions
-            print(rule, ruleDescription["CRVersionIntroduced"])
-            if ruleDescription["Type"] == "Static" and float(ruleDescription["CRVersionIntroduced"]) <= float(1.0):
+            if ruleDescription["Type"] == "Static" and float(ruleDescription["CRVersionIntroduced"]) <= float(1.2):
                 # Just do Billed cost for now
-                if True:#rule[:10] == "BilledCost":
-                    #print("FOUND BILLED COST RULE", rule, ruleDescription["CRVersionIntroduced"])
+                if rule[:10] == "BilledCost":
                     ruleObj = Rule.load_json(ruleDescription, rule_id=rule, column_namespace=self.column_namespace)
                     self.rules.append(ruleObj)
 
-    def validate(self, focus_data):
+    def validate(self, focus_data, connection: Optional[duckdb.DuckDBPyConnection] = None):
+        # Generate DuckDB validation checks and checklist
         (
-            pandera_schema,
+            duckdb_checks,
             checklist,
-        ) = FocusToPanderaSchemaConverter.generate_pandera_schema(
-            rules=self.rules, override_config=self.override_config
+        ) = FocusToDuckDBSchemaConverter.generateDuckDBValidation(
+            rules=self.rules, overrideConfig=self.override_config
         )
-        try:
-            pandera_schema.validate(focus_data, lazy=True)
-            failure_cases = None
-        except SchemaErrors as e:
-            failure_cases = e.failure_cases
 
+        if connection is None:
+            connection = duckdb.connect(":memory:")
+            connection.register("focus_data", focus_data)
+            tableName = "focus_data"
+        else:
+            tableName = "focus_data"  # Default table name, could be parameterized
+
+        # Execute DuckDB validation
+        updated_checklist = FocusToDuckDBSchemaConverter.executeDuckDBValidation(
+            connection=connection,
+            tableName=tableName,
+            checks=duckdb_checks,
+            checklist=checklist
+        )
+
+        # No failure cases for now
         validation_result = ValidationResult(
-            checklist=checklist, failure_cases=failure_cases
+            checklist=updated_checklist, failure_cases=None
         )
         validation_result.process_result()
         return validation_result

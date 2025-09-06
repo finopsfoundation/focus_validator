@@ -55,7 +55,17 @@ class ConsoleOutputter:
 
     def write(self, result_set: ValidationResult):
         self.result_set = result_set
-        if result_set.failure_cases is not None:
+        
+        # Check for failed items in checklist
+        failed_items = [item for item in result_set.checklist.values() 
+                       if item.status.value == "failed"]
+        
+        if failed_items:
+            print("Errors encountered:")
+            for item in failed_items:
+                print(f'{item.check_name} failed:\n\tDescription: {item.friendly_name or "Column validation"}\n\tError: {item.error}\n')
+            print("Validation failed!")
+        elif result_set.failure_cases is not None:
             aggregated_failures = result_set.failure_cases.groupby(
                 by=["Check Name", "Description"], as_index=False
             ).aggregate(lambda x: collapse_occurrence_range(x.unique().tolist()))
