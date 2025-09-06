@@ -135,7 +135,6 @@ class SpecRules:
 
     def load(self):
         self.load_overrides()
-        self.load_config()
         self.load_rules()
 
     def load_overrides(self):
@@ -144,20 +143,18 @@ class SpecRules:
         #     return {}
         # self.override_config = Override.load_yaml(self.override_filename)
 
-    def load_config(self):
-        pass
-
     def load_rules(self):
         # Load rules from JSON
         json_rules_path = os.path.join(self.rules_path, f'cr-{self.rules_version}.json')
         self.json_rules, self.json_checkfunctions = JsonLoader.load_json_rules(json_rules_path)
 
         for rule, ruleDescription in self.json_rules.items():
-            # Ignore dynamic types
-            if ruleDescription["Type"] == "Static":
+            # Ignore dynamic types and rules from new versions
+            print(rule, ruleDescription["CRVersionIntroduced"])
+            if ruleDescription["Type"] == "Static" and float(ruleDescription["CRVersionIntroduced"]) <= float(1.0):
                 # Just do Billed cost for now
-                if rule[:10] == "BilledCost":
-                    print("BILLED COST RULE")
+                if True:#rule[:10] == "BilledCost":
+                    #print("FOUND BILLED COST RULE", rule, ruleDescription["CRVersionIntroduced"])
                     ruleObj = Rule.load_json(ruleDescription, rule_id=rule, column_namespace=self.column_namespace)
                     self.rules.append(ruleObj)
 
