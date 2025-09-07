@@ -65,5 +65,7 @@ class ChecklistObjectStatus(Enum):
     PENDING = "pending"
 
 
-def generate_check_friendly_name(check, column_id):
+def generate_check_friendly_name(check, column_id, description=None):
+    if description:
+        return description.strip()
     return "Rule that does something"
