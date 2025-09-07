@@ -298,13 +298,23 @@ class FocusToDuckDBSchemaConverter:
                 sql = check.checkSql.replace('{table_name}', tableName)
                 result = connection.execute(sql).fetchone()
 
-                # Find corresponding checklist item
+                # Find corresponding checklist item by matching check type and column
                 checklistItem = None
-                for item in checklist.values():
+                for check_id, item in checklist.items():
                     if (item.column_id == check.columnName and
                         hasattr(item.rule_ref, 'check')):
-                        checklistItem = item
-                        break
+                        # Try to match by error message which contains the check ID
+                        if check_id in check.errorMessage:
+                            checklistItem = item
+                            break
+                
+                # Fallback: if no specific match found, just match by column and check type
+                if not checklistItem:
+                    for item in checklist.values():
+                        if (item.column_id == check.columnName and
+                            hasattr(item.rule_ref, 'check')):
+                            checklistItem = item
+                            break
 
                 if checklistItem:
                     if result and result[0]:  # check_failed is True
@@ -315,11 +325,24 @@ class FocusToDuckDBSchemaConverter:
 
             except Exception as e:
                 # Find corresponding checklist item and mark as errored
-                for item in checklist.values():
+                errorItem = None
+                for check_id, item in checklist.items():
                     if (item.column_id == check.columnName and
                         hasattr(item.rule_ref, 'check')):
-                        item.status = ChecklistObjectStatus.ERRORED
-                        item.error = f"DuckDB validation error: {str(e)}"
-                        break
+                        if check_id in check.errorMessage:
+                            errorItem = item
+                            break
+                
+                # Fallback matching
+                if not errorItem:
+                    for item in checklist.values():
+                        if (item.column_id == check.columnName and
+                            hasattr(item.rule_ref, 'check')):
+                            errorItem = item
+                            break
+                
+                if errorItem:
+                    errorItem.status = ChecklistObjectStatus.ERRORED
+                    errorItem.error = f"DuckDB validation error: {str(e)}"
 
         return checklist
