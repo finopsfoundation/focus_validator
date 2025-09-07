@@ -67,24 +67,3 @@ class ChecklistObjectStatus(Enum):
 
 def generate_check_friendly_name(check, column_id):
     return "Rule that does something"
-    # TODO: Fix this for pydantic
-    if check == "check_unique":
-        return f"{column_id}, requires unique values."
-    elif check == "column_required":
-        return f"{column_id} is a required column."
-    elif isinstance(check, ValueInCheck):
-        return (
-            f"{column_id} must have a value from the list: {','.join(check.value_in)}."
-        )
-    elif isinstance(check, AllowNullsCheck):
-        if check.allow_nulls:
-            return f"{column_id} allows null values."
-        else:
-            return f"{column_id} does not allow null values."
-    elif isinstance(check, DataTypeCheck):
-        return f"{column_id} requires values of type {check.data_type.value}."
-    elif isinstance(check, SQLQueryCheck):
-        sql_query = " ".join([word.strip() for word in check.sql_query.split()])
-        return f"{column_id} requires values that return true when evaluated by the following SQL query: {sql_query}"
-    else:
-        raise NotImplementedError(f"Check {check} not implemented.")
