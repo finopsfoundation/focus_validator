@@ -191,11 +191,39 @@ class FocusToDuckDBSchemaConverter:
     @classmethod
     def __generate_duckdb_check__(cls, rule: Rule, check_id: str) -> Optional[DuckDBColumnCheck]:
         # Single dispatch method using registry
-        check_function = getattr(rule, 'check_function', rule.check)
+        check = rule.check
 
-        if check_function == "column_required":
+        # Handle simple string checks
+        if check == "column_required":
             generator = cls.CHECK_GENERATORS["ColumnPresent"](rule, check_id)
             return generator.generateCheck()
+        
+        # Handle DataTypeCheck objects
+        elif isinstance(check, DataTypeCheck):
+            if check.data_type == DataTypes.DECIMAL:
+                generator = cls.CHECK_GENERATORS["TypeDecimal"](rule, check_id)
+                return generator.generateCheck()
+            elif check.data_type == DataTypes.STRING:
+                generator = cls.CHECK_GENERATORS["TypeString"](rule, check_id)
+                return generator.generateCheck()
+        
+        # Handle ValueComparisonCheck objects
+        elif isinstance(check, ValueComparisonCheck):
+            if check.operator == "not_equals":
+                generator = cls.CHECK_GENERATORS["CheckNotValue"](rule, check_id, check.value)
+                return generator.generateCheck()
+            elif check.operator == "equals":
+                generator = cls.CHECK_GENERATORS["CheckValue"](rule, check_id, check.value)
+                return generator.generateCheck()
+            elif check.operator == "greater_equal":
+                generator = cls.CHECK_GENERATORS["CheckGreaterOrEqualThanValue"](rule, check_id, check.value)
+                return generator.generateCheck()
+        
+        # Handle FormatCheck objects
+        elif isinstance(check, FormatCheck):
+            if check.format_type == "numeric":
+                generator = cls.CHECK_GENERATORS["FormatNumeric"](rule, check_id)
+                return generator.generateCheck()
 
         return None
 
