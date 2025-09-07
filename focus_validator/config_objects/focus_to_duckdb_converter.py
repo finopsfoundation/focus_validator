@@ -1,4 +1,5 @@
 import os
+from abc import ABC, abstractmethod
 from itertools import groupby
 from typing import Dict, List, Optional, Set, Union
 
@@ -29,41 +30,184 @@ class DuckDBColumnCheck:
         self.errorMessage = error_message
 
 
+class DuckDBCheckGenerator(ABC):
+    # Abstract base class for generating DuckDB validation checks
+    def __init__(self, rule: Rule, check_id: str):
+        self.rule = rule
+        self.checkId = check_id
+        self.columnName = rule.column_id
+        self.errorMessage = f"{check_id}: {rule.check_friendly_name}"
+
+    @abstractmethod
+    def generateSql(self) -> str:
+        # Generate the SQL query for this check type
+        pass
+
+    @abstractmethod
+    def getCheckType(self) -> str:
+        # Return the check type identifier
+        pass
+
+    def generateCheck(self) -> DuckDBColumnCheck:
+        # Generate the complete DuckDB check
+        return DuckDBColumnCheck(
+            column_name=self.columnName,
+            check_type=self.getCheckType(),
+            check_sql=self.generateSql(),
+            error_message=self.errorMessage
+        )
+
+
+class ColumnPresentCheckGenerator(DuckDBCheckGenerator):
+    # Generate column presence check SQL for DuckDB
+    def generateSql(self) -> str:
+        return f"""
+        SELECT COUNT(*) = 0 as check_failed
+        FROM information_schema.columns
+        WHERE table_name = '{{table_name}}'
+        AND column_name = '{self.rule.column_id}'
+        """
+
+    def getCheckType(self) -> str:
+        return "column_presence"
+
+
+class TypeStringCheckGenerator(DuckDBCheckGenerator):
+    # Generate type string validation check
+    def generateSql(self) -> str:
+        return f"""
+        SELECT CASE
+            WHEN COUNT(*) = 0 THEN FALSE
+            ELSE COUNT(CASE WHEN typeof({self.rule.column_id}) != 'VARCHAR' THEN 1 END) > 0
+        END as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "type_string"
+
+
+class TypeDecimalCheckGenerator(DuckDBCheckGenerator):
+    # Generate type decimal validation check
+    def generateSql(self) -> str:
+        return f"""
+        SELECT CASE
+            WHEN COUNT(*) = 0 THEN FALSE
+            ELSE COUNT(CASE WHEN typeof({self.rule.column_id}) NOT IN ('DECIMAL', 'DOUBLE', 'FLOAT') THEN 1 END) > 0
+        END as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "type_decimal"
+
+
+class CheckValueGenerator(DuckDBCheckGenerator):
+    # Generate check for specific value
+    def __init__(self, rule: Rule, check_id: str, expected_value):
+        super().__init__(rule, check_id)
+        self.expectedValue = expected_value
+
+    def generateSql(self) -> str:
+        if self.expectedValue is None:
+            condition = f"{self.rule.column_id} IS NOT NULL"
+        else:
+            condition = f"{self.rule.column_id} != '{self.expectedValue}'"
+
+        return f"""
+        SELECT COUNT(CASE WHEN {condition} THEN 1 END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "check_value"
+
+
+class CheckNotValueGenerator(DuckDBCheckGenerator):
+    # Generate check for not having specific value
+    def __init__(self, rule: Rule, check_id: str, forbidden_value):
+        super().__init__(rule, check_id)
+        self.forbiddenValue = forbidden_value
+
+    def generateSql(self) -> str:
+        if self.forbiddenValue is None:
+            condition = f"{self.rule.column_id} IS NULL"
+        else:
+            condition = f"{self.rule.column_id} = '{self.forbiddenValue}'"
+
+        return f"""
+        SELECT COUNT(CASE WHEN {condition} THEN 1 END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "check_not_value"
+
+
+class FormatNumericGenerator(DuckDBCheckGenerator):
+    # Generate numeric format validation check
+    def generateSql(self) -> str:
+        return f"""
+        SELECT COUNT(CASE
+            WHEN {self.rule.column_id} IS NOT NULL
+            AND NOT ({self.rule.column_id}::TEXT ~ '^[+-]?([0-9]*[.])?[0-9]+$')
+            THEN 1
+        END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "format_numeric"
+
+
+class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
+    # Generate greater than or equal check
+    def __init__(self, rule: Rule, check_id: str, min_value):
+        super().__init__(rule, check_id)
+        self.minValue = min_value
+
+    def generateSql(self) -> str:
+        return f"""
+        SELECT COUNT(CASE WHEN {self.rule.column_id} < {self.minValue} THEN 1 END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "check_greater_equal"
+
+
 class FocusToDuckDBSchemaConverter:
-    @staticmethod
-    def __generate_duckdb_check__(rule: Rule, check_id: str) -> Optional[DuckDBColumnCheck]:
-        # Generate column presence check SQL for DuckDB
-        check = rule.check
-        errorString = f"{check_id}: {rule.check_friendly_name}"
+    # Generators for all types of checks (Starting with pre 1.0 checks for now) TODO: Add dependencies
+    CHECK_GENERATORS = {
+        "ColumnPresent": ColumnPresentCheckGenerator,
+        "TypeString": TypeStringCheckGenerator,
+        "TypeDecimal": TypeDecimalCheckGenerator,
+        "CheckValue": CheckValueGenerator,
+        "CheckNotValue": CheckNotValueGenerator,
+        "FormatNumeric": FormatNumericGenerator,
+        "CheckGreaterOrEqualThanValue": CheckGreaterOrEqualGenerator,
+    }
 
-        if rule.check == "column_required":
-            # Column presence check - verify column exists in the table
-            checkSql = f"""
-            SELECT COUNT(*) = 0 as check_failed
-            FROM information_schema.columns
-            WHERE table_name = '{{table_name}}'
-            AND column_name = '{rule.column_id}'
-            """
+    @classmethod
+    def __generate_duckdb_check__(cls, rule: Rule, check_id: str) -> Optional[DuckDBColumnCheck]:
+        # Single dispatch method using registry
+        check_function = getattr(rule, 'check_function', rule.check)
 
-            return DuckDBColumnCheck(
-                column_name=rule.column_id,
-                check_type="column_presence",
-                check_sql=checkSql,
-                error_message=f"Column '{rule.column_id}' is required but not present in the table"
-            )
+        if check_function == "column_required":
+            generator = cls.CHECK_GENERATORS["ColumnPresent"](rule, check_id)
+            return generator.generateCheck()
 
-        # Only focusing only on column presence checks
         return None
 
     @classmethod
-    def __generate_column_presence_checks__(
+    def __generate_checks__(
         cls, rules: List[Rule], overrides: Set[str]
     ) -> List[DuckDBColumnCheck]:
-        # Generate DuckDB column presence checks
+        # Generate DuckDB validation checks using registry
         checks = []
 
         for rule in rules:
-            if rule.check == "column_required" and rule.check_id not in overrides:
+            if rule.check_id not in overrides:
                 check = cls.__generate_duckdb_check__(rule, rule.check_id)
                 if check:
                     checks.append(check)
@@ -106,9 +250,9 @@ class FocusToDuckDBSchemaConverter:
 
             validationRules.append(rule)
 
-        # Generate column presence checks
-        columnPresenceChecks = cls.__generate_column_presence_checks__(validationRules, overrides)
-        checks.extend(columnPresenceChecks)
+        # Generate validation checks using registry
+        validationChecks = cls.__generate_checks__(validationRules, overrides)
+        checks.extend(validationChecks)
 
         return checks, checklist
 
@@ -130,8 +274,7 @@ class FocusToDuckDBSchemaConverter:
                 checklistItem = None
                 for item in checklist.values():
                     if (item.column_id == check.columnName and
-                        hasattr(item.rule_ref, 'check') and
-                        item.rule_ref.check == "column_required"):
+                        hasattr(item.rule_ref, 'check')):
                         checklistItem = item
                         break
 
@@ -146,8 +289,7 @@ class FocusToDuckDBSchemaConverter:
                 # Find corresponding checklist item and mark as errored
                 for item in checklist.values():
                     if (item.column_id == check.columnName and
-                        hasattr(item.rule_ref, 'check') and
-                        item.rule_ref.check == "column_required"):
+                        hasattr(item.rule_ref, 'check')):
                         item.status = ChecklistObjectStatus.ERRORED
                         item.error = f"DuckDB validation error: {str(e)}"
                         break
