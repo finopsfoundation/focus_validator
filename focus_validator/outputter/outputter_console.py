@@ -78,7 +78,7 @@ class ConsoleOutputter:
                     print("     Description", item.error)
                     print("     Error", item.friendly_name)
                 else:
-                    print(item.check_name, "PASS")
+                    print(item.check_name, status.upper())
 
         if len(status_groups['failed']) > 0 or len(status_groups['errored']) > 0:
             print("*********************")
