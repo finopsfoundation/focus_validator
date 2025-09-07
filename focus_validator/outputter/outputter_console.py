@@ -55,29 +55,39 @@ class ConsoleOutputter:
 
     def write(self, result_set: ValidationResult):
         self.result_set = result_set
-        
-        # Check for failed items in checklist
-        failed_items = [item for item in result_set.checklist.values() 
-                       if item.status.value == "failed"]
-        
-        if failed_items:
-            print("Errors encountered:")
-            for item in failed_items:
-                print(f'{item.check_name} failed:\n\tDescription: {item.friendly_name or "Column validation"}\n\tError: {item.error}\n')
-            print("Validation failed!")
-        elif result_set.failure_cases is not None:
-            aggregated_failures = result_set.failure_cases.groupby(
-                by=["Check Name", "Description"], as_index=False
-            ).aggregate(lambda x: collapse_occurrence_range(x.unique().tolist()))
 
-            print("Errors encountered:")
-            for _, fail in aggregated_failures.iterrows():
-                print(
-                    f'{fail["Check Name"]} failed:\n\tDescription: {fail["Description"]}\n\tRows: {fail["Row #"] if fail["Row #"] else "(whole file)"}\n\tExample values: {fail["Values"] if fail["Values"] else "(none)"}\n'
-                )
+        status_groups = {
+            "passed": [],
+            "failed": [],
+            "skipped": [],
+            "errored": [],
+            "pending": []
+        }
+
+        for item in result_set.checklist.values():
+            status_groups[item.status.value].append(item)
+
+
+        # Show all results by status
+        for status in ["passed", "failed", "skipped", "errored", "pending"]:
+            items = status_groups[status]
+            print(status, "(" + str(len(items)) + ")")
+            for item in items:
+                if status == "failed" and item.error:
+                    print(item.check_name, "FAIL")
+                    print("     Description", item.error)
+                    print("     Error", item.friendly_name)
+                else:
+                    print(item.check_name, "PASS")
+
+        if len(status_groups['failed']) > 0 or len(status_groups['errored']) > 0:
+            print("*********************")
             print("Validation failed!")
+            print("*********************")
         else:
+            print("*********************")
             print("Validation succeeded.")
+            print("*********************")
 
 
 def collapse_occurrence_range(occurrence_range: list):
