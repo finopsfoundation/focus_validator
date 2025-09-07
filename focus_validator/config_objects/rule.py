@@ -61,7 +61,9 @@ class Rule(BaseModel):
             and values.get("column_id") is not None
         ):
             check_friendly_name = generate_check_friendly_name(
-                check=values["check"], column_id=values["column_id"]
+                check=values["check"], 
+                column_id=values["column_id"],
+                description=values.get("description")
             )
         return check_friendly_name
 
