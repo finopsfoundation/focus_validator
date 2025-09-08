@@ -27,6 +27,7 @@ class Validator:
         rules_version="0.5",
         override_filename=None,
         column_namespace=None,
+        rule_prefix=None,
     ):
         self.data_filename = data_filename
         self.focus_data = None
@@ -38,6 +39,7 @@ class Validator:
             rule_set_path=rule_set_path,
             rules_version=rules_version,
             column_namespace=column_namespace,
+            rule_prefix=rule_prefix,
         )
         self.outputter = Outputter(
             output_type=output_type, output_destination=output_destination
