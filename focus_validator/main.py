@@ -65,6 +65,7 @@ def main():
         output_type=args.output_type,
         output_destination=args.output_destination,
         column_namespace=args.column_namespace,
+        rule_prefix='BilledCost'
     )
     if args.supported_versions:
         for version in validator.get_supported_versions():
