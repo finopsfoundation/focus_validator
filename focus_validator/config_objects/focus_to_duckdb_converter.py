@@ -313,16 +313,28 @@ class FocusToDuckDBSchemaConverter:
                 )
                 continue
 
+            # Check if this is a dynamic rule (marked during loading)
+            is_dynamic_rule = hasattr(rule, '_rule_type') and getattr(rule, '_rule_type', '').lower() == "dynamic"
+            
             # Create checklist object for each rule
+            if rule.check_id in overrides:
+                status = ChecklistObjectStatus.SKIPPED
+            elif is_dynamic_rule:
+                status = ChecklistObjectStatus.SKIPPED
+            else:
+                status = ChecklistObjectStatus.PENDING
+                
             checklist[rule.check_id] = ChecklistObject(
                 check_name=rule.check_id,
                 column_id=rule.column_id,
                 friendly_name=rule.check_friendly_name,
-                status=ChecklistObjectStatus.SKIPPED if rule.check_id in overrides else ChecklistObjectStatus.PENDING,
+                status=status,
                 rule_ref=rule,
             )
 
-            validationRules.append(rule)
+            # Only add static rules to validation processing
+            if not is_dynamic_rule:
+                validationRules.append(rule)
 
         # Generate validation checks using registry
         validationChecks = cls.__generate_checks__(validationRules, overrides)

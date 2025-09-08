@@ -149,12 +149,29 @@ class SpecRules:
         for rule_id in rule_order:
             ruleDescription = self.json_rules[rule_id]
             
-            # Only process static rules within version compatibility
-            if ruleDescription["Type"] == "Static" and float(ruleDescription["CRVersionIntroduced"]) <= float(self.rules_version):
-                ruleObj = Rule.load_json(ruleDescription, rule_id=rule_id, column_namespace=self.column_namespace)
-                if isinstance(ruleObj, InvalidRule):
-                    continue  # Skip invalid rules
-                self.rules.append(ruleObj)
+            # Process both static and dynamic rules within version compatibility
+            if float(ruleDescription["CRVersionIntroduced"]) <= float(self.rules_version):
+                # Check if this is a Dynamic rule - handle specially
+                if ruleDescription.get("Type", "").lower() == "dynamic":
+                    # Create a minimal rule object for Dynamic rules that will be skipped
+                    dynamic_rule = Rule(
+                        check_id=rule_id,
+                        column_id=ruleDescription.get("Reference", ""),
+                        check="column_required",  # Placeholder check type - will be skipped anyway
+                        check_friendly_name=ruleDescription.get("ValidationCriteria", {}).get("MustSatisfy", "Dynamic rule")
+                    )
+                    dynamic_rule._rule_type = "Dynamic"
+                    self.rules.append(dynamic_rule)
+                else:
+                    ruleObj = Rule.load_json(ruleDescription, rule_id=rule_id, column_namespace=self.column_namespace)
+                    if isinstance(ruleObj, InvalidRule):
+                        continue  # Skip invalid rules
+                    
+                    # Mark rule type for all rules
+                    if hasattr(ruleObj, '__dict__'):
+                        ruleObj.__dict__['_rule_type'] = ruleDescription.get("Type", "Static")
+                    
+                    self.rules.append(ruleObj)
 
     def validate(self, focus_data, connection: Optional[duckdb.DuckDBPyConnection] = None):
         # Generate DuckDB validation checks and checklist
