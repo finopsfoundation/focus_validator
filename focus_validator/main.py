@@ -50,6 +50,11 @@ def main():
         default=None,
         help="filename of where to output the rules",
     )
+    parser.add_argument(
+        "--conformance-dataset",
+        default="BilledCost",
+        help="Specify and validate one of the ConformanceDatasets instead of all",
+    )
 
     args = parser.parse_args()
 
@@ -65,7 +70,7 @@ def main():
         output_type=args.output_type,
         output_destination=args.output_destination,
         column_namespace=args.column_namespace,
-        rule_prefix='BilledCost'
+        rule_prefix=args.conformance_dataset
     )
     if args.supported_versions:
         for version in validator.get_supported_versions():
