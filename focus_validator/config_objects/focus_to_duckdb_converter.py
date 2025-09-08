@@ -18,6 +18,7 @@ from focus_validator.config_objects.common import (
     ValueComparisonCheck,
     ValueInCheck,
 )
+from focus_validator.config_objects.rule import CompositeCheck
 from focus_validator.config_objects.override import Override
 from focus_validator.exceptions import FocusNotImplementedError
 
@@ -176,6 +177,44 @@ class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
         return "check_greater_equal"
 
 
+class CompositeRuleGenerator(DuckDBCheckGenerator):
+    # Generate composite rule check (AND/OR of other rules)
+    def __init__(self, rule: Rule, check_id: str, dependency_results: Dict[str, bool]):
+        super().__init__(rule, check_id)
+        self.dependencyResults = dependency_results
+        self.composite_check = rule.check
+
+    def generateSql(self) -> str:
+        # For composite rules, we don't generate SQL but evaluate dependencies
+        if isinstance(self.composite_check, CompositeCheck):
+            logic_operator = self.composite_check.logic_operator
+            dependency_rule_ids = self.composite_check.dependency_rule_ids
+
+            if logic_operator == "AND":
+                # All dependencies must pass for composite to pass
+                all_passed = all(
+                    not self.dependencyResults.get(dep_id, True) # True means failed, False means passed
+                    for dep_id in dependency_rule_ids
+                )
+                check_failed = not all_passed
+            elif logic_operator == "OR":
+                # At least one dependency must pass for composite to pass
+                any_passed = any(
+                    not self.dependencyResults.get(dep_id, True)
+                    for dep_id in dependency_rule_ids
+                )
+                check_failed = not any_passed
+            else:
+                check_failed = True  # Unknown logic operator
+
+            return f"SELECT {check_failed} as check_failed"
+
+        return "SELECT TRUE as check_failed"  # Fallback
+
+    def getCheckType(self) -> str:
+        return "composite_rule"
+
+
 class FocusToDuckDBSchemaConverter:
     # Generators for all types of checks (Starting with pre 1.0 checks for now) TODO: Add dependencies
     CHECK_GENERATORS = {
@@ -186,6 +225,7 @@ class FocusToDuckDBSchemaConverter:
         "CheckNotValue": CheckNotValueGenerator,
         "FormatNumeric": FormatNumericGenerator,
         "CheckGreaterOrEqualThanValue": CheckGreaterOrEqualGenerator,
+        "CompositeRule": CompositeRuleGenerator,
     }
 
     @classmethod
@@ -197,7 +237,7 @@ class FocusToDuckDBSchemaConverter:
         if check == "column_required":
             generator = cls.CHECK_GENERATORS["ColumnPresent"](rule, check_id)
             return generator.generateCheck()
-        
+
         # Handle DataTypeCheck objects
         elif isinstance(check, DataTypeCheck):
             if check.data_type == DataTypes.DECIMAL:
@@ -206,7 +246,7 @@ class FocusToDuckDBSchemaConverter:
             elif check.data_type == DataTypes.STRING:
                 generator = cls.CHECK_GENERATORS["TypeString"](rule, check_id)
                 return generator.generateCheck()
-        
+
         # Handle ValueComparisonCheck objects
         elif isinstance(check, ValueComparisonCheck):
             if check.operator == "not_equals":
@@ -218,12 +258,18 @@ class FocusToDuckDBSchemaConverter:
             elif check.operator == "greater_equal":
                 generator = cls.CHECK_GENERATORS["CheckGreaterOrEqualThanValue"](rule, check_id, check.value)
                 return generator.generateCheck()
-        
+
         # Handle FormatCheck objects
         elif isinstance(check, FormatCheck):
             if check.format_type == "numeric":
                 generator = cls.CHECK_GENERATORS["FormatNumeric"](rule, check_id)
                 return generator.generateCheck()
+
+        # Handle CompositeCheck objects
+        elif isinstance(check, CompositeCheck):
+            # For composite rules, we need dependency results which are handled separately
+            # Return None here and handle composite rules in a special method
+            return None
 
         return None
 
@@ -289,7 +335,8 @@ class FocusToDuckDBSchemaConverter:
         connection: duckdb.DuckDBPyConnection,
         tableName: str,
         checks: List[DuckDBColumnCheck],
-        checklist: Dict[str, ChecklistObject]
+        checklist: Dict[str, ChecklistObject],
+        dependency_results: Optional[Dict[str, bool]] = None
     ) -> Dict[str, ChecklistObject]:
         # Execute DuckDB validation checks
         for check in checks:
@@ -307,7 +354,7 @@ class FocusToDuckDBSchemaConverter:
                         if check_id in check.errorMessage:
                             checklistItem = item
                             break
-                
+
                 # Fallback: if no specific match found, just match by column and check type
                 if not checklistItem:
                     for item in checklist.values():
@@ -340,9 +387,47 @@ class FocusToDuckDBSchemaConverter:
                             hasattr(item.rule_ref, 'check')):
                             errorItem = item
                             break
-                
+
                 if errorItem:
                     errorItem.status = ChecklistObjectStatus.ERRORED
                     errorItem.error = f"DuckDB validation error: {str(e)}"
 
+        # Handle composite rules after basic validation
+        FocusToDuckDBSchemaConverter._executeCompositeRules(checklist, dependency_results or {})
+        
         return checklist
+
+    @staticmethod
+    def _executeCompositeRules(checklist: Dict[str, ChecklistObject], dependency_results: Dict[str, bool]):
+        """Execute composite rule validation based on dependency results."""
+        for check_id, item in checklist.items():
+            if (hasattr(item.rule_ref, 'check') and 
+                isinstance(item.rule_ref.check, CompositeCheck)):
+                
+                composite_check = item.rule_ref.check
+                logic_operator = composite_check.logic_operator
+                dependency_rule_ids = composite_check.dependency_rule_ids
+                
+                try:
+                    if logic_operator == "AND":
+                        # All dependencies must pass for composite to pass
+                        all_passed = all(
+                            dep_id in checklist and checklist[dep_id].status == ChecklistObjectStatus.PASSED
+                            for dep_id in dependency_rule_ids
+                        )
+                        item.status = ChecklistObjectStatus.PASSED if all_passed else ChecklistObjectStatus.FAILED
+                        
+                    elif logic_operator == "OR":
+                        # At least one dependency must pass for composite to pass
+                        any_passed = any(
+                            dep_id in checklist and checklist[dep_id].status == ChecklistObjectStatus.PASSED
+                            for dep_id in dependency_rule_ids
+                        )
+                        item.status = ChecklistObjectStatus.PASSED if any_passed else ChecklistObjectStatus.FAILED
+                    
+                    if item.status == ChecklistObjectStatus.FAILED:
+                        item.error = f"Composite rule {logic_operator} logic failed for dependencies: {dependency_rule_ids}"
+                        
+                except Exception as e:
+                    item.status = ChecklistObjectStatus.ERRORED
+                    item.error = f"Error evaluating composite rule: {str(e)}"

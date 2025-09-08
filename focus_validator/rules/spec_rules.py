@@ -11,6 +11,7 @@ from focus_validator.config_objects import (
     Rule,
     JsonLoader,
 )
+from focus_validator.config_objects.rule import InvalidRule
 from focus_validator.config_objects.focus_to_duckdb_converter import (
     FocusToDuckDBSchemaConverter,
 )
@@ -106,7 +107,7 @@ class ValidationResult:
 
 class SpecRules:
     def __init__(
-        self, override_filename, rule_set_path, rules_version, column_namespace
+        self, override_filename, rule_set_path, rules_version, column_namespace, rule_prefix=None
     ):
         self.override_filename = override_filename
         self.override_config = None
@@ -119,6 +120,7 @@ class SpecRules:
         self.rules_path = os.path.join(self.rule_set_path, self.rules_version)
         self.rules = []
         self.column_namespace = column_namespace
+        self.rule_prefix = rule_prefix
 
         self.json_rules = {}
         self.json_checkfunctions = {}
@@ -137,17 +139,22 @@ class SpecRules:
         # self.override_config = Override.load_yaml(self.override_filename)
 
     def load_rules(self):
-        # Load rules from JSON
+        # Load rules from JSON with dependency resolution
         json_rules_path = os.path.join(self.rules_path, f'cr-{self.rules_version}.json')
-        self.json_rules, self.json_checkfunctions = JsonLoader.load_json_rules(json_rules_path)
+        self.json_rules, self.json_checkfunctions, rule_order = JsonLoader.load_json_rules_with_dependencies(
+            json_rules_path, rule_prefix=self.rule_prefix
+        )
 
-        for rule, ruleDescription in self.json_rules.items():
-            # Ignore dynamic types and rules from new versions
-            if ruleDescription["Type"] == "Static" and float(ruleDescription["CRVersionIntroduced"]) <= float(1.2):
-                # Just do Billed cost for now
-                if rule[:10] == "BilledCost":
-                    ruleObj = Rule.load_json(ruleDescription, rule_id=rule, column_namespace=self.column_namespace)
-                    self.rules.append(ruleObj)
+        # Process rules in dependency order (topologically sorted)
+        for rule_id in rule_order:
+            ruleDescription = self.json_rules[rule_id]
+            
+            # Only process static rules within version compatibility
+            if ruleDescription["Type"] == "Static" and float(ruleDescription["CRVersionIntroduced"]) <= float(self.rules_version):
+                ruleObj = Rule.load_json(ruleDescription, rule_id=rule_id, column_namespace=self.column_namespace)
+                if isinstance(ruleObj, InvalidRule):
+                    continue  # Skip invalid rules
+                self.rules.append(ruleObj)
 
     def validate(self, focus_data, connection: Optional[duckdb.DuckDBPyConnection] = None):
         # Generate DuckDB validation checks and checklist

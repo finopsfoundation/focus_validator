@@ -1,5 +1,5 @@
 import os
-from typing import Annotated, Optional, Union
+from typing import Annotated, Optional, Union, List, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -19,6 +19,12 @@ from focus_validator.config_objects.common import (
 )
 
 
+class CompositeCheck(BaseModel):
+    # Handles composite rules with AND/OR logic
+    logic_operator: Literal["AND", "OR"]
+    dependency_rule_ids: List[str]
+
+
 class InvalidRule(BaseModel):
     rule_path: str
     error: str
@@ -34,7 +40,7 @@ class Rule(BaseModel):
     check_id: str
     column_id: str
     check: Union[
-        SIMPLE_CHECKS, AllowNullsCheck, ValueInCheck, DataTypeCheck, SQLQueryCheck, ValueComparisonCheck, FormatCheck
+        SIMPLE_CHECKS, AllowNullsCheck, ValueInCheck, DataTypeCheck, SQLQueryCheck, ValueComparisonCheck, FormatCheck, CompositeCheck
     ]
     description: Optional[str] = None  # human-readable description from Notes or MustSatisfy
 
@@ -61,7 +67,7 @@ class Rule(BaseModel):
             and values.get("column_id") is not None
         ):
             check_friendly_name = generate_check_friendly_name(
-                check=values["check"], 
+                check=values["check"],
                 column_id=values["column_id"],
                 description=values.get("description")
             )
@@ -136,7 +142,27 @@ class Rule(BaseModel):
             "FormatDateTime": lambda args: FormatCheck(format_type="datetime"),
             "FormatBillingCurrencyCode": lambda args: FormatCheck(format_type="currency_code"),
             "FormatString": lambda args: FormatCheck(format_type="string"),
+
+            "AND": lambda args: CompositeCheck(
+                logic_operator="AND",
+                dependency_rule_ids=Rule._extractDependencyRuleIds(args.get("Items", []))
+            ),
+            "OR": lambda args: CompositeCheck(
+                logic_operator="OR",
+                dependency_rule_ids=Rule._extractDependencyRuleIds(args.get("Items", []))
+            ),
         }
+
+    @staticmethod
+    def _extractDependencyRuleIds(items: List) -> List[str]:
+        # Extract ConformanceRuleId values
+        dependency_rule_ids = []
+        for item in items:
+            if isinstance(item, dict) and item.get("CheckFunction") == "CheckConformanceRule":
+                rule_id = item.get("ConformanceRuleId")
+                if rule_id:
+                    dependency_rule_ids.append(rule_id)
+        return dependency_rule_ids
 
     @staticmethod
     def load_json(
