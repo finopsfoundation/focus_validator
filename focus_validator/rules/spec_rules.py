@@ -7,7 +7,6 @@ import duckdb
 from focus_validator.config_objects import (
     ChecklistObject,
     ChecklistObjectStatus,
-    Override,
     Rule,
     JsonLoader,
 )
@@ -107,10 +106,8 @@ class ValidationResult:
 
 class SpecRules:
     def __init__(
-        self, override_filename, rule_set_path, rules_version, column_namespace, rule_prefix=None
+        self, rule_set_path, rules_version, column_namespace, rule_prefix=None
     ):
-        self.override_filename = override_filename
-        self.override_config = None
         self.rules_version = rules_version
         self.rule_set_path = rule_set_path
         if self.rules_version not in self.supported_versions():
@@ -129,14 +126,8 @@ class SpecRules:
         return sorted([x for x in os.walk(self.rule_set_path)][0][1])
 
     def load(self):
-        self.load_overrides()
         self.load_rules()
 
-    def load_overrides(self):
-        pass
-        # if not self.override_filename:
-        #     return {}
-        # self.override_config = Override.load_yaml(self.override_filename)
 
     def load_rules(self):
         # Load rules from JSON with dependency resolution
@@ -179,7 +170,7 @@ class SpecRules:
             duckdb_checks,
             checklist,
         ) = FocusToDuckDBSchemaConverter.generateDuckDBValidation(
-            rules=self.rules, overrideConfig=self.override_config
+            rules=self.rules
         )
 
         if connection is None:

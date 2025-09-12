@@ -18,7 +18,6 @@ from focus_validator.config_objects.common import (
     ValueComparisonCheck,
     ValueInCheck,
 )
-from focus_validator.config_objects.override import Override
 from focus_validator.exceptions import FocusNotImplementedError
 
 # group index column adds a column to the dataframe which is used to group the dataframe, otherwise the default
@@ -118,7 +117,7 @@ class FocusToPanderaSchemaConverter:
 
     @classmethod
     def __generate_column_definition__(
-        cls, rule: Rule, overrides, data_type: DataTypes
+        cls, rule: Rule, data_type: DataTypes
     ):
         """
         Generates column data type validation obj and pa.Column which will contain all other checks
@@ -158,9 +157,7 @@ class FocusToPanderaSchemaConverter:
         check_list_object = ChecklistObject(
             check_name=rule.check_id,
             column_id=rule.column_id,
-            status=ChecklistObjectStatus.SKIPPED
-            if rule.check_id in overrides
-            else ChecklistObjectStatus.PENDING,
+            status=ChecklistObjectStatus.PENDING,
             friendly_name=f"Ensures that column is of {data_type.value} type.",
             rule_ref=rule,
         )
@@ -179,7 +176,6 @@ class FocusToPanderaSchemaConverter:
         column_rules: List["Rule"],
         schema_dict: Dict[str, pa.Column],
         checklist,
-        overrides,
     ):
         try:
             pa_column = schema_dict[column_id]
@@ -199,8 +195,6 @@ class FocusToPanderaSchemaConverter:
                     "ConfigurationError: No configuration found for column."
                 )
                 check_list_object.status = ChecklistObjectStatus.ERRORED
-            elif rule.check_id in overrides:
-                check_list_object.status = ChecklistObjectStatus.SKIPPED
             else:
                 if rule.check == "column_required":
                     pa_column.required = True
@@ -214,13 +208,9 @@ class FocusToPanderaSchemaConverter:
     def generate_pandera_schema(
         cls,
         rules: List[Union[Rule, InvalidRule]],
-        override_config: Optional[Override] = None,
     ):
         schema_dict = {}
         checklist = {}
-        overrides: Set[str] = set()
-        if override_config:
-            overrides = set(override_config.overrides)
 
         validation_rules = []
         for rule in rules:
@@ -236,7 +226,7 @@ class FocusToPanderaSchemaConverter:
 
             if isinstance(rule.check, DataTypeCheck):
                 check_list_object, pa_column = cls.__generate_column_definition__(
-                    rule=rule, overrides=overrides, data_type=rule.check.data_type
+                    rule=rule, data_type=rule.check.data_type
                 )
                 checklist[rule.check_id] = check_list_object
                 schema_dict[rule.column_id] = pa_column
@@ -252,7 +242,6 @@ class FocusToPanderaSchemaConverter:
                 column_id=column_id,
                 checklist=checklist,
                 column_rules=list(column_rules),
-                overrides=overrides,
                 schema_dict=schema_dict,
             )
         return (
