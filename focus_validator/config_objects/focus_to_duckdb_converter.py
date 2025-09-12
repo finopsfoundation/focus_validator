@@ -19,7 +19,6 @@ from focus_validator.config_objects.common import (
     ValueInCheck,
 )
 from focus_validator.config_objects.rule import CompositeCheck
-from focus_validator.config_objects.override import Override
 from focus_validator.exceptions import FocusNotImplementedError
 
 
@@ -362,16 +361,15 @@ class FocusToDuckDBSchemaConverter:
 
     @classmethod
     def __generate_checks__(
-        cls, rules: List[Rule], overrides: Set[str]
+        cls, rules: List[Rule]
     ) -> List[DuckDBColumnCheck]:
         # Generate DuckDB validation checks using registry
         checks = []
 
         for rule in rules:
-            if rule.check_id not in overrides:
-                check = cls.__generate_duckdb_check__(rule, rule.check_id)
-                if check:
-                    checks.append(check)
+            check = cls.__generate_duckdb_check__(rule, rule.check_id)
+            if check:
+                checks.append(check)
 
         return checks
 
@@ -379,14 +377,10 @@ class FocusToDuckDBSchemaConverter:
     def generateDuckDBValidation(
         cls,
         rules: List[Union[Rule, InvalidRule]],
-        overrideConfig: Optional[Override] = None,
     ) -> tuple[List[DuckDBColumnCheck], Dict[str, ChecklistObject]]:
         # Generate DuckDB validation checks and checklist
         checks = []
         checklist = {}
-        overrides: Set[str] = set()
-        if overrideConfig:
-            overrides = set(overrideConfig.overrides)
 
         validationRules = []
         for rule in rules:
@@ -404,9 +398,7 @@ class FocusToDuckDBSchemaConverter:
             is_dynamic_rule = hasattr(rule, '_rule_type') and getattr(rule, '_rule_type', '').lower() == "dynamic"
             
             # Create checklist object for each rule
-            if rule.check_id in overrides:
-                status = ChecklistObjectStatus.SKIPPED
-            elif is_dynamic_rule:
+            if is_dynamic_rule:
                 status = ChecklistObjectStatus.SKIPPED
             else:
                 status = ChecklistObjectStatus.PENDING
@@ -424,7 +416,7 @@ class FocusToDuckDBSchemaConverter:
                 validationRules.append(rule)
 
         # Generate validation checks using registry
-        validationChecks = cls.__generate_checks__(validationRules, overrides)
+        validationChecks = cls.__generate_checks__(validationRules)
         checks.extend(validationChecks)
 
         return checks, checklist

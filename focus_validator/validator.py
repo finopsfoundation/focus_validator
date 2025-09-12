@@ -25,17 +25,14 @@ class Validator:
         output_type,
         rule_set_path=DEFAULT_VERSION_SETS_PATH,
         rules_version="0.5",
-        override_filename=None,
         column_namespace=None,
         rule_prefix=None,
     ):
         self.data_filename = data_filename
         self.focus_data = None
-        self.override_filename = override_filename
 
         self.rules_version = rules_version
         self.spec_rules = SpecRules(
-            override_filename=override_filename,
             rule_set_path=rule_set_path,
             rules_version=rules_version,
             column_namespace=column_namespace,
