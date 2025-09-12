@@ -118,51 +118,10 @@ class Rule(BaseModel):
 
     @staticmethod
     def _get_check_function_mappings():
-        # Dynamic mapping of CheckFunctions to check objects
-        return {
-            "ColumnPresent": lambda args: "column_required",
+        # Import here to avoid circular dependency
+        from focus_validator.config_objects.focus_to_duckdb_converter import FocusToDuckDBSchemaConverter
+        return FocusToDuckDBSchemaConverter.getCheckFunctionMappings()
 
-            "CheckNotValue": lambda args: ValueComparisonCheck(
-                operator="not_equals",
-                value=args.get("Value")
-            ),
-            "CheckValue": lambda args: ValueComparisonCheck(
-                operator="equals",
-                value=args.get("Value")
-            ),
-            "CheckGreaterOrEqualThanValue": lambda args: ValueComparisonCheck(
-                operator="greater_equal",
-                value=args.get("Value")
-            ),
-
-            "TypeDecimal": lambda args: DataTypeCheck(data_type=DataTypes.DECIMAL),
-            "TypeString": lambda args: DataTypeCheck(data_type=DataTypes.STRING),
-
-            "FormatNumeric": lambda args: FormatCheck(format_type="numeric"),
-            "FormatDateTime": lambda args: FormatCheck(format_type="datetime"),
-            "FormatBillingCurrencyCode": lambda args: FormatCheck(format_type="currency_code"),
-            "FormatString": lambda args: FormatCheck(format_type="string"),
-
-            "AND": lambda args: CompositeCheck(
-                logic_operator="AND",
-                dependency_rule_ids=Rule._extractDependencyRuleIds(args.get("Items", []))
-            ),
-            "OR": lambda args: CompositeCheck(
-                logic_operator="OR",
-                dependency_rule_ids=Rule._extractDependencyRuleIds(args.get("Items", []))
-            ),
-        }
-
-    @staticmethod
-    def _extractDependencyRuleIds(items: List) -> List[str]:
-        # Extract ConformanceRuleId values
-        dependency_rule_ids = []
-        for item in items:
-            if isinstance(item, dict) and item.get("CheckFunction") == "CheckConformanceRule":
-                rule_id = item.get("ConformanceRuleId")
-                if rule_id:
-                    dependency_rule_ids.append(rule_id)
-        return dependency_rule_ids
 
     @staticmethod
     def load_json(

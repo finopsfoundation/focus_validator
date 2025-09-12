@@ -216,17 +216,97 @@ class CompositeRuleGenerator(DuckDBCheckGenerator):
 
 
 class FocusToDuckDBSchemaConverter:
-    # Generators for all types of checks (Starting with pre 1.0 checks for now) TODO: Add dependencies
+    # Central registry for all check types with both generators and check object factories
     CHECK_GENERATORS = {
-        "ColumnPresent": ColumnPresentCheckGenerator,
-        "TypeString": TypeStringCheckGenerator,
-        "TypeDecimal": TypeDecimalCheckGenerator,
-        "CheckValue": CheckValueGenerator,
-        "CheckNotValue": CheckNotValueGenerator,
-        "FormatNumeric": FormatNumericGenerator,
-        "CheckGreaterOrEqualThanValue": CheckGreaterOrEqualGenerator,
-        "CompositeRule": CompositeRuleGenerator,
+        "ColumnPresent": {
+            "generator": ColumnPresentCheckGenerator,
+            "factory": lambda args: "column_required"
+        },
+        "TypeString": {
+            "generator": TypeStringCheckGenerator,
+            "factory": lambda args: DataTypeCheck(data_type=DataTypes.STRING)
+        },
+        "TypeDecimal": {
+            "generator": TypeDecimalCheckGenerator,
+            "factory": lambda args: DataTypeCheck(data_type=DataTypes.DECIMAL)
+        },
+        "CheckValue": {
+            "generator": CheckValueGenerator,
+            "factory": lambda args: ValueComparisonCheck(
+                operator="equals",
+                value=args.get("Value")
+            )
+        },
+        "CheckNotValue": {
+            "generator": CheckNotValueGenerator,
+            "factory": lambda args: ValueComparisonCheck(
+                operator="not_equals",
+                value=args.get("Value")
+            )
+        },
+        "FormatNumeric": {
+            "generator": FormatNumericGenerator,
+            "factory": lambda args: FormatCheck(format_type="numeric")
+        },
+        "CheckGreaterOrEqualThanValue": {
+            "generator": CheckGreaterOrEqualGenerator,
+            "factory": lambda args: ValueComparisonCheck(
+                operator="greater_equal",
+                value=args.get("Value")
+            )
+        },
+        "CompositeRule": {
+            "generator": CompositeRuleGenerator,
+            "factory": None  # Composite rules are handled separately
+        },
+        # Additional check types that were in rule.py
+        "FormatDateTime": {
+            "generator": None,  # No DuckDB generator yet
+            "factory": lambda args: FormatCheck(format_type="datetime")
+        },
+        "FormatBillingCurrencyCode": {
+            "generator": None,  # No DuckDB generator yet
+            "factory": lambda args: FormatCheck(format_type="currency_code")
+        },
+        "FormatString": {
+            "generator": None,  # No DuckDB generator yet
+            "factory": lambda args: FormatCheck(format_type="string")
+        },
+        "AND": {
+            "generator": CompositeRuleGenerator,
+            "factory": lambda args: CompositeCheck(
+                logic_operator="AND",
+                dependency_rule_ids=FocusToDuckDBSchemaConverter._extractDependencyRuleIds(args.get("Items", []))
+            )
+        },
+        "OR": {
+            "generator": CompositeRuleGenerator,
+            "factory": lambda args: CompositeCheck(
+                logic_operator="OR",
+                dependency_rule_ids=FocusToDuckDBSchemaConverter._extractDependencyRuleIds(args.get("Items", []))
+            )
+        },
     }
+
+    @staticmethod
+    def _extractDependencyRuleIds(items: List) -> List[str]:
+        # Extract ConformanceRuleId values
+        dependency_rule_ids = []
+        for item in items:
+            if isinstance(item, dict) and item.get("CheckFunction") == "CheckConformanceRule":
+                rule_id = item.get("ConformanceRuleId")
+                if rule_id:
+                    dependency_rule_ids.append(rule_id)
+        return dependency_rule_ids
+
+    @classmethod
+    def getCheckFunctionMappings(cls):
+        # Central method that returns check function mappings using the registry
+        mappings = {}
+        for check_function, config in cls.CHECK_GENERATORS.items():
+            if config["factory"] is not None:
+                mappings[check_function] = config["factory"]
+        return mappings
 
     @classmethod
     def __generate_duckdb_check__(cls, rule: Rule, check_id: str) -> Optional[DuckDBColumnCheck]:
@@ -235,34 +315,41 @@ class FocusToDuckDBSchemaConverter:
 
         # Handle simple string checks
         if check == "column_required":
-            generator = cls.CHECK_GENERATORS["ColumnPresent"](rule, check_id)
+            generator_class = cls.CHECK_GENERATORS["ColumnPresent"]["generator"]
+            generator = generator_class(rule, check_id)
             return generator.generateCheck()
 
         # Handle DataTypeCheck objects
         elif isinstance(check, DataTypeCheck):
             if check.data_type == DataTypes.DECIMAL:
-                generator = cls.CHECK_GENERATORS["TypeDecimal"](rule, check_id)
+                generator_class = cls.CHECK_GENERATORS["TypeDecimal"]["generator"]
+                generator = generator_class(rule, check_id)
                 return generator.generateCheck()
             elif check.data_type == DataTypes.STRING:
-                generator = cls.CHECK_GENERATORS["TypeString"](rule, check_id)
+                generator_class = cls.CHECK_GENERATORS["TypeString"]["generator"]
+                generator = generator_class(rule, check_id)
                 return generator.generateCheck()
 
         # Handle ValueComparisonCheck objects
         elif isinstance(check, ValueComparisonCheck):
             if check.operator == "not_equals":
-                generator = cls.CHECK_GENERATORS["CheckNotValue"](rule, check_id, check.value)
+                generator_class = cls.CHECK_GENERATORS["CheckNotValue"]["generator"]
+                generator = generator_class(rule, check_id, check.value)
                 return generator.generateCheck()
             elif check.operator == "equals":
-                generator = cls.CHECK_GENERATORS["CheckValue"](rule, check_id, check.value)
+                generator_class = cls.CHECK_GENERATORS["CheckValue"]["generator"]
+                generator = generator_class(rule, check_id, check.value)
                 return generator.generateCheck()
             elif check.operator == "greater_equal":
-                generator = cls.CHECK_GENERATORS["CheckGreaterOrEqualThanValue"](rule, check_id, check.value)
+                generator_class = cls.CHECK_GENERATORS["CheckGreaterOrEqualThanValue"]["generator"]
+                generator = generator_class(rule, check_id, check.value)
                 return generator.generateCheck()
 
         # Handle FormatCheck objects
         elif isinstance(check, FormatCheck):
             if check.format_type == "numeric":
-                generator = cls.CHECK_GENERATORS["FormatNumeric"](rule, check_id)
+                generator_class = cls.CHECK_GENERATORS["FormatNumeric"]["generator"]
+                generator = generator_class(rule, check_id)
                 return generator.generateCheck()
 
         # Handle CompositeCheck objects
