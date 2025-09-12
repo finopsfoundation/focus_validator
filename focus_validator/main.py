@@ -15,7 +15,6 @@ def main():
         "--column-namespace",
         help="Column namespace to differentiate focus columns from vendor columns",
     )
-    parser.add_argument("--override-file", help="Path to the override file (YAML)")
     parser.add_argument(
         "--output-format", default="text", help="Path to the output report file"
     )
@@ -52,7 +51,7 @@ def main():
     )
     parser.add_argument(
         "--conformance-dataset",
-        default="BilledCost",
+        default=None,
         help="Specify and validate one of the ConformanceDatasets instead of all",
     )
 
@@ -64,7 +63,6 @@ def main():
 
     validator = Validator(
         data_filename=args.data_file,
-        override_filename=args.override_file,
         rule_set_path=args.rule_set_path,
         rules_version=args.validate_version,
         output_type=args.output_type,
