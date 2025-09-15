@@ -571,17 +571,17 @@ class FocusToDuckDBSchemaConverter:
                 
                 try:
                     if logic_operator == "AND":
-                        # All dependencies must pass for composite to pass
+                        # All dependencies must pass for composite to pass (SKIPPED counts as PASSED)
                         all_passed = all(
-                            dep_id in checklist and checklist[dep_id].status == ChecklistObjectStatus.PASSED
+                            dep_id in checklist and checklist[dep_id].status in [ChecklistObjectStatus.PASSED, ChecklistObjectStatus.SKIPPED]
                             for dep_id in dependency_rule_ids
                         )
                         item.status = ChecklistObjectStatus.PASSED if all_passed else ChecklistObjectStatus.FAILED
                         
                     elif logic_operator == "OR":
-                        # At least one dependency must pass for composite to pass
+                        # At least one dependency must pass for composite to pass (SKIPPED counts as PASSED)
                         any_passed = any(
-                            dep_id in checklist and checklist[dep_id].status == ChecklistObjectStatus.PASSED
+                            dep_id in checklist and checklist[dep_id].status in [ChecklistObjectStatus.PASSED, ChecklistObjectStatus.SKIPPED]
                             for dep_id in dependency_rule_ids
                         )
                         item.status = ChecklistObjectStatus.PASSED if any_passed else ChecklistObjectStatus.FAILED
