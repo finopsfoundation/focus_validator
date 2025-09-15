@@ -176,6 +176,64 @@ class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
         return "check_greater_equal"
 
 
+class FormatDateTimeGenerator(DuckDBCheckGenerator):
+    # Generate datetime format validation check for ISO 8601 extended format with UTC (YYYY-MM-DDTHH:mm:ssZ)
+    def generateSql(self) -> str:
+        return f"""
+        SELECT COUNT(CASE
+            WHEN {self.rule.column_id} IS NOT NULL
+            AND NOT ({self.rule.column_id}::TEXT ~ '^[0-9]{{4}}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z$')
+            THEN 1
+        END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "format_datetime"
+
+
+class FormatStringGenerator(DuckDBCheckGenerator):
+    # Generate string format validation check for Pascal case, alphanumeric, and length requirements
+    def generateSql(self) -> str:
+        return f"""
+        SELECT COUNT(CASE
+            WHEN {self.rule.column_id} IS NOT NULL
+            AND NOT (
+                ({self.rule.column_id}::TEXT ~ '^[A-Z][a-zA-Z0-9]*$') OR 
+                ({self.rule.column_id}::TEXT ~ '^x_[A-Z][a-zA-Z0-9]*$')
+            )
+            OR LENGTH({self.rule.column_id}::TEXT) > 50
+            THEN 1
+        END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "format_string"
+
+
+class FormatBillingCurrencyCodeGenerator(DuckDBCheckGenerator):
+    # Generate currency code format validation for ISO 4217 (national) and string handling (virtual) currencies
+    def generateSql(self) -> str:
+        return f"""
+        SELECT COUNT(CASE
+            WHEN {self.rule.column_id} IS NOT NULL
+            AND NOT (
+                ({self.rule.column_id}::TEXT ~ '^[A-Z]{{3}}$') OR
+                (
+                    ({self.rule.column_id}::TEXT ~ '^[A-Z][a-zA-Z0-9]*$') OR 
+                    ({self.rule.column_id}::TEXT ~ '^x_[A-Z][a-zA-Z0-9]*$')
+                )
+            )
+            THEN 1
+        END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "format_currency_code"
+
+
 class CompositeRuleGenerator(DuckDBCheckGenerator):
     # Generate composite rule check (AND/OR of other rules)
     def __init__(self, rule: Rule, check_id: str, dependency_results: Dict[str, bool]):
@@ -260,15 +318,15 @@ class FocusToDuckDBSchemaConverter:
         },
         # Additional check types that were in rule.py
         "FormatDateTime": {
-            "generator": None,  # No DuckDB generator yet
+            "generator": FormatDateTimeGenerator,
             "factory": lambda args: FormatCheck(format_type="datetime")
         },
         "FormatBillingCurrencyCode": {
-            "generator": None,  # No DuckDB generator yet
+            "generator": FormatBillingCurrencyCodeGenerator,
             "factory": lambda args: FormatCheck(format_type="currency_code")
         },
         "FormatString": {
-            "generator": None,  # No DuckDB generator yet
+            "generator": FormatStringGenerator,
             "factory": lambda args: FormatCheck(format_type="string")
         },
         "AND": {
@@ -348,6 +406,18 @@ class FocusToDuckDBSchemaConverter:
         elif isinstance(check, FormatCheck):
             if check.format_type == "numeric":
                 generator_class = cls.CHECK_GENERATORS["FormatNumeric"]["generator"]
+                generator = generator_class(rule, check_id)
+                return generator.generateCheck()
+            elif check.format_type == "datetime":
+                generator_class = cls.CHECK_GENERATORS["FormatDateTime"]["generator"]
+                generator = generator_class(rule, check_id)
+                return generator.generateCheck()
+            elif check.format_type == "string":
+                generator_class = cls.CHECK_GENERATORS["FormatString"]["generator"]
+                generator = generator_class(rule, check_id)
+                return generator.generateCheck()
+            elif check.format_type == "currency_code":
+                generator_class = cls.CHECK_GENERATORS["FormatBillingCurrencyCode"]["generator"]
                 generator = generator_class(rule, check_id)
                 return generator.generateCheck()
 
