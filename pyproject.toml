@@ -36,6 +36,7 @@ pandasql = "^0.7.3"
 polars = "^0.20.3"
 ddt = "^1.7.1"
 duckdb = "^1.3.2"
+graphviz = "^0.21"
 
 [tool.poetry.group.dev.dependencies]
 black = { extras = ["d"], version = "^23.7.0" }
