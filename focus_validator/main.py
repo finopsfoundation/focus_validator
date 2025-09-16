@@ -83,44 +83,26 @@ def main():
         results = validator.validate()
 
         if args.visualize:
-            import tempfile
             import os
             import subprocess
             from validation_results_visualizer import visualizeValidationResults
 
-            # Create temporary file for visualization
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
-                temp_filename = temp_file.name
+            filename = "visualize.png"
 
             try:
-                # Generate visualization
                 visualizeValidationResults(
                     validationResult=results,
-                    pngFilename=temp_filename,
+                    pngFilename=filename,
                     showPassed=True
                 )
 
-                # Open the image using the default system viewer
                 if os.name == 'nt':  # Windows
-                    os.startfile(temp_filename)
+                    os.startfile(filename)
                 elif os.name == 'posix':  # macOS and Linux
-                    subprocess.run(['open', temp_filename] if sys.platform == 'darwin' else ['xdg-open', temp_filename])
+                    subprocess.run(['open', filename] if sys.platform == 'darwin' else ['xdg-open', filename])
 
             except Exception as e:
                 print(f"Failed to generate visualization: {e}")
-            finally:
-                # Clean up temporary file after a short delay (to allow viewer to open)
-                import time
-                import threading
-
-                def cleanup():
-                    time.sleep(5)  # Wait 5 seconds for viewer to open
-                    try:
-                        os.unlink(temp_filename)
-                    except:
-                        pass  # Ignore cleanup errors
-
-                threading.Thread(target=cleanup, daemon=True).start()
 
 
 if __name__ == "__main__":
