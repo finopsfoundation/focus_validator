@@ -137,16 +137,8 @@ class ValidationResultsVisualizer:
         status = checkObj.get('status', 'unknown')
         friendlyName = checkObj.get('friendly_name', checkId)
 
-        # Create node label with status indicator
-        statusSymbol = {
-            ChecklistObjectStatus.PASSED.value: '✓',
-            ChecklistObjectStatus.FAILED.value: '✗',
-            ChecklistObjectStatus.ERRORED.value: '⚠',
-            ChecklistObjectStatus.SKIPPED.value: '⊝',
-            ChecklistObjectStatus.PENDING.value: '?'
-        }.get(status, '?')
-
-        label = f"{statusSymbol} {checkId}"
+        # Create node label without status indicator
+        label = checkId
         color = self.getNodeColor(status)
         shape = self.getNodeShape(checkObj)
 
