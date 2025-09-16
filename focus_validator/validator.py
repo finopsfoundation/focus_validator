@@ -52,6 +52,7 @@ class Validator:
         self.load()
         results = self.spec_rules.validate(self.focus_data)
         self.outputter = self.outputter.write(results)
+        return results
 
     def get_supported_versions(self):
         return self.spec_rules.supported_versions()
