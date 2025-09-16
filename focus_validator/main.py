@@ -54,6 +54,12 @@ def main():
         default=None,
         help="Specify and validate one of the ConformanceDatasets instead of all",
     )
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        default=False,
+        help="Generate and open visualization of validation results showing passed/failed checks and dependencies",
+    )
 
     args = parser.parse_args()
 
@@ -74,7 +80,47 @@ def main():
         for version in validator.get_supported_versions():
             print(version)
     else:
-        validator.validate()
+        results = validator.validate()
+
+        if args.visualize:
+            import tempfile
+            import os
+            import subprocess
+            from validation_results_visualizer import visualizeValidationResults
+
+            # Create temporary file for visualization
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+                temp_filename = temp_file.name
+
+            try:
+                # Generate visualization
+                visualizeValidationResults(
+                    validationResult=results,
+                    pngFilename=temp_filename,
+                    showPassed=True
+                )
+
+                # Open the image using the default system viewer
+                if os.name == 'nt':  # Windows
+                    os.startfile(temp_filename)
+                elif os.name == 'posix':  # macOS and Linux
+                    subprocess.run(['open', temp_filename] if sys.platform == 'darwin' else ['xdg-open', temp_filename])
+
+            except Exception as e:
+                print(f"Failed to generate visualization: {e}")
+            finally:
+                # Clean up temporary file after a short delay (to allow viewer to open)
+                import time
+                import threading
+
+                def cleanup():
+                    time.sleep(5)  # Wait 5 seconds for viewer to open
+                    try:
+                        os.unlink(temp_filename)
+                    except:
+                        pass  # Ignore cleanup errors
+
+                threading.Thread(target=cleanup, daemon=True).start()
 
 
 if __name__ == "__main__":
