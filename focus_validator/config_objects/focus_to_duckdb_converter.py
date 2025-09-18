@@ -199,7 +199,7 @@ class FormatStringGenerator(DuckDBCheckGenerator):
         SELECT COUNT(CASE
             WHEN {self.rule.column_id} IS NOT NULL
             AND NOT (
-                ({self.rule.column_id}::TEXT ~ '^[A-Z][a-zA-Z0-9]*$') OR 
+                ({self.rule.column_id}::TEXT ~ '^[A-Z][a-zA-Z0-9]*$') OR
                 ({self.rule.column_id}::TEXT ~ '^x_[A-Z][a-zA-Z0-9]*$')
             )
             OR LENGTH({self.rule.column_id}::TEXT) > 50
@@ -221,7 +221,7 @@ class FormatBillingCurrencyCodeGenerator(DuckDBCheckGenerator):
             AND NOT (
                 ({self.rule.column_id}::TEXT ~ '^[A-Z]{{3}}$') OR
                 (
-                    ({self.rule.column_id}::TEXT ~ '^[A-Z][a-zA-Z0-9]*$') OR 
+                    ({self.rule.column_id}::TEXT ~ '^[A-Z][a-zA-Z0-9]*$') OR
                     ({self.rule.column_id}::TEXT ~ '^x_[A-Z][a-zA-Z0-9]*$')
                 )
             )
@@ -466,13 +466,13 @@ class FocusToDuckDBSchemaConverter:
 
             # Check if this is a dynamic rule (marked during loading)
             is_dynamic_rule = hasattr(rule, '_rule_type') and getattr(rule, '_rule_type', '').lower() == "dynamic"
-            
+
             # Create checklist object for each rule
             if is_dynamic_rule:
                 status = ChecklistObjectStatus.SKIPPED
             else:
                 status = ChecklistObjectStatus.PENDING
-                
+
             checklist[rule.check_id] = ChecklistObject(
                 check_name=rule.check_id,
                 column_id=rule.column_id,
@@ -540,7 +540,7 @@ class FocusToDuckDBSchemaConverter:
                         if check_id in check.errorMessage:
                             errorItem = item
                             break
-                
+
                 # Fallback matching
                 if not errorItem:
                     for item in checklist.values():
@@ -555,40 +555,38 @@ class FocusToDuckDBSchemaConverter:
 
         # Handle composite rules after basic validation
         FocusToDuckDBSchemaConverter._executeCompositeRules(checklist, dependency_results or {})
-        
+
         return checklist
 
     @staticmethod
     def _executeCompositeRules(checklist: Dict[str, ChecklistObject], dependency_results: Dict[str, bool]):
         """Execute composite rule validation based on dependency results."""
         for check_id, item in checklist.items():
-            if (hasattr(item.rule_ref, 'check') and 
+            if (hasattr(item.rule_ref, 'check') and
                 isinstance(item.rule_ref.check, CompositeCheck)):
-                
+
                 composite_check = item.rule_ref.check
                 logic_operator = composite_check.logic_operator
                 dependency_rule_ids = composite_check.dependency_rule_ids
-                
+
                 try:
                     if logic_operator == "AND":
-                        # All dependencies must pass for composite to pass (SKIPPED counts as PASSED)
-                        all_passed = all(
-                            dep_id in checklist and checklist[dep_id].status in [ChecklistObjectStatus.PASSED, ChecklistObjectStatus.SKIPPED]
-                            for dep_id in dependency_rule_ids
-                        )
-                        item.status = ChecklistObjectStatus.PASSED if all_passed else ChecklistObjectStatus.FAILED
-                        
+                        assessment_func = all
                     elif logic_operator == "OR":
-                        # At least one dependency must pass for composite to pass (SKIPPED counts as PASSED)
-                        any_passed = any(
-                            dep_id in checklist and checklist[dep_id].status in [ChecklistObjectStatus.PASSED, ChecklistObjectStatus.SKIPPED]
-                            for dep_id in dependency_rule_ids
-                        )
-                        item.status = ChecklistObjectStatus.PASSED if any_passed else ChecklistObjectStatus.FAILED
-                    
+                        assessment_func = any
+                    else:
+                        raise FocusNotImplementedError(f"Unsupported logic operator: {logic_operator}")
+
+                    # All dependencies must pass for composite to pass (SKIPPED counts as PASSED)
+                    all_passed = assessment_func(
+                        dep_id in checklist and checklist[dep_id].status in [ChecklistObjectStatus.PASSED, ChecklistObjectStatus.SKIPPED]
+                        for dep_id in dependency_rule_ids
+                    )
+                    item.status = ChecklistObjectStatus.PASSED if all_passed else ChecklistObjectStatus.FAILED
+
                     if item.status == ChecklistObjectStatus.FAILED:
                         item.error = f"Composite rule {logic_operator} logic failed for dependencies: {dependency_rule_ids}"
-                        
+
                 except Exception as e:
                     item.status = ChecklistObjectStatus.ERRORED
                     item.error = f"Error evaluating composite rule: {str(e)}"
