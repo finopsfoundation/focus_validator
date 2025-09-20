@@ -154,15 +154,18 @@ class SpecRules:
                     dynamic_rule._rule_type = "Dynamic"
                     self.rules.append(dynamic_rule)
                 else:
-                    ruleObj = Rule.load_json(ruleDescription, rule_id=rule_id, column_namespace=self.column_namespace)
-                    if isinstance(ruleObj, InvalidRule):
-                        continue  # Skip invalid rules
-                    
-                    # Mark rule type for all rules
-                    if hasattr(ruleObj, '__dict__'):
-                        ruleObj.__dict__['_rule_type'] = ruleDescription.get("Type", "Static")
-                    
-                    self.rules.append(ruleObj)
+                    # Use the new method that creates sub-rules for conditions
+                    rule_objects = Rule.load_json_with_subchecks(ruleDescription, rule_id=rule_id, column_namespace=self.column_namespace)
+
+                    for ruleObj in rule_objects:
+                        if isinstance(ruleObj, InvalidRule):
+                            continue  # Skip invalid rules
+
+                        # Mark rule type for all rules
+                        if hasattr(ruleObj, '__dict__'):
+                            ruleObj.__dict__['_rule_type'] = ruleDescription.get("Type", "Static")
+
+                        self.rules.append(ruleObj)
 
     def validate(self, focus_data, connection: Optional[duckdb.DuckDBPyConnection] = None):
         # Generate DuckDB validation checks and checklist

@@ -170,6 +170,88 @@ class Rule(BaseModel):
                 error_type=e.__class__.__name__,
             )
 
+    @staticmethod
+    def load_json_with_subchecks(
+        rule_data: dict, rule_id: str = None, column_namespace: Optional[str] = None
+    ) -> List[Union["Rule", InvalidRule]]:
+        """
+        Load a JSON rule and also create separate rules for any Condition checks.
+        Returns a list of rules: main rule + condition rules + dependency rules.
+        """
+        rules = []
+
+        # First, create the main rule using the existing method
+        main_rule = Rule.load_json(rule_data, rule_id, column_namespace)
+        rules.append(main_rule)
+
+        # If main rule creation failed, return early
+        if isinstance(main_rule, InvalidRule):
+            return rules
+
+        try:
+            validation_criteria = rule_data.get("ValidationCriteria", {})
+            condition = validation_criteria.get("Condition", {})
+
+            # If there's a condition, create a separate rule for it
+            if condition and condition.get("CheckFunction"):
+                condition_rule_id = f"{rule_id}_condition"
+                condition_check_function = condition.get("CheckFunction")
+                condition_column_name = condition.get("ColumnName") or condition.get("ColumnAName", "")
+                condition_column_b_name = condition.get("ColumnBName", "")
+
+                # Build column_id for the condition
+                if condition_column_name and column_namespace:
+                    condition_column_id = f"{column_namespace}:{condition_column_name}"
+                else:
+                    condition_column_id = condition_column_name
+
+                # Get dynamic mappings and create condition check object
+                mappings = Rule._get_check_function_mappings()
+
+                # Handle special case for CheckNotSameValue and CheckSameValue
+                if condition_check_function in ["CheckNotSameValue", "CheckSameValue"]:
+                    # Create a custom check object for column comparison
+                    if condition_check_function == "CheckNotSameValue":
+                        condition_check = ValueComparisonCheck(
+                            operator="not_equals_column",
+                            value=condition_column_b_name
+                        )
+                    else:
+                        condition_check = ValueComparisonCheck(
+                            operator="equals_column",
+                            value=condition_column_b_name
+                        )
+                elif condition_check_function in mappings:
+                    condition_check = mappings[condition_check_function](condition)
+                else:
+                    condition_check = condition_check_function.lower()
+
+                # Create condition rule
+                condition_rule_obj = {
+                    "check_id": condition_rule_id,
+                    "column_id": condition_column_id,
+                    "check": condition_check,
+                    "description": f"Condition check: {condition_check_function}"
+                }
+
+                condition_rule = Rule.model_validate(condition_rule_obj)
+                # Mark this as a condition rule
+                if hasattr(condition_rule, '__dict__'):
+                    condition_rule.__dict__['_is_condition'] = True
+                    condition_rule.__dict__['_parent_rule_id'] = rule_id
+
+                rules.append(condition_rule)
+
+        except Exception as e:
+            # If condition processing fails, create an invalid rule to track the error
+            rules.append(InvalidRule(
+                rule_path=f"{rule_id}_condition",
+                error=f"Failed to process condition: {str(e)}",
+                error_type=e.__class__.__name__,
+            ))
+
+        return rules
+
 
 class ChecklistObject(BaseModel):
     check_name: str

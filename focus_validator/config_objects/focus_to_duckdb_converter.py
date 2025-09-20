@@ -144,6 +144,30 @@ class CheckNotValueGenerator(DuckDBCheckGenerator):
         return "check_not_value"
 
 
+class CheckColumnComparisonGenerator(DuckDBCheckGenerator):
+    # Generate check for comparing two columns
+    def __init__(self, rule: Rule, check_id: str, comparison_column: str, operator: str):
+        super().__init__(rule, check_id)
+        self.comparisonColumn = comparison_column
+        self.operator = operator
+
+    def generateSql(self) -> str:
+        if self.operator == "not_equals_column":
+            condition = f"{self.rule.column_id} = {self.comparisonColumn}"
+        elif self.operator == "equals_column":
+            condition = f"{self.rule.column_id} != {self.comparisonColumn}"
+        else:
+            condition = "FALSE"  # Unknown operator, always fail
+
+        return f"""
+        SELECT COUNT(CASE WHEN {condition} THEN 1 END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return f"check_column_comparison_{self.operator}"
+
+
 class FormatNumericGenerator(DuckDBCheckGenerator):
     # Generate numeric format validation check
     def generateSql(self) -> str:
@@ -400,6 +424,10 @@ class FocusToDuckDBSchemaConverter:
             elif check.operator == "greater_equal":
                 generator_class = cls.CHECK_GENERATORS["CheckGreaterOrEqualThanValue"]["generator"]
                 generator = generator_class(rule, check_id, check.value)
+                return generator.generateCheck()
+            elif check.operator in ["not_equals_column", "equals_column"]:
+                # Handle column comparison operators
+                generator = CheckColumnComparisonGenerator(rule, check_id, check.value, check.operator)
                 return generator.generateCheck()
 
         # Handle FormatCheck objects
