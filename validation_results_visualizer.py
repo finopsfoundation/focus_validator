@@ -102,10 +102,14 @@ class ValidationResultsVisualizer:
 
     def getNodeShape(self, checkObj):
         # Different shapes for different types of checks
+        checkId = checkObj.get('check_name', '')
         ruleRef = checkObj.get('rule_ref', {})
         checkType = ruleRef.get('check', 'unknown')
 
-        if checkType == 'column_required':
+        # Special shape for condition rules
+        if '_condition' in checkId:
+            return 'hexagon'
+        elif checkType == 'column_required':
             return 'box'
         elif checkType in ['check_unique', 'value_in', 'sql_query']:
             return 'ellipse'
@@ -283,12 +287,37 @@ class ValidationResultsVisualizer:
             if not isInDependencyGraph:
                 self.addNodeToGraph(checkId, checkObj)
 
+    def addParentChildRelationships(self):
+        # Add relationships between parent rules and their condition sub-rules
+        parent_child_pairs = []
+
+        for checkId, checkObj in self.validationResults['checklist'].items():
+            # Check if this is a condition rule (has _condition suffix)
+            if '_condition' in checkId:
+                # Find the parent rule ID by removing _condition suffix
+                parent_id = checkId.replace('_condition', '')
+                if parent_id in self.validationResults['checklist']:
+                    parent_child_pairs.append((parent_id, checkId))
+
+        # Add parent and child nodes, then connect them with edges
+        for parent_id, child_id in parent_child_pairs:
+            parent_obj = self.validationResults['checklist'][parent_id]
+            child_obj = self.validationResults['checklist'][child_id]
+
+            parent_added = self.addNodeToGraph(parent_id, parent_obj)
+            child_added = self.addNodeToGraph(child_id, child_obj)
+
+            # Add edge from parent to child to show the hierarchical relationship
+            if parent_added and child_added:
+                self.visualGraph.addEdge(parent_id, child_id, label="condition")
+
     def generateVisualization(self):
         self.loadResults()
         self.buildDependencyGraph()
 
         # Add nodes and edges based on configuration
         self.addDependenciesToGraph()
+        self.addParentChildRelationships()
         self.addStandaloneNodes()
 
         self.logger.info(f'Generated graph with {len(self.visualGraph.addedNodes)} nodes and {len(self.visualGraph.addedEdges)} edges')
