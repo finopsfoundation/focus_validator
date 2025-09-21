@@ -47,23 +47,25 @@ class RuleDependencyResolver:
     def _extractRuleDependencies(self, rule_data: Dict[str, Any]) -> List[str]:
         """
         Extract ConformanceRule dependencies from ValidationCriteria.
-        Recursively processes AND/OR structures to find CheckConformanceRule references.
+        Prioritizes explicit Dependencies field, then falls back to parsing Requirements/Conditions.
         """
         dependencies = []
         validation_criteria = rule_data.get("ValidationCriteria", {})
-        requirement = validation_criteria.get("Requirement", {})
 
-        if requirement:
-            dependencies.extend(self._extractDependenciesFromRequirement(requirement))
-
-        # Also check for dependencies in Condition if present
-        condition = validation_criteria.get("Condition", {})
-        if condition:
-            dependencies.extend(self._extractDependenciesFromRequirement(condition))
-
-        # Check explicit Dependencies field
+        # Check explicit Dependencies field first - this is the preferred method
         explicit_deps = validation_criteria.get("Dependencies", [])
-        dependencies.extend(explicit_deps)
+        if explicit_deps:
+            dependencies.extend(explicit_deps)
+        else:
+            # Fall back to parsing Requirements and Conditions for legacy compatibility
+            requirement = validation_criteria.get("Requirement", {})
+            if requirement:
+                dependencies.extend(self._extractDependenciesFromRequirement(requirement))
+
+            # Also check for dependencies in Condition if present
+            condition = validation_criteria.get("Condition", {})
+            if condition:
+                dependencies.extend(self._extractDependenciesFromRequirement(condition))
 
         return list(set(dependencies))  # Remove duplicates
 
