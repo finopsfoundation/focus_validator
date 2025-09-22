@@ -169,3 +169,4 @@ reports/
 
 poetry.lock
 visualize.png
+focus_validator/rules/cr-1.2.json
