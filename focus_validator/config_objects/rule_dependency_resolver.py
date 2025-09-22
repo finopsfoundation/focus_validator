@@ -116,10 +116,13 @@ class RuleDependencyResolver:
                 if in_degree_copy[dependent] == 0:
                     queue.append(dependent)
 
-        # Check for circular dependencies
+        # Handle circular dependencies by adding remaining rules
         if len(result) != len(self.in_degree):
             remaining_rules = [rule for rule in self.in_degree if rule not in result]
-            raise ValueError(f"Circular dependency detected among rules: {remaining_rules}")
+            # Log the circular dependency warning but continue processing
+            print(f"Warning: Circular dependency detected among rules: {remaining_rules}")
+            print("Adding these rules to the end of the processing order...")
+            result.extend(remaining_rules)
 
         return result
 

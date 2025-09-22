@@ -208,10 +208,10 @@ class ValidationResultsVisualizer:
         # Load the cr-1.2.json file to get the original rule structure
         try:
             import os
-            jsonPath = os.path.join(os.path.dirname(__file__), 'focus_validator', 'rules', 'cr-1.2.json')
+            jsonPath = os.path.join(os.path.dirname(__file__), 'focus_validator', 'rules', 'version_sets', '1.2', 'cr-1.2.json')
             if not os.path.exists(jsonPath):
                 # Try from working directory
-                jsonPath = 'focus_validator/rules/cr-1.2.json'
+                jsonPath = 'focus_validator/rules/version_sets/1.2/cr-1.2.json'
             
             with open(jsonPath, 'r') as f:
                 rulesData = json.load(f)
