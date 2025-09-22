@@ -11,8 +11,11 @@ from focus_validator.config_objects import ChecklistObject, InvalidRule, Rule
 from focus_validator.config_objects.common import (
     AllowNullsCheck,
     ChecklistObjectStatus,
+    ColumnComparisonCheck,
+    ConformanceRuleCheck,
     DataTypeCheck,
     DataTypes,
+    DistinctCountCheck,
     FormatCheck,
     SQLQueryCheck,
     ValueComparisonCheck,
@@ -296,6 +299,189 @@ class CompositeRuleGenerator(DuckDBCheckGenerator):
         return "composite_rule"
 
 
+class CheckConformanceRuleGenerator(DuckDBCheckGenerator):
+    # Generate check for referencing other conformance rules
+    def __init__(self, rule: Rule, check_id: str, conformance_rule_id: str):
+        super().__init__(rule, check_id)
+        self.conformanceRuleId = conformance_rule_id
+
+    def generateSql(self) -> str:
+        # For conformance rule checks, we reference other rules' results
+        # This will be handled in the execution phase via dependency resolution
+        return f"SELECT FALSE as check_failed -- Conformance rule reference: {self.conformanceRuleId}"
+
+    def getCheckType(self) -> str:
+        return "conformance_rule_reference"
+
+
+class CheckDistinctCountGenerator(DuckDBCheckGenerator):
+    # Generate distinct count validation check
+    def __init__(self, rule: Rule, check_id: str, column_a_name: str, column_b_name: str, expected_count: int):
+        super().__init__(rule, check_id)
+        self.columnAName = column_a_name
+        self.columnBName = column_b_name
+        self.expectedCount = expected_count
+
+    def generateSql(self) -> str:
+        return f"""
+        SELECT COUNT(*) > 0 as check_failed
+        FROM (
+            SELECT {self.columnAName}, COUNT(DISTINCT {self.columnBName}) as distinct_count
+            FROM {{table_name}}
+            GROUP BY {self.columnAName}
+            HAVING COUNT(DISTINCT {self.columnBName}) != {self.expectedCount}
+        ) violations
+        """
+
+    def getCheckType(self) -> str:
+        return "distinct_count"
+
+
+class CheckNationalCurrencyGenerator(DuckDBCheckGenerator):
+    # Generate national currency code validation check (ISO 4217)
+    def generateSql(self) -> str:
+        # ISO 4217 currency codes are 3-letter uppercase codes
+        return f"""
+        SELECT COUNT(CASE
+            WHEN {self.rule.column_id} IS NOT NULL
+            AND NOT ({self.rule.column_id}::TEXT ~ '^[A-Z]{{3}}$')
+            THEN 1
+        END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "national_currency"
+
+
+class CheckSameValueGenerator(DuckDBCheckGenerator):
+    # Generate check for ensuring columns have the same value
+    def __init__(self, rule: Rule, check_id: str, comparison_column: str):
+        super().__init__(rule, check_id)
+        self.comparisonColumn = comparison_column
+
+    def generateSql(self) -> str:
+        return f"""
+        SELECT COUNT(CASE WHEN {self.rule.column_id} != {self.comparisonColumn} THEN 1 END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "check_same_value"
+
+
+class CheckNotSameValueGenerator(DuckDBCheckGenerator):
+    # Generate check for ensuring columns don't have the same value
+    def __init__(self, rule: Rule, check_id: str, comparison_column: str):
+        super().__init__(rule, check_id)
+        self.comparisonColumn = comparison_column
+
+    def generateSql(self) -> str:
+        return f"""
+        SELECT COUNT(CASE WHEN {self.rule.column_id} = {self.comparisonColumn} THEN 1 END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "check_not_same_value"
+
+
+class ColumnByColumnEqualsColumnValueGenerator(DuckDBCheckGenerator):
+    # Generate column-by-column comparison check
+    def __init__(self, rule: Rule, check_id: str, comparison_column: str):
+        super().__init__(rule, check_id)
+        self.comparisonColumn = comparison_column
+
+    def generateSql(self) -> str:
+        return f"""
+        SELECT COUNT(CASE WHEN {self.rule.column_id} != {self.comparisonColumn} THEN 1 END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "column_by_column_equals"
+
+
+class FormatCurrencyGenerator(DuckDBCheckGenerator):
+    # Generate currency format validation check
+    def generateSql(self) -> str:
+        return f"""
+        SELECT COUNT(CASE
+            WHEN {self.rule.column_id} IS NOT NULL
+            AND NOT (
+                ({self.rule.column_id}::TEXT ~ '^[A-Z]{{3}}$') OR
+                (
+                    ({self.rule.column_id}::TEXT ~ '^[A-Z][a-zA-Z0-9]*$') OR
+                    ({self.rule.column_id}::TEXT ~ '^x_[A-Z][a-zA-Z0-9]*$')
+                )
+            )
+            THEN 1
+        END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "format_currency"
+
+
+class FormatKeyValueGenerator(DuckDBCheckGenerator):
+    # Generate key-value format validation check for JSON-like structures
+    def generateSql(self) -> str:
+        return f"""
+        SELECT COUNT(CASE
+            WHEN {self.rule.column_id} IS NOT NULL
+            AND NOT (
+                {self.rule.column_id}::TEXT ~ '^\\{{.*\\}}$' OR
+                {self.rule.column_id}::TEXT = '{{}}'
+            )
+            THEN 1
+        END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "format_key_value"
+
+
+class FormatUnitGenerator(DuckDBCheckGenerator):
+    # Generate unit format validation check
+    def generateSql(self) -> str:
+        return f"""
+        SELECT COUNT(CASE
+            WHEN {self.rule.column_id} IS NOT NULL
+            AND NOT (
+                ({self.rule.column_id}::TEXT ~ '^[A-Z][a-zA-Z0-9]*$') OR
+                ({self.rule.column_id}::TEXT ~ '^x_[A-Z][a-zA-Z0-9]*$')
+            )
+            OR LENGTH({self.rule.column_id}::TEXT) > 50
+            THEN 1
+        END) > 0 as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "format_unit"
+
+
+class TypeDateTimeGenerator(DuckDBCheckGenerator):
+    # Generate datetime type validation check
+    def generateSql(self) -> str:
+        return f"""
+        SELECT CASE
+            WHEN COUNT(*) = 0 THEN FALSE
+            ELSE COUNT(CASE
+                WHEN typeof({self.rule.column_id}) NOT IN ('TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'DATE')
+                AND NOT ({self.rule.column_id}::TEXT ~ '^[0-9]{{4}}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z$')
+                THEN 1
+            END) > 0
+        END as check_failed
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "type_datetime"
+
+
 class FocusToDuckDBSchemaConverter:
     # Central registry for all check types with both generators and check object factories
     CHECK_GENERATORS = {
@@ -311,6 +497,10 @@ class FocusToDuckDBSchemaConverter:
             "generator": TypeDecimalCheckGenerator,
             "factory": lambda args: DataTypeCheck(data_type=DataTypes.DECIMAL)
         },
+        "TypeDateTime": {
+            "generator": TypeDateTimeGenerator,
+            "factory": lambda args: DataTypeCheck(data_type=DataTypes.DATETIME)
+        },
         "CheckValue": {
             "generator": CheckValueGenerator,
             "factory": lambda args: ValueComparisonCheck(
@@ -325,9 +515,68 @@ class FocusToDuckDBSchemaConverter:
                 value=args.get("Value")
             )
         },
+        "CheckSameValue": {
+            "generator": CheckSameValueGenerator,
+            "factory": lambda args: ValueComparisonCheck(
+                operator="equals_column",
+                value=args.get("ComparisonColumn")
+            )
+        },
+        "CheckNotSameValue": {
+            "generator": CheckNotSameValueGenerator,
+            "factory": lambda args: ValueComparisonCheck(
+                operator="not_equals_column",
+                value=args.get("ComparisonColumn")
+            )
+        },
+        "CheckDistinctCount": {
+            "generator": CheckDistinctCountGenerator,
+            "factory": lambda args: DistinctCountCheck(
+                column_a_name=args.get("ColumnAName"),
+                column_b_name=args.get("ColumnBName"),
+                expected_count=args.get("ExpectedCount")
+            )
+        },
+        "CheckConformanceRule": {
+            "generator": CheckConformanceRuleGenerator,
+            "factory": lambda args: ConformanceRuleCheck(
+                conformance_rule_id=args.get("ConformanceRuleId")
+            )
+        },
+        "CheckNationalCurrency": {
+            "generator": CheckNationalCurrencyGenerator,
+            "factory": lambda args: FormatCheck(format_type="currency_code")
+        },
+        "ColumnByColumnEqualsColumnValue": {
+            "generator": ColumnByColumnEqualsColumnValueGenerator,
+            "factory": lambda args: ColumnComparisonCheck(
+                comparison_column=args.get("ComparisonColumn"),
+                operator="equals"
+            )
+        },
         "FormatNumeric": {
             "generator": FormatNumericGenerator,
             "factory": lambda args: FormatCheck(format_type="numeric")
+        },
+        "FormatDateTime": {
+            "generator": FormatDateTimeGenerator,
+            "factory": lambda args: FormatCheck(format_type="datetime")
+        },
+        "FormatString": {
+            "generator": FormatStringGenerator,
+            "factory": lambda args: FormatCheck(format_type="string")
+        },
+        "FormatCurrency": {
+            "generator": FormatCurrencyGenerator,
+            "factory": lambda args: FormatCheck(format_type="currency_code")
+        },
+        "FormatKeyValue": {
+            "generator": FormatKeyValueGenerator,
+            "factory": lambda args: FormatCheck(format_type="key_value")
+        },
+        "FormatUnit": {
+            "generator": FormatUnitGenerator,
+            "factory": lambda args: FormatCheck(format_type="unit")
         },
         "CheckGreaterOrEqualThanValue": {
             "generator": CheckGreaterOrEqualGenerator,
@@ -341,17 +590,9 @@ class FocusToDuckDBSchemaConverter:
             "factory": None  # Composite rules are handled separately
         },
         # Additional check types that were in rule.py
-        "FormatDateTime": {
-            "generator": FormatDateTimeGenerator,
-            "factory": lambda args: FormatCheck(format_type="datetime")
-        },
         "FormatBillingCurrencyCode": {
             "generator": FormatBillingCurrencyCodeGenerator,
             "factory": lambda args: FormatCheck(format_type="currency_code")
-        },
-        "FormatString": {
-            "generator": FormatStringGenerator,
-            "factory": lambda args: FormatCheck(format_type="string")
         },
         "AND": {
             "generator": CompositeRuleGenerator,
@@ -410,6 +651,10 @@ class FocusToDuckDBSchemaConverter:
                 generator_class = cls.CHECK_GENERATORS["TypeString"]["generator"]
                 generator = generator_class(rule, check_id)
                 return generator.generateCheck()
+            elif check.data_type == DataTypes.DATETIME:
+                generator_class = cls.CHECK_GENERATORS["TypeDateTime"]["generator"]
+                generator = generator_class(rule, check_id)
+                return generator.generateCheck()
 
         # Handle ValueComparisonCheck objects
         elif isinstance(check, ValueComparisonCheck):
@@ -425,9 +670,13 @@ class FocusToDuckDBSchemaConverter:
                 generator_class = cls.CHECK_GENERATORS["CheckGreaterOrEqualThanValue"]["generator"]
                 generator = generator_class(rule, check_id, check.value)
                 return generator.generateCheck()
-            elif check.operator in ["not_equals_column", "equals_column"]:
-                # Handle column comparison operators
-                generator = CheckColumnComparisonGenerator(rule, check_id, check.value, check.operator)
+            elif check.operator == "not_equals_column":
+                generator_class = cls.CHECK_GENERATORS["CheckNotSameValue"]["generator"]
+                generator = generator_class(rule, check_id, check.value)
+                return generator.generateCheck()
+            elif check.operator == "equals_column":
+                generator_class = cls.CHECK_GENERATORS["CheckSameValue"]["generator"]
+                generator = generator_class(rule, check_id, check.value)
                 return generator.generateCheck()
 
         # Handle FormatCheck objects
@@ -448,6 +697,32 @@ class FocusToDuckDBSchemaConverter:
                 generator_class = cls.CHECK_GENERATORS["FormatBillingCurrencyCode"]["generator"]
                 generator = generator_class(rule, check_id)
                 return generator.generateCheck()
+            elif check.format_type == "key_value":
+                generator_class = cls.CHECK_GENERATORS["FormatKeyValue"]["generator"]
+                generator = generator_class(rule, check_id)
+                return generator.generateCheck()
+            elif check.format_type == "unit":
+                generator_class = cls.CHECK_GENERATORS["FormatUnit"]["generator"]
+                generator = generator_class(rule, check_id)
+                return generator.generateCheck()
+
+        # Handle DistinctCountCheck objects
+        elif isinstance(check, DistinctCountCheck):
+            generator_class = cls.CHECK_GENERATORS["CheckDistinctCount"]["generator"]
+            generator = generator_class(rule, check_id, check.column_a_name, check.column_b_name, check.expected_count)
+            return generator.generateCheck()
+
+        # Handle ConformanceRuleCheck objects
+        elif isinstance(check, ConformanceRuleCheck):
+            generator_class = cls.CHECK_GENERATORS["CheckConformanceRule"]["generator"]
+            generator = generator_class(rule, check_id, check.conformance_rule_id)
+            return generator.generateCheck()
+
+        # Handle ColumnComparisonCheck objects
+        elif isinstance(check, ColumnComparisonCheck):
+            generator_class = cls.CHECK_GENERATORS["ColumnByColumnEqualsColumnValue"]["generator"]
+            generator = generator_class(rule, check_id, check.comparison_column)
+            return generator.generateCheck()
 
         # Handle CompositeCheck objects
         elif isinstance(check, CompositeCheck):
