@@ -15,17 +15,21 @@ class RuleDependencyResolver:
         """
         Build dependency graph for rules with the given prefix.
         If target_rule_prefix is None, processes all rules.
-        Otherwise, only processes rules that start with target_rule_prefix.
+        Otherwise, processes rules that start with target_rule_prefix and their dependencies.
         """
         # Filter rules by prefix first (or use all rules if prefix is None)
         if target_rule_prefix is None:
             filtered_rules = self.rules_data
         else:
-            filtered_rules = {
+            # Start with rules matching the prefix
+            initial_rules = {
                 rule_id: rule_data
                 for rule_id, rule_data in self.rules_data.items()
                 if rule_id.startswith(target_rule_prefix)
             }
+
+            # Collect all dependencies recursively to include child rules of composite rules
+            filtered_rules = self._collectAllDependencies(initial_rules)
 
         # Build graph for filtered rules
         for rule_id, rule_data in filtered_rules.items():
@@ -43,6 +47,37 @@ class RuleDependencyResolver:
             # Build reverse graph
             for dependency in filtered_dependencies:
                 self.reverse_graph[dependency].append(rule_id)
+
+    def _collectAllDependencies(self, initial_rules: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Recursively collect all dependencies of the initial rules to include
+        child rules of composite rules that may not match the prefix filter.
+        """
+        all_rules = initial_rules.copy()
+        to_process = list(initial_rules.keys())
+        processed = set()
+
+        while to_process:
+            current_rule_id = to_process.pop(0)
+            if current_rule_id in processed:
+                continue
+
+            processed.add(current_rule_id)
+
+            # Get rule data - check if it exists in our source data
+            if current_rule_id not in self.rules_data:
+                continue
+
+            rule_data = self.rules_data[current_rule_id]
+            dependencies = self._extractRuleDependencies(rule_data)
+
+            # Add dependencies to our collection and queue them for processing
+            for dep_id in dependencies:
+                if dep_id in self.rules_data and dep_id not in all_rules:
+                    all_rules[dep_id] = self.rules_data[dep_id]
+                    to_process.append(dep_id)
+
+        return all_rules
 
     def _extractRuleDependencies(self, rule_data: Dict[str, Any]) -> List[str]:
         """
