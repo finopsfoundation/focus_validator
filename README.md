@@ -40,6 +40,22 @@ Using Poetry, you can install the project's dependencies with:
 ```bash
 poetry install
 ```
+#### 4. Downgrade Multimethod
+
+By default Multimethod 2.0 is installed, focus_validator works with 1.9.1
+
+```bash
+poetry add "multimethod@1.9.1"
+```
+
+#### 5. Install Virtual Environment Shell
+
+Shell is not installed by default, you need to install it.
+
+```bash
+poetry self add poetry-plugin-shell
+```
+
 
 ## Usage
 
