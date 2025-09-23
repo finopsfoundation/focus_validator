@@ -100,12 +100,12 @@ def main():
             import subprocess
             from validation_results_visualizer import visualizeValidationResults
 
-            filename = "visualize.png"
+            filename = "visualize.svg"
 
             try:
                 visualizeValidationResults(
                     validationResult=results,
-                    pngFilename=filename,
+                    svgFilename=filename,
                     showPassed=True
                 )
 
