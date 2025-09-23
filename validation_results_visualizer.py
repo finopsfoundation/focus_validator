@@ -25,7 +25,7 @@ def initLogger(loggingLevel):
 
 
 class ValidationResultsVisualizer:
-    def __init__(self, validationResult=None, resultsFile=None, logger=None, showPassed=False, showDependenciesOnly=False):
+    def __init__(self, validationResult=None, resultsFile=None, logger=None, showPassed=True, showDependenciesOnly=False):
         self.validationResult = validationResult
         self.resultsFile = resultsFile
         self.logger = logger or initLogger('WARNING')
@@ -81,10 +81,12 @@ class ValidationResultsVisualizer:
         self.dependencyGraph = self._extractDependenciesFromJson()
 
     def shouldIncludeNode(self, checkId, checkObj):
-        # Filter based on status and user preferences
+        # Include all checks by default - filtering only applied when explicitly requested
         status = checkObj.get('status', 'unknown')
 
-        if not self.showPassed and status == ChecklistObjectStatus.PASSED.value:
+        # Only filter out passed checks if showPassed is explicitly set to False
+        # Default behavior is now to show everything
+        if self.showPassed is False and status == ChecklistObjectStatus.PASSED.value:
             return False
 
         return True
@@ -208,11 +210,24 @@ class ValidationResultsVisualizer:
         # Load the cr-1.2.json file to get the original rule structure
         try:
             import os
-            jsonPath = os.path.join(os.path.dirname(__file__), 'focus_validator', 'rules', 'version_sets', '1.2', 'cr-1.2.json')
-            if not os.path.exists(jsonPath):
-                # Try from working directory
-                jsonPath = 'focus_validator/rules/version_sets/1.2/cr-1.2.json'
-            
+            # Try multiple possible paths for the JSON file
+            possible_paths = [
+                os.path.join(os.path.dirname(__file__), 'focus_validator', 'rules', 'version_sets', '1.2', 'cr-1.2.json'),
+                'focus_validator/rules/version_sets/1.2/cr-1.2.json',
+                os.path.join(os.getcwd(), 'focus_validator', 'rules', 'version_sets', '1.2', 'cr-1.2.json'),
+                os.path.join(os.path.dirname(__file__), '..', 'focus_validator', 'rules', 'version_sets', '1.2', 'cr-1.2.json')
+            ]
+
+            jsonPath = None
+            for path in possible_paths:
+                if os.path.exists(path):
+                    jsonPath = path
+                    break
+
+            if not jsonPath:
+                self.logger.warning(f"Could not find cr-1.2.json file in any of the expected locations: {possible_paths}")
+                return {}
+
             with open(jsonPath, 'r') as f:
                 rulesData = json.load(f)
             
@@ -306,7 +321,7 @@ class ValidationResultsVisualizer:
 
             # Add edge from parent to child to show the hierarchical relationship
             if parent_added and child_added:
-                self.visualGraph.addEdge(parent_id, child_id, label="condition")
+                self.visualGraph.addEdge(parent_id, child_id)
 
     def generateVisualization(self):
         self.loadResults()
@@ -324,6 +339,9 @@ class ValidationResultsVisualizer:
 
     def generatePngFile(self, pngFilename):
         self.visualGraph.render(pngFilename, formatType="png")
+
+    def generateSvgFile(self, svgFilename):
+        self.visualGraph.render(svgFilename, formatType="svg")
 
 
 class ValidationGraph:
@@ -369,7 +387,7 @@ class ValidationGraph:
         self.dot.render(filename.replace(f'.{formatType}', ''), format=formatType, cleanup=True)
 
 
-def visualizeValidationResults(validationResult=None, resultsFile=None, dotFilename=None, pngFilename=None, showPassed=False, showDependenciesOnly=False, loggingLevel='WARNING'):
+def visualizeValidationResults(validationResult=None, resultsFile=None, dotFilename=None, pngFilename=None, svgFilename=None, showPassed=True, showDependenciesOnly=False, loggingLevel='WARNING'):
     """
     Function to visualize validation results from a ValidationResult object or JSON file.
 
@@ -378,6 +396,7 @@ def visualizeValidationResults(validationResult=None, resultsFile=None, dotFilen
         resultsFile: Path to JSON file containing validation results
         dotFilename: Output filename for DOT format (optional)
         pngFilename: Output filename for PNG format (optional)
+        svgFilename: Output filename for SVG format (optional)
         showPassed: Whether to include passed checks in visualization
         showDependenciesOnly: Whether to only show dependency relationships
         loggingLevel: Logging level for output
@@ -402,6 +421,9 @@ def visualizeValidationResults(validationResult=None, resultsFile=None, dotFilen
 
     if pngFilename:
         visualizer.generatePngFile(pngFilename)
+
+    if svgFilename:
+        visualizer.generateSvgFile(svgFilename)
 
     return visualizer
 
