@@ -212,10 +212,10 @@ class ValidationResultsVisualizer:
             import os
             # Try multiple possible paths for the JSON file
             possible_paths = [
-                os.path.join(os.path.dirname(__file__), 'focus_validator', 'rules', 'version_sets', '1.2', 'cr-1.2.json'),
-                'focus_validator/rules/version_sets/1.2/cr-1.2.json',
-                os.path.join(os.getcwd(), 'focus_validator', 'rules', 'version_sets', '1.2', 'cr-1.2.json'),
-                os.path.join(os.path.dirname(__file__), '..', 'focus_validator', 'rules', 'version_sets', '1.2', 'cr-1.2.json')
+                os.path.join(os.path.dirname(__file__), 'rules', 'cr-1.2.json'),
+                'rules/cr-1.2.json',
+                os.path.join(os.getcwd(), 'rules', 'cr-1.2.json'),
+                os.path.join(os.path.dirname(__file__), '..', 'rules', 'cr-1.2.json')
             ]
 
             jsonPath = None

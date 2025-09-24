@@ -18,7 +18,7 @@ def downloadFocusSpec(version: str, ruleSetPath: str) -> bool:
         response.raise_for_status()
 
         # Save to the expected location
-        filePath = os.path.join(versionDir, f"cr-{version}.json")
+        filePath = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'rules', f"cr-{version}.json")
         with open(filePath, 'w', encoding='utf-8') as f:
             f.write(response.text)
 
