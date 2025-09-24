@@ -131,7 +131,7 @@ class SpecRules:
 
     def load_rules(self):
         # Load rules from JSON with dependency resolution
-        json_rules_path = os.path.join(self.rules_path, f'cr-{self.rules_version}.json')
+        json_rules_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'rules', f'cr-{self.rules_version}.json')
         self.json_rules, self.json_checkfunctions, rule_order = JsonLoader.load_json_rules_with_dependencies(
             json_rules_path, rule_prefix=self.rule_prefix
         )
