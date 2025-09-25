@@ -111,12 +111,14 @@ class ValidationResult:
 class SpecRules:
     
     def __init__(
-        self, rule_set_path, rules_file_prefix, rules_version, rules_file_suffix, rule_prefix, rules_force_remote_download, allow_draft_releases, allow_prerelease_releases, column_namespace,
+        self, rule_set_path, rules_file_prefix, rules_version, rules_file_suffix, focus_dataset, filter_rules, rules_force_remote_download, allow_draft_releases, allow_prerelease_releases, column_namespace,
     ):
         self.rule_set_path = rule_set_path
         self.rules_file_prefix = rules_file_prefix
         self.rules_version = rules_version
         self.rules_file_suffix = rules_file_suffix
+        self.focus_dataset = focus_dataset
+        self.filter_rules = filter_rules
         self.json_rule_file = os.path.join(
             self.rule_set_path, f"{self.rules_file_prefix}{self.rules_version}{self.rules_file_suffix}"
         )
@@ -141,7 +143,6 @@ class SpecRules:
                     raise FailedDownloadError(
                         f"Failed to download remote rules file for version {self.rules_version}"
                     )
-        self.rule_prefix = rule_prefix
         self.rules = []
         self.column_namespace = column_namespace
         self.json_rules = {}
@@ -250,44 +251,42 @@ class SpecRules:
 
     def load_rules(self):
         # Load rules from JSON with dependency resolution
-        self.log.debug(f"Loading rules from {self.json_rule_file} using prefix {self.rule_prefix}")
+        self.log.debug(f"Loading rules from {self.json_rule_file} using focus_dataset {self.focus_dataset}")
 
         self.json_rules, self.json_checkfunctions, rule_order = JsonLoader.load_json_rules_with_dependencies(
-            json_rule_file=self.json_rule_file, rule_prefix=self.rule_prefix
+            json_rule_file=self.json_rule_file, focus_dataset=self.focus_dataset, filter_rules=self.filter_rules
         )
 
         # Process rules in dependency order (topologically sorted)
         for rule_id in rule_order:
             ruleDescription = self.json_rules[rule_id]
             
-            # Process both static and dynamic rules within version compatibility
-            if float(ruleDescription["CRVersionIntroduced"]) <= float(self.rules_version):
-                # Check if this is a Dynamic rule - handle specially
-                if ruleDescription.get("Type", "").lower() == "dynamic":
-                    # Create a minimal rule object for Dynamic rules that will be skipped
-                    dynamic_rule = Rule(
-                        check_id=rule_id,
-                        column_id=ruleDescription.get("Reference", ""),
-                        check="column_required",  # Placeholder check type - will be skipped anyway
-                        check_friendly_name=ruleDescription.get("ValidationCriteria", {}).get("MustSatisfy", "Dynamic rule")
-                    )
-                    dynamic_rule._rule_type = "Dynamic"
-                    self.rules.append(dynamic_rule)
-                else:
-                    # Use the new method that creates sub-rules for conditions
-                    rule_objects = Rule.load_json_with_subchecks(ruleDescription, rule_id=rule_id, column_namespace=self.column_namespace)
+            # Check if this is a Dynamic rule - handle specially
+            if ruleDescription.get("Type", "").lower() == "dynamic":
+                # Create a minimal rule object for Dynamic rules that will be skipped
+                dynamic_rule = Rule(
+                    check_id=rule_id,
+                    column_id=ruleDescription.get("Reference", ""),
+                    check="column_required",  # Placeholder check type - will be skipped anyway
+                    check_friendly_name=ruleDescription.get("ValidationCriteria", {}).get("MustSatisfy", "Dynamic rule")
+                )
+                dynamic_rule._rule_type = "Dynamic"
+                self.rules.append(dynamic_rule)
+            else:
+                # Use the new method that creates sub-rules for conditions
+                rule_objects = Rule.load_json_with_subchecks(ruleDescription, rule_id=rule_id, column_namespace=self.column_namespace)
 
-                    for ruleObj in rule_objects:
-                        if isinstance(ruleObj, InvalidRule):
-                            continue  # Skip invalid rules
+                for ruleObj in rule_objects:
+                    if isinstance(ruleObj, InvalidRule):
+                        continue  # Skip invalid rules
 
-                        # Mark rule type for all rules
-                        if hasattr(ruleObj, '__dict__'):
-                            ruleObj.__dict__['_rule_type'] = ruleDescription.get("Type", "Static")
+                    # Mark rule type for all rules
+                    if hasattr(ruleObj, '__dict__'):
+                        ruleObj.__dict__['_rule_type'] = ruleDescription.get("Type", "Static")
 
-                        self.rules.append(ruleObj)
+                    self.rules.append(ruleObj)
 
-    def validate(self, focus_data, connection: Optional[duckdb.DuckDBPyConnection] = None):
+    def validate(self, focus_data, connection: Optional[duckdb.DuckDBPyConnection] = None, table_name: Optional[str] = "focus_data") -> ValidationResult:
         # Generate DuckDB validation checks and checklist
         (
             duckdb_checks,
@@ -298,15 +297,13 @@ class SpecRules:
 
         if connection is None:
             connection = duckdb.connect(":memory:")
-            connection.register("focus_data", focus_data)
-            tableName = "focus_data"
-        else:
-            tableName = "focus_data"  # Default table name, could be parameterized
+            connection.register(table_name, focus_data)
+
 
         # Execute DuckDB validation
         updated_checklist = FocusToDuckDBSchemaConverter.executeDuckDBValidation(
             connection=connection,
-            tableName=tableName,
+            tableName=table_name,
             checks=duckdb_checks,
             checklist=checklist
         )

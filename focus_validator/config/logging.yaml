@@ -29,3 +29,9 @@ loggers:
   focus_validator.config_objects.rule_dependency_resolver.RuleDependencyResolver:
     level: DEBUG
     propagate: true
+  focus_validator.config_objects.rule_dependency_resolver:
+    level: INFO
+    propagate: true
+  validation_results_visualizer:
+    level: INFO
+    propagate: true

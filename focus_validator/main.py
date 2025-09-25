@@ -118,9 +118,14 @@ def main():
         help="filename of where to output the rules",
     )
     parser.add_argument(
-        "--conformance-dataset",
+        "--focus-dataset",
+        default='CostAndUsage',
+        help="Specify which FOCUS datasets to validate against (CostAndUsage)",
+    )
+    parser.add_argument(
+        "--filter-rules",
         default=None,
-        help="Specify and validate one of the ConformanceDatasets instead of all",
+        help="Filter rules to only those containing this string",
     )
     parser.add_argument(
         "--visualize",
@@ -160,7 +165,8 @@ def main():
         output_type=args.output_type,
         output_destination=args.output_destination,
         column_namespace=args.column_namespace,
-        rule_prefix=args.conformance_dataset,
+        focus_dataset=args.focus_dataset,
+        filter_rules=args.filter_rules,
         rules_force_remote_download=args.force_download,
         allow_draft_releases=args.allow_draft_releases,
         allow_prerelease_releases=args.allow_prerelease_releases,
