@@ -15,26 +15,21 @@ def getArgs():
     parser.add_argument('--logging-level', type=str, default='WARNING', choices={"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}, help='Logging level to use')
     parser.add_argument('--show-passed', action='store_true', help='Include passed checks in visualization')
     parser.add_argument('--show-dependencies-only', action='store_true', help='Only show dependency relationships')
+    parser.add_argument('--spec-rules-path', type=str, default=None, help='Path to the FOCUS spec rules JSON (e.g. cr-1.2.json)')
     return parser.parse_args()
 
 
-def initLogger(loggingLevel):
-    # Simple logger setup
-    logging.basicConfig(level=getattr(logging, loggingLevel))
-    return logging.getLogger(__name__)
-
-
 class ValidationResultsVisualizer:
-    def __init__(self, validationResult=None, resultsFile=None, logger=None, showPassed=True, showDependenciesOnly=False, spec_rules_path=None):
+    def __init__(self, validationResult=None, resultsFile=None, showPassed=True, showDependenciesOnly=False, spec_rules_path=None):
         self.validationResult = validationResult
         self.resultsFile = resultsFile
-        self.logger = logger or initLogger('WARNING')
+        self.logger = logging.getLogger(__name__)
         self.showPassed = showPassed
         self.showDependenciesOnly = showDependenciesOnly
         self.spec_rules_path = spec_rules_path
         self.validationResults = None
         self.dependencyGraph = {}
-        self.visualGraph = ValidationGraph(graphName='Validation Results', logger=self.logger)
+        self.visualGraph = ValidationGraph(graphName='Validation Results')
 
     def loadResults(self):
         if self.validationResult:
@@ -326,13 +321,13 @@ class ValidationResultsVisualizer:
 
 
 class ValidationGraph:
-    def __init__(self, graphName, logger):
+    def __init__(self, graphName):
         self.graphName = graphName
         self.dot = None
         self.initDot()
         self.addedNodes = set()
         self.addedEdges = set()
-        self.logger = logger
+        self.logger = logging.getLogger(__name__)
 
     def initDot(self):
         # Initialize the DOT graph with better styling for validation results
@@ -344,7 +339,7 @@ class ValidationGraph:
 
     def addNode(self, nodeId, customData=None, label=None, shape='ellipse', color='white'):
         if nodeId not in self.addedNodes:
-            self.logger.info(f'Adding node: {nodeId}')
+            self.logger.debug(f'Adding node: {nodeId}')
             self.dot.node(
                 nodeId,
                 label or nodeId,
@@ -357,7 +352,7 @@ class ValidationGraph:
     def addEdge(self, src, dst, label=None):
         edge = (src, dst)
         if edge not in self.addedEdges:
-            self.logger.info(f'Adding edge: {src} -> {dst}')
+            self.logger.debug(f'Adding edge: {src} -> {dst}')
             if label:
                 self.dot.edge(src, dst, label=label)
             else:
@@ -385,12 +380,11 @@ def visualizeValidationResults(validationResult=None, resultsFile=None, dotFilen
     Returns:
         ValidationResultsVisualizer instance
     """
-    logger = initLogger(loggingLevel)
+    logger = logging.getLogger(__name__)
 
     visualizer = ValidationResultsVisualizer(
         validationResult=validationResult,
         resultsFile=resultsFile,
-        logger=logger,
         showPassed=showPassed,
         showDependenciesOnly=showDependenciesOnly,
         spec_rules_path=spec_rules_path
@@ -411,6 +405,7 @@ def visualizeValidationResults(validationResult=None, resultsFile=None, dotFilen
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.WARNING)
     args = getArgs()
 
     if not args.results_file:
@@ -423,5 +418,6 @@ if __name__ == '__main__':
         pngFilename=args.png_filename,
         showPassed=args.show_passed,
         showDependenciesOnly=args.show_dependencies_only,
-        loggingLevel=args.logging_level
+        loggingLevel=args.logging_level,
+        spec_rules_path=args.spec_rules_path
     )
