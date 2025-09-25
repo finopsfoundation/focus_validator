@@ -2,7 +2,6 @@ import argparse
 import sys
 
 from focus_validator.validator import DEFAULT_VERSION_SETS_PATH, Validator
-from focus_validator.utils.download_focus_spec import downloadFocusSpec
 
 
 def main():
@@ -67,18 +66,24 @@ def main():
         default=False,
         help="Force download the FOCUS spec JSON from GitHub for the specified version",
     )
+    parser.add_argument(
+        "--allow-draft-releases",
+        action="store_true",
+        default=False,
+        help="Allow downloading draft releases of the FOCUS spec JSON from GitHub",
+    )
+    parser.add_argument(
+        "--allow-prerelease-releases",
+        action="store_true",
+        default=False,
+        help="Allow downloading prerelease versions of the FOCUS spec JSON from GitHub",
+    )
 
     args = parser.parse_args()
 
     if args.output_type != "console" and args.output_destination is None:
         parser.error("--output-destination required {}".format(args.output_type))
         sys.exit(1)
-
-    # Handle force download before creating validator
-    if args.force_download:
-        success = downloadFocusSpec(args.validate_version, args.rule_set_path)
-        if not success:
-            sys.exit(1)
 
     validator = Validator(
         data_filename=args.data_file,
@@ -87,11 +92,15 @@ def main():
         output_type=args.output_type,
         output_destination=args.output_destination,
         column_namespace=args.column_namespace,
-        rule_prefix=args.conformance_dataset
+        rule_prefix=args.conformance_dataset,
+        rules_force_remote_download=args.force_download,
+        allow_draft_releases=args.allow_draft_releases,
+        allow_prerelease_releases=args.allow_prerelease_releases,
     )
     if args.supported_versions:
-        for version in validator.get_supported_versions():
-            print(version)
+        local, remote = validator.get_supported_versions()
+        print("Supported local versions:", local)
+        print("Supported remote versions:", remote)
     else:
         results = validator.validate()
 
