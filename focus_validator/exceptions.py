@@ -9,3 +9,6 @@ class FocusNotImplementedError(FocusValidationError):
 
 class UnsupportedVersion(FocusValidationError):
     pass
+
+class FailedDownloadError(FocusValidationError):
+    pass
