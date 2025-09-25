@@ -53,6 +53,9 @@ class Validator:
             output_type=output_type, output_destination=output_destination
         )
 
+    def get_spec_rules_path(self):
+        return self.spec_rules.get_spec_rules_path()
+
     def load(self):
         self.focus_data = data_loader.DataLoader(
             data_filename=self.data_filename
