@@ -6,14 +6,14 @@ from focus_validator.rules.spec_rules import SpecRules
 
 try:
     DEFAULT_VERSION_SETS_PATH = str(
-        importlib.resources.files("focus_validator.rules").joinpath("version_sets")
+        importlib.resources.files("focus_validator").joinpath("rules")
     )
 except AttributeError:
     # for compatibility with python 3.8, which does not support files api in importlib
     from pkg_resources import resource_filename
 
     DEFAULT_VERSION_SETS_PATH = resource_filename(
-        "focus_validator.rules", "version_sets"
+        "focus_validator", "rules"
     )
 
 
@@ -24,9 +24,14 @@ class Validator:
         output_destination,
         output_type,
         rule_set_path=DEFAULT_VERSION_SETS_PATH,
-        rules_version="0.5",
-        column_namespace=None,
         rule_prefix=None,
+        rules_file_prefix='cr-',
+        rules_version=None,
+        rules_file_suffix='.json',
+        rules_force_remote_download=False,
+        allow_draft_releases=False,
+        allow_prerelease_releases=False,
+        column_namespace=None,
     ):
         self.data_filename = data_filename
         self.focus_data = None
@@ -34,9 +39,14 @@ class Validator:
         self.rules_version = rules_version
         self.spec_rules = SpecRules(
             rule_set_path=rule_set_path,
-            rules_version=rules_version,
-            column_namespace=column_namespace,
+            rules_file_prefix=rules_file_prefix,
+            rules_version=self.rules_version,
+            rules_file_suffix=rules_file_suffix,
             rule_prefix=rule_prefix,
+            rules_force_remote_download=rules_force_remote_download,
+            allow_draft_releases=allow_draft_releases,
+            allow_prerelease_releases=allow_prerelease_releases,
+            column_namespace=column_namespace,
         )
         self.outputter = Outputter(
             output_type=output_type, output_destination=output_destination
@@ -55,4 +65,4 @@ class Validator:
         return results
 
     def get_supported_versions(self):
-        return self.spec_rules.supported_versions()
+        return self.spec_rules.supported_local_versions(), self.spec_rules.supported_remote_versions()
