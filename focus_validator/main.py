@@ -1,10 +1,19 @@
 import argparse
 import sys
-
+import logging
+import logging.config
+import yaml
+import os
 from focus_validator.validator import DEFAULT_VERSION_SETS_PATH, Validator
 
+with open("logging.yaml") as f:
+    logging.config.dictConfig(yaml.safe_load(f))
+log = logging.getLogger(__name__)
 
 def main():
+    log = logging.getLogger(__name__)
+    log.debug("Starting FOCUS Validator from main")
+    log.debug("Arguments: %s", sys.argv)
     parser = argparse.ArgumentParser(description="FOCUS specification validator.")
     parser.add_argument(
         "--data-file",

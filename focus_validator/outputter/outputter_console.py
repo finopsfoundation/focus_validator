@@ -1,6 +1,7 @@
 import math
 
 import pandas as pd
+import logging
 
 from focus_validator.config_objects import Rule
 from focus_validator.rules.spec_rules import ValidationResult
@@ -8,6 +9,7 @@ from focus_validator.rules.spec_rules import ValidationResult
 
 class ConsoleOutputter:
     def __init__(self, output_destination):
+        self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.output_destination = output_destination
         self.result_set = None
 

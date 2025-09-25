@@ -1,5 +1,5 @@
 import importlib.resources
-
+import logging
 from focus_validator.data_loaders import data_loader
 from focus_validator.outputter.outputter import Outputter
 from focus_validator.rules.spec_rules import SpecRules
@@ -33,6 +33,7 @@ class Validator:
         allow_prerelease_releases=False,
         column_namespace=None,
     ):
+        self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.data_filename = data_filename
         self.focus_data = None
 
