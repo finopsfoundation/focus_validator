@@ -1,5 +1,0 @@
-column_id: CommitmentDiscountCategory
-check:
-  value_in:
-    - "Spend"
-    - "Usage"

@@ -1,5 +1,0 @@
-column_id: CommitmentDiscountStatus
-check:
-  value_in:
-    - "Used"
-    - "Unused"

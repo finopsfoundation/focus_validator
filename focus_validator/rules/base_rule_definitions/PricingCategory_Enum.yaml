@@ -1,7 +1,0 @@
-column_id: PricingCategory
-check:
-  value_in:
-    - "On-Demand"
-    - "Dynamic"
-    - "Commitment-Based"
-    - "Other"
