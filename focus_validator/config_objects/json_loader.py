@@ -1,12 +1,13 @@
 import json
 import os
+import logging
 from collections import OrderedDict
 from typing import Dict, Any, List, Optional
 from focus_validator.config_objects.rule_dependency_resolver import RuleDependencyResolver
 
 
 class JsonLoader:
-
+    log = logging.getLogger(f"{__name__}.{__qualname__}")
     @staticmethod
     def load_json_rules(json_rule_file: str) -> tuple[Dict[str, Any], OrderedDict[str, Any]]:
         if not os.path.exists(json_rule_file):

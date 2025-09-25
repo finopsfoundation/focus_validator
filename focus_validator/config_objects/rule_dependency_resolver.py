@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, List, Set, Any, Optional
 from collections import defaultdict, deque
 
@@ -6,6 +7,7 @@ class RuleDependencyResolver:
     # Build a DAG and do Topological sort to get dependencies
 
     def __init__(self, rules_data: Dict[str, Any]):
+        self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.rules_data = rules_data
         self.dependency_graph = defaultdict(list)  # rule_id -> [dependent_rule_ids]
         self.reverse_graph = defaultdict(list)  # rule_id -> [rules_that_depend_on_this]

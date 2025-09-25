@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import Annotated, Optional, Union, List, Literal
 
 import yaml
@@ -17,7 +18,7 @@ from focus_validator.config_objects.common import (
     ValueInCheck,
     generate_check_friendly_name,
 )
-
+log = logging.getLogger(__name__)
 
 class CompositeCheck(BaseModel):
     # Handles composite rules with AND/OR logic
