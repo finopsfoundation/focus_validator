@@ -171,3 +171,5 @@ poetry.lock
 visualize.png
 rules/cr-1.2.json
 focus_validator/rules/cr-1.2.json
+*.dot
+*.svg

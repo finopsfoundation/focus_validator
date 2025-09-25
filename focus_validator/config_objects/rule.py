@@ -261,3 +261,4 @@ class ChecklistObject(BaseModel):
     error: Optional[str] = None
     status: ChecklistObjectStatus
     rule_ref: Union[InvalidRule, Rule]
+    reason: Optional[str] = None

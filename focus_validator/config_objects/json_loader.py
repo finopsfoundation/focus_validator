@@ -15,29 +15,26 @@ class JsonLoader:
 
         with open(json_rule_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
-
-        rules_dict = data.get('ConformanceRules', {})
-
-        checkfunctions_data = data.get('CheckFunctions', {})
-        checkfunctions_ordered_dict = OrderedDict(checkfunctions_data)
-
-        return rules_dict, checkfunctions_ordered_dict
+        return data
 
     @staticmethod
-    def load_json_rules_with_dependencies(json_rule_file: str, rule_prefix: Optional[str] = "") -> tuple[Dict[str, Any], OrderedDict[str, Any], List[str]]:
-        rules_dict, checkfunctions_dict = JsonLoader.load_json_rules(json_rule_file)
+    def load_json_rules_with_dependencies(json_rule_file: str, focus_dataset: Optional[str] = "", filter_rules: Optional[str] = None) -> tuple[Dict[str, Any], OrderedDict[str, Any], List[str]]:
+        cr_data = JsonLoader.load_json_rules(json_rule_file)
+
+        if focus_dataset not in cr_data.get('ConformanceDatasets', {}):
+            raise ValueError(f"Focus dataset '{focus_dataset}' not found in rules file '{json_rule_file}'")
+        dataset = cr_data['ConformanceDatasets'][focus_dataset]
+        dataset_rules = dataset.get('ConformanceRules', [])
+        rules_dict = cr_data.get('ConformanceRules', {})
+        checkfunctions_data = cr_data.get('CheckFunctions', {})
+        checkfunctions_dict = OrderedDict(checkfunctions_data)
 
         # Create dependency resolver and build graph
-        resolver = RuleDependencyResolver(rules_dict)
-        resolver.buildDependencyGraph(rule_prefix)
+        resolver = RuleDependencyResolver(dataset_rules=dataset_rules, raw_rules_data=rules_dict)
+        resolver.buildDependencyGraph(target_rule_prefix=filter_rules)
 
         # Get topological order for rule processing
         rule_order = resolver.getTopologicalOrder()
 
         return rules_dict, checkfunctions_dict, rule_order
 
-    @staticmethod
-    def getRuleDependencies(rules_dict: Dict[str, Any], rules_prefix: str = "") -> RuleDependencyResolver:
-        resolver = RuleDependencyResolver(rules_dict)
-        resolver.buildDependencyGraph(rules_prefix)
-        return resolver

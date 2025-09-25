@@ -759,7 +759,6 @@ class FocusToDuckDBSchemaConverter:
         checks = []
         checklist = {}
 
-        validationRules = []
         for rule in rules:
             if isinstance(rule, InvalidRule):
                 checklist[rule.rule_path] = ChecklistObject(
@@ -774,26 +773,17 @@ class FocusToDuckDBSchemaConverter:
             # Check if this is a dynamic rule (marked during loading)
             is_dynamic_rule = hasattr(rule, '_rule_type') and getattr(rule, '_rule_type', '').lower() == "dynamic"
 
-            # Create checklist object for each rule
-            if is_dynamic_rule:
-                status = ChecklistObjectStatus.SKIPPED
-            else:
-                status = ChecklistObjectStatus.PENDING
-
             checklist[rule.check_id] = ChecklistObject(
                 check_name=rule.check_id,
                 column_id=rule.column_id,
                 friendly_name=rule.check_friendly_name,
-                status=status,
+                status=ChecklistObjectStatus.SKIPPED if is_dynamic_rule else ChecklistObjectStatus.PENDING,
                 rule_ref=rule,
+                reason="Dynamic rule - skipped in static validation" if is_dynamic_rule else None
             )
 
-            # Only add static rules to validation processing
-            if not is_dynamic_rule:
-                validationRules.append(rule)
-
         # Generate validation checks using registry
-        validationChecks = cls.__generate_checks__(validationRules)
+        validationChecks = cls.__generate_checks__([cl.rule_ref for cl in checklist.values() if cl.status == ChecklistObjectStatus.PENDING])
         checks.extend(validationChecks)
 
         return checks, checklist

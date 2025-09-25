@@ -7,7 +7,7 @@ import logging
 from collections import deque, defaultdict
 from typing import Iterable, Dict, Set, List, Tuple, Optional
 
-LOG = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 def _tarjan_scc(graph: Dict[str, Set[str]]) -> List[List[str]]:
     r"""Tarjan SCC for cycle diagnostics."""
@@ -54,15 +54,15 @@ def _log_graph_snapshot(graph: Dict[str, Set[str]], *, name: str = "rule-graph",
     node_count = len(graph)
     edge_count = sum(len(v) for v in graph.values())
     zeros = [n for n, deps in graph.items() if not deps]
-    LOG.info("%s: nodes=%d, edges=%d, zero-incoming (prereqs=0) count=%d",
+    log.debug("%s: nodes=%d, edges=%d, zero-incoming (prereqs=0) count=%d",
              name, node_count, edge_count, len(zeros))
     if zeros:
-        LOG.debug("sample zero-prereq nodes: %s", ", ".join(sorted(zeros)[:sample]))
+        log.debug("sample zero-prereq nodes: %s", ", ".join(sorted(zeros)[:sample]))
     # Show a few edges
     shown = 0
     for n, deps in graph.items():
         if deps:
-            LOG.debug("edge(s): %s <- %s", n, ", ".join(sorted(deps)))
+            log.debug("edge(s): %s <- %s", n, ", ".join(sorted(deps)))
             shown += 1
             if shown >= sample:
                 break
@@ -78,17 +78,17 @@ def _export_dot(graph: Dict[str, Set[str]], path: str) -> None:
                 # dep -> d (dep is prerequisite of d)
                 f.write(f'  "{dep}" -> "{d}";\n')
         f.write("}\n")
-    LOG.info("Wrote DOT graph to %s", path)
+    log.debug("Wrote DOT graph to %s", path)
 
 def _log_sccs(graph: Dict[str, Set[str]], *, top_k: int = 10) -> List[List[str]]:
     sccs = _tarjan_scc(graph)
     cycles = [c for c in sccs if len(c) > 1]
     if cycles:
-        LOG.warning("Detected %d cycle component(s). Showing up to %d:", len(cycles), top_k)
+        log.warning("Detected %d cycle component(s). Showing up to %d:", len(cycles), top_k)
         for i, comp in enumerate(sorted(cycles, key=len, reverse=True)[:top_k], 1):
-            LOG.warning("  Cycle %d (size %d): %s", i, len(comp), ", ".join(sorted(comp)))
+            log.warning("  Cycle %d (size %d): %s", i, len(comp), ", ".join(sorted(comp)))
     else:
-        LOG.info("No cycles found by Tarjan SCC.")
+        log.debug("No cycles found by Tarjan SCC.")
     return cycles
 
 def _restrict_graph(graph: Dict[str, Set[str]], nodes: Set[str]) -> Dict[str, Set[str]]:
@@ -140,44 +140,44 @@ def _export_scc_dot(graph: Dict[str, Set[str]], comp: List[str], idx: int, path_
             for b in sorted(to_set):
                 f.write(f'"{a}" -> "{b}";\n')
         f.write("}\n")
-    LOG.info("Wrote SCC #%d DOT to %s", idx, dot_path)
+    log.debug("Wrote SCC #%d DOT to %s", idx, dot_path)
     return dot_path
 
 def _log_cycle_details(graph: Dict[str, Set[str]], cycles: List[List[str]], *, top_k: int = 10) -> None:
     r"""For each SCC cycle, dump adjacency within the SCC, a simple cycle path, and write a DOT subgraph."""
     for i, comp in enumerate(sorted(cycles, key=len, reverse=True)[:top_k], 1):
-        LOG.warning("=== Cycle %d detail (size %d) ===", i, len(comp))
+        log.warning("=== Cycle %d detail (size %d) ===", i, len(comp))
         comp_set = set(comp)
         # Adjacency within SCC
         for n in sorted(comp):
             outs = sorted(d for d in graph.get(n, ()) if d in comp_set)
-            LOG.warning("  %s depends on: %s", n, ", ".join(outs) if outs else "(none?)")
+            log.warning("  %s depends on: %s", n, ", ".join(outs) if outs else "(none?)")
         # Example simple cycle path
         cyc = _find_simple_cycle(graph, comp)
         if cyc:
-            LOG.warning("  Example cycle path: %s", " -> ".join(cyc))
+            log.warning("  Example cycle path: %s", " -> ".join(cyc))
         else:
-            LOG.warning("  Could not reconstruct a simple cycle path (unexpected).")
+            log.warning("  Could not reconstruct a simple cycle path (unexpected).")
         # DOT export
         try:
             _export_scc_dot(graph, comp, i)
         except Exception as e:
-            LOG.exception("  Failed to export DOT for SCC %d: %s", i, e)
+            log.exception("  Failed to export DOT for SCC %d: %s", i, e)
 
 def _trace_node(graph: Dict[str, Set[str]], node: str, *, max_depth: int = 4) -> None:
     r"""Log a bounded DFS of prerequisites for a node to see why its in-degree never reaches 0."""
     seen: Set[str] = set()
     stack: List[Tuple[str, int]] = [(node, 0)]
-    LOG.info("Tracing prerequisites for %s (depth<=%d)", node, max_depth)
+    log.debug("Tracing prerequisites for %s (depth<=%d)", node, max_depth)
     while stack:
         cur, depth = stack.pop()
         if cur in seen: 
             continue
         seen.add(cur)
         if depth == max_depth:
-            LOG.debug("%s%s (…)", "  " * depth, cur)
+            log.debug("%s%s (…)", "  " * depth, cur)
             continue
-        LOG.debug("%s%s", "  " * depth, cur)
+        log.debug("%s%s", "  " * depth, cur)
         for dep in sorted(graph.get(cur, ())):
             stack.append((dep, depth + 1))
 
@@ -185,7 +185,7 @@ def _dump_blockers(graph: Dict[str, Set[str]], remaining: Iterable[str]) -> None
     r"""For each remaining node after Kahn, log its prereqs (with counts) to reveal blockers."""
     for n in sorted(remaining):
         deps = sorted(graph.get(n, ()))
-        LOG.warning("BLOCKED: %s needs %d prereq(s): %s", n, len(deps), ", ".join(deps))
+        log.warning("BLOCKED: %s needs %d prereq(s): %s", n, len(deps), ", ".join(deps))
 
 # === End instrumentation utilities ===========================================
 
@@ -194,12 +194,45 @@ def _dump_blockers(graph: Dict[str, Set[str]], remaining: Iterable[str]) -> None
 class RuleDependencyResolver:
     # Build a DAG and do Topological sort to get dependencies
 
-    def __init__(self, rules_data: Dict[str, Any]):
+    def __init__(self, dataset_rules: Dict[str, Any], raw_rules_data: Dict[str, Any]):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
-        self.rules_data = rules_data
+        self.dataset_rules = dataset_rules
+        self.raw_rules_data = raw_rules_data
+        self.rules_data = self.collectDatasetRules()
         self.dependency_graph = defaultdict(list)  # rule_id -> [dependent_rule_ids]
         self.reverse_graph = defaultdict(list)  # rule_id -> [rules_that_depend_on_this]
         self.in_degree = defaultdict(int)  # rule_id -> number of dependencies
+
+    def collectDatasetRules(self) -> Dict[str, Any]:
+        """Collect rules relevant to the specified dataset."""
+        if not self.dataset_rules:
+            raise ValueError("No dataset rules provided to collectDatasetRules.")
+
+        relevant_rules = {}
+        dependencies = set()
+        for rule_id in self.dataset_rules:
+            if rule_id in self.raw_rules_data:
+                relevant_rules[rule_id] = self.raw_rules_data[rule_id]
+                if(rule_id in dependencies):
+                    dependencies.remove(rule_id)
+                rule_dependencies = self._extractRuleDependencies(self.raw_rules_data[rule_id])
+                for rule_dep in rule_dependencies:
+                    if rule_dep not in relevant_rules:
+                        dependencies.add(rule_dep)
+            else:
+                self.log.warning(f"Rule ID {rule_id} listed in dataset but not found in raw rules data.")
+        while dependencies:
+            dep_id = dependencies.pop()
+            if dep_id in self.raw_rules_data and dep_id not in relevant_rules:
+                relevant_rules[dep_id] = self.raw_rules_data[dep_id]
+                rule_dependencies = self._extractRuleDependencies(self.raw_rules_data[dep_id])
+                for rule_dep in rule_dependencies:
+                    if rule_dep not in relevant_rules:
+                        dependencies.add(rule_dep)
+            else:
+                self.log.warning(f"Dependency Rule ID {dep_id} not found in raw rules data.")
+
+        return relevant_rules
 
     def buildDependencyGraph(self, target_rule_prefix: Optional[str] = "BilledCost") -> None:
         """
