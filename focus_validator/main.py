@@ -1,16 +1,75 @@
+from __future__ import annotations
 import argparse
 import sys
-import logging
-import logging.config
 import yaml
-import os
+import io, os, sys, logging, logging.config
 from focus_validator.validator import DEFAULT_VERSION_SETS_PATH, Validator
+from importlib import resources as ir
 
-with open("logging.yaml") as f:
-    logging.config.dictConfig(yaml.safe_load(f))
-log = logging.getLogger(__name__)
+
+def setup_logging(config_path: str | None = None) -> None:
+    """
+    Tries, in order:
+      1) explicit path argument
+      2) LOGGING_CONFIG env var
+      3) package resource: focus_validator/config/logging.yaml or .ini
+      4) fallback basicConfig
+    Supports YAML (dictConfig) and INI (fileConfig).
+    """
+    # 1) explicit path
+    if config_path:
+        _load_config_path(config_path)
+        return
+
+    # 2) env var
+    env = os.getenv("LOGGING_CONFIG")
+    if env:
+        _load_config_path(env)
+        return
+
+    # 3) package resource (preferred location)
+    for name in ("logging.yaml", "logging.yml", "logging.ini"):
+        try:
+            res = ir.files("focus_validator.config").joinpath(name)  # package path
+            if res.is_file():
+                if name.endswith((".yaml", ".yml")):
+                    cfg = yaml.safe_load(res.read_text(encoding="utf-8"))
+                    logging.config.dictConfig(cfg)
+                    return
+                else:
+                    # INI can be read from a file-like object
+                    logging.config.fileConfig(
+                        io.StringIO(res.read_text(encoding="utf-8")),
+                        defaults={"logfilename": os.getenv("APP_LOG", "app.log")},
+                        disable_existing_loggers=False,
+                    )
+                    return
+        except Exception:
+            # try next candidate
+            pass
+
+    # 4) last-resort fallback
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname).1s %(name)s:%(lineno)d — %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        force=True,
+    )
+
+def _load_config_path(path: str) -> None:
+    if path.lower().endswith((".yaml", ".yml")):
+        with open(path, "r", encoding="utf-8") as f:
+            logging.config.dictConfig(yaml.safe_load(f))
+    else:
+        # If your INI uses args=(sys.stdout,), ensure sys is imported
+        logging.config.fileConfig(
+            path,
+            defaults={"logfilename": os.getenv("APP_LOG", "app.log")},
+            disable_existing_loggers=False,
+        )
 
 def main():
+    setup_logging()
     log = logging.getLogger(__name__)
     log.debug("Starting FOCUS Validator from main")
     log.debug("Arguments: %s", sys.argv)
@@ -124,7 +183,8 @@ def main():
                 visualizeValidationResults(
                     validationResult=results,
                     svgFilename=filename,
-                    showPassed=True
+                    showPassed=True,
+                    spec_rules_path=validator.get_spec_rules_path(),
                 )
 
                 if os.name == 'nt':  # Windows

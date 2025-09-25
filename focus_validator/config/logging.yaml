@@ -13,16 +13,19 @@ handlers:
     stream: ext://sys.stdout
 
 root:
-  level: INFO
+  level: DEBUG
   handlers: [console]
 
 loggers:
   focus_validator.main:
-    level: INFO
+    level: DEBUG
     propagate: true
   focus_validator:
-    level: INFO
+    level: DEBUG
     propagate: true
   focus_validator.rules.spec_rules.SpecRules:
+    level: DEBUG
+    propagate: true
+  focus_validator.config_objects.rule_dependency_resolver.RuleDependencyResolver:
     level: DEBUG
     propagate: true

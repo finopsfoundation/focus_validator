@@ -242,12 +242,16 @@ class SpecRules:
             print(f"Error downloading file: {e}")
         return False
 
+    def get_spec_rules_path(self):
+        return self.json_rule_file
+
     def load(self):
         self.load_rules()
 
     def load_rules(self):
         # Load rules from JSON with dependency resolution
-        json_rules_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'rules', f'cr-{self.rules_version}.json')
+        self.log.debug(f"Loading rules from {self.json_rule_file} using prefix {self.rule_prefix}")
+
         self.json_rules, self.json_checkfunctions, rule_order = JsonLoader.load_json_rules_with_dependencies(
             json_rule_file=self.json_rule_file, rule_prefix=self.rule_prefix
         )
