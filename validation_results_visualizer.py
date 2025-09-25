@@ -25,12 +25,13 @@ def initLogger(loggingLevel):
 
 
 class ValidationResultsVisualizer:
-    def __init__(self, validationResult=None, resultsFile=None, logger=None, showPassed=True, showDependenciesOnly=False):
+    def __init__(self, validationResult=None, resultsFile=None, logger=None, showPassed=True, showDependenciesOnly=False, spec_rules_path=None):
         self.validationResult = validationResult
         self.resultsFile = resultsFile
         self.logger = logger or initLogger('WARNING')
         self.showPassed = showPassed
         self.showDependenciesOnly = showDependenciesOnly
+        self.spec_rules_path = spec_rules_path
         self.validationResults = None
         self.dependencyGraph = {}
         self.visualGraph = ValidationGraph(graphName='Validation Results', logger=self.logger)
@@ -207,28 +208,8 @@ class ValidationResultsVisualizer:
         # Extract rule dependencies directly from cr-1.2.json structure
         dependencies = {}
         
-        # Load the cr-1.2.json file to get the original rule structure
         try:
-            import os
-            # Try multiple possible paths for the JSON file
-            possible_paths = [
-                os.path.join(os.path.dirname(__file__), 'rules', 'cr-1.2.json'),
-                'rules/cr-1.2.json',
-                os.path.join(os.getcwd(), 'rules', 'cr-1.2.json'),
-                os.path.join(os.path.dirname(__file__), '..', 'rules', 'cr-1.2.json')
-            ]
-
-            jsonPath = None
-            for path in possible_paths:
-                if os.path.exists(path):
-                    jsonPath = path
-                    break
-
-            if not jsonPath:
-                self.logger.warning(f"Could not find cr-1.2.json file in any of the expected locations: {possible_paths}")
-                return {}
-
-            with open(jsonPath, 'r') as f:
+            with open(self.spec_rules_path, 'r') as f:
                 rulesData = json.load(f)
             
             conformanceRules = rulesData.get('ConformanceRules', {})
@@ -387,7 +368,7 @@ class ValidationGraph:
         self.dot.render(filename.replace(f'.{formatType}', ''), format=formatType, cleanup=True)
 
 
-def visualizeValidationResults(validationResult=None, resultsFile=None, dotFilename=None, pngFilename=None, svgFilename=None, showPassed=True, showDependenciesOnly=False, loggingLevel='WARNING'):
+def visualizeValidationResults(validationResult=None, resultsFile=None, dotFilename=None, pngFilename=None, svgFilename=None, showPassed=True, showDependenciesOnly=False, loggingLevel='WARNING', spec_rules_path=None):
     """
     Function to visualize validation results from a ValidationResult object or JSON file.
 
@@ -411,7 +392,8 @@ def visualizeValidationResults(validationResult=None, resultsFile=None, dotFilen
         resultsFile=resultsFile,
         logger=logger,
         showPassed=showPassed,
-        showDependenciesOnly=showDependenciesOnly
+        showDependenciesOnly=showDependenciesOnly,
+        spec_rules_path=spec_rules_path
     )
 
     visualizer.generateVisualization()
