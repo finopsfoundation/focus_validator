@@ -16,6 +16,7 @@ class UnittestFormatter:
         time="0",
         timestamp=None,
     ):
+        self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.name = name
         self.tests = str(tests)
         self.failures = str(failures)
@@ -99,7 +100,7 @@ class UnittestFormatter:
                     )
         tree = ET.ElementTree(testsuites)
         if sys.version_info < (3, 9):
-            logging.warning(
+            self.log.warning(
                 "produced output not indent due to lack of support before 3.9"
             )
         else:

@@ -1,7 +1,7 @@
 import os
 import requests
-from typing import List, Dict, Any, Optional
-
+from typing import Dict, Any, Optional
+import logging
 
 import pandas as pd
 import duckdb
@@ -18,6 +18,7 @@ from focus_validator.config_objects.focus_to_duckdb_converter import (
 )
 from focus_validator.exceptions import UnsupportedVersion, FailedDownloadError
 
+log = logging.getLogger(__name__)
 
 def convert_missing_column_errors(df, checklist):
     def process_row(row):
@@ -83,6 +84,7 @@ def restructure_failure_cases_df(failure_cases: pd.DataFrame, checklist):
 
 
 class ValidationResult:
+    log = logging.getLogger(__name__ + "." + __qualname__)
     checklist: Dict[str, ChecklistObject]
     failure_cases: Optional[pd.DataFrame]
 
@@ -107,6 +109,7 @@ class ValidationResult:
 
 
 class SpecRules:
+    
     def __init__(
         self, rule_set_path, rules_file_prefix, rules_version, rules_file_suffix, rule_prefix, rules_force_remote_download, allow_draft_releases, allow_prerelease_releases, column_namespace,
     ):
@@ -117,10 +120,12 @@ class SpecRules:
         self.json_rule_file = os.path.join(
             self.rule_set_path, f"{self.rules_file_prefix}{self.rules_version}{self.rules_file_suffix}"
         )
+        self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.rules_force_remote_download = rules_force_remote_download
         self.allow_draft_releases = allow_draft_releases
         self.allow_prerelease_releases = allow_prerelease_releases
         self.local_supported_versions = self.supported_local_versions()
+        self.log.debug("Local supported versions: %s", self.local_supported_versions)
         self.remote_versions = {}
         if self.rules_force_remote_download or self.rules_version not in self.local_supported_versions:
             self.remote_supported_versions = self.supported_remote_versions()

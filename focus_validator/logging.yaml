@@ -1,0 +1,28 @@
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  std:
+    format: "%(asctime)s %(levelname).1s %(name)s:%(lineno)d — %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: std
+    stream: ext://sys.stdout
+
+root:
+  level: INFO
+  handlers: [console]
+
+loggers:
+  focus_validator.main:
+    level: INFO
+    propagate: true
+  focus_validator:
+    level: INFO
+    propagate: true
+  focus_validator.rules.spec_rules.SpecRules:
+    level: DEBUG
+    propagate: true

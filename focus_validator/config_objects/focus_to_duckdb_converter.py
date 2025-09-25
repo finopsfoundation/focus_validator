@@ -1,4 +1,5 @@
 import os
+import logging
 from abc import ABC, abstractmethod
 from itertools import groupby
 from typing import Dict, List, Optional, Set, Union
@@ -27,6 +28,7 @@ from focus_validator.exceptions import FocusNotImplementedError
 
 class DuckDBColumnCheck:
     def __init__(self, column_name: str, check_type: str, check_sql: str, error_message: str):
+        self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.columnName = column_name
         self.checkType = check_type
         self.checkSql = check_sql
@@ -36,6 +38,7 @@ class DuckDBColumnCheck:
 class DuckDBCheckGenerator(ABC):
     # Abstract base class for generating DuckDB validation checks
     def __init__(self, rule: Rule, check_id: str):
+        self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.rule = rule
         self.checkId = check_id
         self.columnName = rule.column_id
@@ -109,6 +112,7 @@ class CheckValueGenerator(DuckDBCheckGenerator):
     # Generate check for specific value
     def __init__(self, rule: Rule, check_id: str, expected_value):
         super().__init__(rule, check_id)
+        self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.expectedValue = expected_value
 
     def generateSql(self) -> str:
