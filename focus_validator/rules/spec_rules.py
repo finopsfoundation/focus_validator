@@ -350,6 +350,7 @@ class SpecRules:
         (
             duckdb_checks,
             checklist,
+            compositeRuleIds,
         ) = FocusToDuckDBSchemaConverter.generateDuckDBValidation(
             rules=self.rules
         )
@@ -373,7 +374,8 @@ class SpecRules:
             connection=connection,
             tableName=table_name,
             checks=duckdb_checks,
-            checklist=checklist
+            checklist=checklist,
+            compositeRuleIds=compositeRuleIds
         )
 
         executionTime = time.time() - executionStartTime
