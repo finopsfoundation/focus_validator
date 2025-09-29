@@ -1,5 +1,6 @@
 import os
 import logging
+import time
 from abc import ABC, abstractmethod
 from itertools import groupby
 from typing import Dict, List, Optional, Set, Union
@@ -755,12 +756,19 @@ class FocusToDuckDBSchemaConverter:
         cls,
         rules: List[Union[Rule, InvalidRule]],
     ) -> tuple[List[DuckDBColumnCheck], Dict[str, ChecklistObject]]:
-        # Generate DuckDB validation checks and checklist
+        log = logging.getLogger(f"{__name__}.{cls.__name__}")
+        log.info("Generating DuckDB validation checks for %d rules", len(rules))
+
+        startTime = time.time()
         checks = []
         checklist = {}
+        invalidRuleCount = 0
+        dynamicRuleCount = 0
+        pendingRuleCount = 0
 
         for rule in rules:
             if isinstance(rule, InvalidRule):
+                log.debug("Processing invalid rule: %s", rule.rule_path)
                 checklist[rule.rule_path] = ChecklistObject(
                     check_name=os.path.splitext(os.path.basename(rule.rule_path))[0],
                     column_id="Unknown",
@@ -768,10 +776,18 @@ class FocusToDuckDBSchemaConverter:
                     status=ChecklistObjectStatus.ERRORED,
                     rule_ref=rule,
                 )
+                invalidRuleCount += 1
                 continue
 
             # Check if this is a dynamic rule (marked during loading)
             is_dynamic_rule = hasattr(rule, '_rule_type') and getattr(rule, '_rule_type', '').lower() == "dynamic"
+
+            if is_dynamic_rule:
+                log.debug("Skipping dynamic rule: %s", rule.check_id)
+                dynamicRuleCount += 1
+            else:
+                log.debug("Processing static rule: %s", rule.check_id)
+                pendingRuleCount += 1
 
             checklist[rule.check_id] = ChecklistObject(
                 check_name=rule.check_id,
@@ -783,8 +799,16 @@ class FocusToDuckDBSchemaConverter:
             )
 
         # Generate validation checks using registry
+        log.debug("Generating validation checks for %d pending rules", pendingRuleCount)
         validationChecks = cls.__generate_checks__([cl.rule_ref for cl in checklist.values() if cl.status == ChecklistObjectStatus.PENDING])
         checks.extend(validationChecks)
+
+        generationTime = time.time() - startTime
+        log.info("DuckDB validation generation completed in %.3f seconds", generationTime)
+        log.info("  Generated checks: %d", len(checks))
+        log.info("  Pending rules: %d", pendingRuleCount)
+        log.info("  Dynamic rules (skipped): %d", dynamicRuleCount)
+        log.info("  Invalid rules: %d", invalidRuleCount)
 
         return checks, checklist
 
@@ -796,12 +820,27 @@ class FocusToDuckDBSchemaConverter:
         checklist: Dict[str, ChecklistObject],
         dependency_results: Optional[Dict[str, bool]] = None
     ) -> Dict[str, ChecklistObject]:
+        log = logging.getLogger(f"{__name__}.FocusToDuckDBSchemaConverter")
+        log.info("Executing DuckDB validation with %d checks on table: %s", len(checks), tableName)
+
+        startTime = time.time()
+        executedCount = 0
+        passedCount = 0
+        failedCount = 0
+        errorCount = 0
+
         # Execute DuckDB validation checks
         for check in checks:
+            executedCount += 1
+            log.debug("Executing check %d/%d: %s on column %s", executedCount, len(checks), check.checkType, check.columnName)
             try:
                 # Replace table name placeholder in SQL
                 sql = check.checkSql.replace('{table_name}', tableName)
+                log.debug("Executing SQL: %s", sql[:100] + "..." if len(sql) > 100 else sql)
+
+                checkStartTime = time.time()
                 result = connection.execute(sql).fetchone()
+                checkDuration = time.time() - checkStartTime
 
                 # Find corresponding checklist item by matching check type and column
                 checklistItem = None
@@ -825,10 +864,19 @@ class FocusToDuckDBSchemaConverter:
                     if result and result[0]:  # check_failed is True
                         checklistItem.status = ChecklistObjectStatus.FAILED
                         checklistItem.error = check.errorMessage
+                        failedCount += 1
+                        log.debug("Check FAILED (%.3fs): %s on %s", checkDuration, check.checkType, check.columnName)
                     else:
                         checklistItem.status = ChecklistObjectStatus.PASSED
+                        passedCount += 1
+                        log.debug("Check PASSED (%.3fs): %s on %s", checkDuration, check.checkType, check.columnName)
+                else:
+                    log.warning("Could not find matching checklist item for check: %s on %s", check.checkType, check.columnName)
 
             except Exception as e:
+                log.error("DuckDB check failed: %s on column %s - %s", check.checkType, check.columnName, str(e))
+                errorCount += 1
+
                 # Find corresponding checklist item and mark as errored
                 errorItem = None
                 for check_id, item in checklist.items():
@@ -850,8 +898,22 @@ class FocusToDuckDBSchemaConverter:
                     errorItem.status = ChecklistObjectStatus.ERRORED
                     errorItem.error = f"DuckDB validation error: {str(e)}"
 
+            # Progress logging
+            if executedCount % 100 == 0:
+                log.debug("Progress: %d/%d checks executed", executedCount, len(checks))
+
         # Handle composite rules after basic validation
+        log.debug("Executing composite rules...")
         FocusToDuckDBSchemaConverter._executeCompositeRules(checklist, dependency_results or {})
+
+        executionTime = time.time() - startTime
+        log.info("DuckDB validation execution completed in %.3f seconds", executionTime)
+        log.info("Execution summary:")
+        log.info("  Total checks executed: %d", executedCount)
+        log.info("  Passed: %d", passedCount)
+        log.info("  Failed: %d", failedCount)
+        log.info("  Errors: %d", errorCount)
+        log.info("  Success rate: %.1f%%", (passedCount / executedCount * 100) if executedCount > 0 else 0)
 
         return checklist
 

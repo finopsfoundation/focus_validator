@@ -2,36 +2,79 @@ version: 1
 disable_existing_loggers: false
 
 formatters:
-  std:
+  standard:
     format: "%(asctime)s %(levelname).1s %(name)s:%(lineno)d — %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+
+  detailed:
+    format: "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d [%(funcName)s] — %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+
+  performance:
+    format: "%(asctime)s [PERF] %(name)s — %(message)s"
     datefmt: "%Y-%m-%d %H:%M:%S"
 
 handlers:
   console:
     class: logging.StreamHandler
-    formatter: std
+    formatter: standard
     stream: ext://sys.stdout
+    level: INFO
+
+  file_detailed:
+    class: logging.handlers.RotatingFileHandler
+    filename: focus_validator_detailed.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 5
+    formatter: detailed
+    level: DEBUG
+
+  file_performance:
+    class: logging.handlers.RotatingFileHandler
+    filename: focus_validator_performance.log
+    maxBytes: 5242880  # 5MB
+    backupCount: 3
+    formatter: performance
+    level: INFO
 
 root:
   level: DEBUG
-  handlers: [console]
+  handlers: [console, file_detailed]
 
 loggers:
   focus_validator.main:
     level: DEBUG
     propagate: true
-  focus_validator:
+
+  focus_validator.validator:
     level: DEBUG
     propagate: true
-  focus_validator.rules.spec_rules.SpecRules:
+
+  focus_validator.rules.spec_rules:
     level: DEBUG
     propagate: true
-  focus_validator.config_objects.rule_dependency_resolver.RuleDependencyResolver:
-    level: DEBUG
-    propagate: true
+
   focus_validator.config_objects.rule_dependency_resolver:
+    level: DEBUG
+    propagate: true
+
+  focus_validator.data_loaders:
+    level: DEBUG
+    propagate: true
+
+  focus_validator.config_objects.focus_to_duckdb_converter:
+    level: DEBUG
+    propagate: true
+
+  focus_validator.outputter:
     level: INFO
     propagate: true
+
   validation_results_visualizer:
     level: INFO
     propagate: true
+
+  performance:
+    level: INFO
+    handlers: [file_performance]
+    propagate: false
