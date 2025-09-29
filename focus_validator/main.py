@@ -1,9 +1,12 @@
 from __future__ import annotations
 import argparse
+import io
+import logging
+import logging.config
+import os
 import sys
 import time
 import yaml
-import io, os, sys, logging, logging.config
 from focus_validator.validator import DEFAULT_VERSION_SETS_PATH, Validator
 from importlib import resources as ir
 
@@ -69,7 +72,7 @@ def _load_config_path(path: str) -> None:
             disable_existing_loggers=False,
         )
 
-def main():
+def main() -> None:
     setup_logging()
     log = logging.getLogger(__name__)
 

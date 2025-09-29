@@ -2,9 +2,10 @@ import importlib.resources
 import logging
 import time
 import os
+from typing import Optional, Tuple, List, Any
 from focus_validator.data_loaders import data_loader
 from focus_validator.outputter.outputter import Outputter
-from focus_validator.rules.spec_rules import SpecRules
+from focus_validator.rules.spec_rules import SpecRules, ValidationResult
 from focus_validator.utils.performance_logging import logPerformance
 
 try:
@@ -23,20 +24,20 @@ except AttributeError:
 class Validator:
     def __init__(
         self,
-        data_filename,
-        output_destination,
-        output_type,
-        rule_set_path=DEFAULT_VERSION_SETS_PATH,
-        focus_dataset=None,
-        filter_rules=None,
-        rules_file_prefix='cr-',
-        rules_version=None,
-        rules_file_suffix='.json',
-        rules_force_remote_download=False,
-        allow_draft_releases=False,
-        allow_prerelease_releases=False,
-        column_namespace=None,
-    ):
+        data_filename: Optional[str],
+        output_destination: Optional[str],
+        output_type: str,
+        rule_set_path: str = DEFAULT_VERSION_SETS_PATH,
+        focus_dataset: Optional[str] = None,
+        filter_rules: Optional[str] = None,
+        rules_file_prefix: str = 'cr-',
+        rules_version: Optional[str] = None,
+        rules_file_suffix: str = '.json',
+        rules_force_remote_download: bool = False,
+        allow_draft_releases: bool = False,
+        allow_prerelease_releases: bool = False,
+        column_namespace: Optional[str] = None,
+    ) -> None:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.data_filename = data_filename
         self.focus_data = None
@@ -75,11 +76,11 @@ class Validator:
 
         self.log.debug("Validator initialization completed")
 
-    def get_spec_rules_path(self):
+    def get_spec_rules_path(self) -> str:
         return self.spec_rules.get_spec_rules_path()
 
     @logPerformance("validator.load", includeArgs=True)
-    def load(self):
+    def load(self) -> None:
         self.log.info("Loading validation data and rules...")
 
         # Load data
@@ -106,7 +107,7 @@ class Validator:
         self.log.info("Data and rules loading completed")
 
     @logPerformance("validator.validate", includeArgs=True)
-    def validate(self):
+    def validate(self) -> ValidationResult:
         self.log.info("Starting validation process...")
         self.load()
 
@@ -121,7 +122,7 @@ class Validator:
         self.log.info("Validation process completed")
         return results
 
-    def get_supported_versions(self):
+    def get_supported_versions(self) -> Tuple[List[str], List[str]]:
         self.log.debug("Retrieving supported versions...")
         local_versions = self.spec_rules.supported_local_versions()
         remote_versions = self.spec_rules.supported_remote_versions()

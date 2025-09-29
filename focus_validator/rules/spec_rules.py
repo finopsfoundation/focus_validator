@@ -1,7 +1,7 @@
 import os
 import requests
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import logging
 
 import pandas as pd
@@ -167,7 +167,7 @@ class SpecRules:
         self.json_rules = {}
         self.json_checkfunctions = {}
 
-    def supported_local_versions(self):
+    def supported_local_versions(self) -> List[str]:
         """Return list of versions from files in rule_set_path."""
         versions = []
         for filename in os.listdir(self.rule_set_path):
@@ -242,13 +242,13 @@ class SpecRules:
 
         return results
 
-    def supported_remote_versions(self):
+    def supported_remote_versions(self) -> List[str]:
         """Return list of versions from remote source."""
         # Implement logic to fetch supported remote versions
         self.remote_versions = self.find_release_assets()
         return [v for v in self.remote_versions.keys()]
 
-    def download_remote_version(self, remote_url: str, save_path: str):
+    def download_remote_version(self, remote_url: str, save_path: str) -> bool:
         """Download the file from remote_url and save it to save_path.
          Returns True if download was successful, False otherwise.
          """
@@ -259,16 +259,16 @@ class SpecRules:
                 file.write(response.content)
             return True
         except requests.RequestException as e:
-            print(f"Error downloading file: {e}")
+            self.log.error("Error downloading file: %s", e)
         return False
 
-    def get_spec_rules_path(self):
+    def get_spec_rules_path(self) -> str:
         return self.json_rule_file
 
-    def load(self):
+    def load(self) -> None:
         self.load_rules()
 
-    def load_rules(self):
+    def load_rules(self) -> None:
         # Load rules from JSON with dependency resolution
         self.log.info("Loading rules from file: %s", self.json_rule_file)
         self.log.debug("Focus dataset: %s", self.focus_dataset)
