@@ -222,7 +222,8 @@ class ValidationResultsVisualizer:
             return dependencies
             
         except Exception as e:
-            self.logger.warning(f"Could not load cr-1.2.json for dependency extraction: {e}")
+            self.logger.warning("Could not load dependency file for extraction: %s", str(e))
+            self.logger.debug("Dependency extraction failed", exc_info=True)
             return {}
     
     def _extractRuleDependencies(self, requirement):

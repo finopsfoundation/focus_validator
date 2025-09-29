@@ -220,7 +220,7 @@ class RuleDependencyResolver:
                     if rule_dep not in relevant_rules:
                         dependencies.add(rule_dep)
             else:
-                self.log.warning(f"Rule ID {rule_id} listed in dataset but not found in raw rules data.")
+                self.log.warning("Rule ID %s listed in dataset but not found in raw rules data", rule_id)
         while dependencies:
             dep_id = dependencies.pop()
             if dep_id in self.raw_rules_data and dep_id not in relevant_rules:
@@ -230,7 +230,7 @@ class RuleDependencyResolver:
                     if rule_dep not in relevant_rules:
                         dependencies.add(rule_dep)
             else:
-                self.log.warning(f"Dependency Rule ID {dep_id} not found in raw rules data.")
+                self.log.warning("Dependency Rule ID %s not found in raw rules data", dep_id)
 
         return relevant_rules
 
