@@ -1,6 +1,8 @@
 import logging
 import os
 import time
+from typing import Optional, Union, Any, Type
+import pandas as pd
 from focus_validator.data_loaders.csv_data_loader import CSVDataLoader
 from focus_validator.data_loaders.parquet_data_loader import ParquetDataLoader
 from focus_validator.exceptions import FocusNotImplementedError
@@ -8,7 +10,7 @@ from focus_validator.utils.performance_logging import logPerformance
 
 
 class DataLoader:
-    def __init__(self, data_filename):
+    def __init__(self, data_filename: Optional[str]) -> None:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.data_filename = data_filename
 
@@ -23,8 +25,12 @@ class DataLoader:
         self.data_loader_class = self.find_data_loader()
         self.data_loader = self.data_loader_class(self.data_filename)
 
-    def find_data_loader(self):
+    def find_data_loader(self) -> Type[Union[CSVDataLoader, ParquetDataLoader]]:
         self.log.debug("Determining data loader for file: %s", self.data_filename)
+
+        if self.data_filename is None:
+            self.log.error("Data filename is None")
+            raise FocusNotImplementedError("Data filename cannot be None.")
 
         if self.data_filename.endswith(".csv"):
             self.log.debug("Using CSV data loader")
@@ -37,7 +43,7 @@ class DataLoader:
             raise FocusNotImplementedError("File type not implemented yet.")
 
     @logPerformance("data_loader.load", includeArgs=True)
-    def load(self):
+    def load(self) -> Optional[pd.DataFrame]:
         self.log.info("Loading data from file...")
         result = self.data_loader.load()
 
