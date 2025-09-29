@@ -28,8 +28,9 @@ from focus_validator.exceptions import FocusNotImplementedError
 
 
 class DuckDBColumnCheck:
+    log = logging.getLogger(f"{__name__}.DuckDBColumnCheck")
+
     def __init__(self, column_name: str, check_type: str, check_sql: str, error_message: str):
-        self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.columnName = column_name
         self.checkType = check_type
         self.checkSql = check_sql
@@ -38,8 +39,9 @@ class DuckDBColumnCheck:
 
 class DuckDBCheckGenerator(ABC):
     # Abstract base class for generating DuckDB validation checks
+    log = logging.getLogger(f"{__name__}.DuckDBCheckGenerator")
+
     def __init__(self, rule: Rule, check_id: str):
-        self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.rule = rule
         self.checkId = check_id
         self.columnName = rule.column_id
@@ -113,7 +115,6 @@ class CheckValueGenerator(DuckDBCheckGenerator):
     # Generate check for specific value
     def __init__(self, rule: Rule, check_id: str, expected_value):
         super().__init__(rule, check_id)
-        self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.expectedValue = expected_value
 
     def generateSql(self) -> str:
@@ -152,20 +153,22 @@ class CheckNotValueGenerator(DuckDBCheckGenerator):
         return "check_not_value"
 
 
-class CheckColumnComparisonGenerator(DuckDBCheckGenerator):
-    # Generate check for comparing two columns
+class ColumnComparisonGenerator(DuckDBCheckGenerator):
+    # Generate check for comparing two columns (consolidated from CheckSameValue, CheckNotSameValue, ColumnByColumnEquals)
     def __init__(self, rule: Rule, check_id: str, comparison_column: str, operator: str):
         super().__init__(rule, check_id)
         self.comparisonColumn = comparison_column
         self.operator = operator
 
     def generateSql(self) -> str:
-        if self.operator == "not_equals_column":
-            condition = f"{self.rule.column_id} = {self.comparisonColumn}"
-        elif self.operator == "equals_column":
+        # operator "equals" means columns should be equal, so fail if they're not equal
+        # operator "not_equals" means columns should be different, so fail if they're equal
+        if self.operator == "equals":
             condition = f"{self.rule.column_id} != {self.comparisonColumn}"
+        elif self.operator == "not_equals":
+            condition = f"{self.rule.column_id} = {self.comparisonColumn}"
         else:
-            condition = "FALSE"  # Unknown operator, always fail
+            condition = "FALSE"
 
         return f"""
         SELECT COUNT(CASE WHEN {condition} THEN 1 END) > 0 as check_failed
@@ -173,7 +176,7 @@ class CheckColumnComparisonGenerator(DuckDBCheckGenerator):
         """
 
     def getCheckType(self) -> str:
-        return f"check_column_comparison_{self.operator}"
+        return f"column_comparison_{self.operator}"
 
 
 class FormatNumericGenerator(DuckDBCheckGenerator):
@@ -359,54 +362,6 @@ class CheckNationalCurrencyGenerator(DuckDBCheckGenerator):
         return "national_currency"
 
 
-class CheckSameValueGenerator(DuckDBCheckGenerator):
-    # Generate check for ensuring columns have the same value
-    def __init__(self, rule: Rule, check_id: str, comparison_column: str):
-        super().__init__(rule, check_id)
-        self.comparisonColumn = comparison_column
-
-    def generateSql(self) -> str:
-        return f"""
-        SELECT COUNT(CASE WHEN {self.rule.column_id} != {self.comparisonColumn} THEN 1 END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "check_same_value"
-
-
-class CheckNotSameValueGenerator(DuckDBCheckGenerator):
-    # Generate check for ensuring columns don't have the same value
-    def __init__(self, rule: Rule, check_id: str, comparison_column: str):
-        super().__init__(rule, check_id)
-        self.comparisonColumn = comparison_column
-
-    def generateSql(self) -> str:
-        return f"""
-        SELECT COUNT(CASE WHEN {self.rule.column_id} = {self.comparisonColumn} THEN 1 END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "check_not_same_value"
-
-
-class ColumnByColumnEqualsColumnValueGenerator(DuckDBCheckGenerator):
-    # Generate column-by-column comparison check
-    def __init__(self, rule: Rule, check_id: str, comparison_column: str):
-        super().__init__(rule, check_id)
-        self.comparisonColumn = comparison_column
-
-    def generateSql(self) -> str:
-        return f"""
-        SELECT COUNT(CASE WHEN {self.rule.column_id} != {self.comparisonColumn} THEN 1 END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "column_by_column_equals"
-
-
 class FormatCurrencyGenerator(DuckDBCheckGenerator):
     # Generate currency format validation check
     def generateSql(self) -> str:
@@ -521,14 +476,14 @@ class FocusToDuckDBSchemaConverter:
             )
         },
         "CheckSameValue": {
-            "generator": CheckSameValueGenerator,
+            "generator": ColumnComparisonGenerator,
             "factory": lambda args: ValueComparisonCheck(
                 operator="equals_column",
                 value=args.get("ComparisonColumn")
             )
         },
         "CheckNotSameValue": {
-            "generator": CheckNotSameValueGenerator,
+            "generator": ColumnComparisonGenerator,
             "factory": lambda args: ValueComparisonCheck(
                 operator="not_equals_column",
                 value=args.get("ComparisonColumn")
@@ -553,7 +508,7 @@ class FocusToDuckDBSchemaConverter:
             "factory": lambda args: FormatCheck(format_type="currency_code")
         },
         "ColumnByColumnEqualsColumnValue": {
-            "generator": ColumnByColumnEqualsColumnValueGenerator,
+            "generator": ColumnComparisonGenerator,
             "factory": lambda args: ColumnComparisonCheck(
                 comparison_column=args.get("ComparisonColumn"),
                 operator="equals"
@@ -635,105 +590,67 @@ class FocusToDuckDBSchemaConverter:
                 mappings[check_function] = config["factory"]
         return mappings
 
+    # Dispatch map for check types to generator configuration
+    CHECK_TYPE_DISPATCH = {
+        # Simple string checks
+        "column_required": ("ColumnPresent", lambda rule, check_id, check: (rule, check_id)),
+
+        # DataTypeCheck mappings
+        (DataTypeCheck, DataTypes.DECIMAL): ("TypeDecimal", lambda rule, check_id, check: (rule, check_id)),
+        (DataTypeCheck, DataTypes.STRING): ("TypeString", lambda rule, check_id, check: (rule, check_id)),
+        (DataTypeCheck, DataTypes.DATETIME): ("TypeDateTime", lambda rule, check_id, check: (rule, check_id)),
+
+        # ValueComparisonCheck mappings
+        (ValueComparisonCheck, "not_equals"): ("CheckNotValue", lambda rule, check_id, check: (rule, check_id, check.value)),
+        (ValueComparisonCheck, "equals"): ("CheckValue", lambda rule, check_id, check: (rule, check_id, check.value)),
+        (ValueComparisonCheck, "greater_equal"): ("CheckGreaterOrEqualThanValue", lambda rule, check_id, check: (rule, check_id, check.value)),
+        (ValueComparisonCheck, "not_equals_column"): ("CheckNotSameValue", lambda rule, check_id, check: (rule, check_id, check.value, "not_equals")),
+        (ValueComparisonCheck, "equals_column"): ("CheckSameValue", lambda rule, check_id, check: (rule, check_id, check.value, "equals")),
+
+        # FormatCheck mappings
+        (FormatCheck, "numeric"): ("FormatNumeric", lambda rule, check_id, check: (rule, check_id)),
+        (FormatCheck, "datetime"): ("FormatDateTime", lambda rule, check_id, check: (rule, check_id)),
+        (FormatCheck, "string"): ("FormatString", lambda rule, check_id, check: (rule, check_id)),
+        (FormatCheck, "currency_code"): ("FormatBillingCurrencyCode", lambda rule, check_id, check: (rule, check_id)),
+        (FormatCheck, "key_value"): ("FormatKeyValue", lambda rule, check_id, check: (rule, check_id)),
+        (FormatCheck, "unit"): ("FormatUnit", lambda rule, check_id, check: (rule, check_id)),
+
+        # Other check types
+        DistinctCountCheck: ("CheckDistinctCount", lambda rule, check_id, check: (rule, check_id, check.column_a_name, check.column_b_name, check.expected_count)),
+        ConformanceRuleCheck: ("CheckConformanceRule", lambda rule, check_id, check: (rule, check_id, check.conformance_rule_id)),
+        ColumnComparisonCheck: ("ColumnByColumnEqualsColumnValue", lambda rule, check_id, check: (rule, check_id, check.comparison_column, check.operator)),
+    }
+
     @classmethod
     def __generate_duckdb_check__(cls, rule: Rule, check_id: str) -> Optional[DuckDBColumnCheck]:
-        # Single dispatch method using registry
         check = rule.check
 
-        # Handle simple string checks
-        if check == "column_required":
-            generator_class = cls.CHECK_GENERATORS["ColumnPresent"]["generator"]
-            generator = generator_class(rule, check_id)
-            return generator.generateCheck()
-
-        # Handle DataTypeCheck objects
-        elif isinstance(check, DataTypeCheck):
-            if check.data_type == DataTypes.DECIMAL:
-                generator_class = cls.CHECK_GENERATORS["TypeDecimal"]["generator"]
-                generator = generator_class(rule, check_id)
-                return generator.generateCheck()
-            elif check.data_type == DataTypes.STRING:
-                generator_class = cls.CHECK_GENERATORS["TypeString"]["generator"]
-                generator = generator_class(rule, check_id)
-                return generator.generateCheck()
-            elif check.data_type == DataTypes.DATETIME:
-                generator_class = cls.CHECK_GENERATORS["TypeDateTime"]["generator"]
-                generator = generator_class(rule, check_id)
-                return generator.generateCheck()
-
-        # Handle ValueComparisonCheck objects
-        elif isinstance(check, ValueComparisonCheck):
-            if check.operator == "not_equals":
-                generator_class = cls.CHECK_GENERATORS["CheckNotValue"]["generator"]
-                generator = generator_class(rule, check_id, check.value)
-                return generator.generateCheck()
-            elif check.operator == "equals":
-                generator_class = cls.CHECK_GENERATORS["CheckValue"]["generator"]
-                generator = generator_class(rule, check_id, check.value)
-                return generator.generateCheck()
-            elif check.operator == "greater_equal":
-                generator_class = cls.CHECK_GENERATORS["CheckGreaterOrEqualThanValue"]["generator"]
-                generator = generator_class(rule, check_id, check.value)
-                return generator.generateCheck()
-            elif check.operator == "not_equals_column":
-                generator_class = cls.CHECK_GENERATORS["CheckNotSameValue"]["generator"]
-                generator = generator_class(rule, check_id, check.value)
-                return generator.generateCheck()
-            elif check.operator == "equals_column":
-                generator_class = cls.CHECK_GENERATORS["CheckSameValue"]["generator"]
-                generator = generator_class(rule, check_id, check.value)
-                return generator.generateCheck()
-
-        # Handle FormatCheck objects
-        elif isinstance(check, FormatCheck):
-            if check.format_type == "numeric":
-                generator_class = cls.CHECK_GENERATORS["FormatNumeric"]["generator"]
-                generator = generator_class(rule, check_id)
-                return generator.generateCheck()
-            elif check.format_type == "datetime":
-                generator_class = cls.CHECK_GENERATORS["FormatDateTime"]["generator"]
-                generator = generator_class(rule, check_id)
-                return generator.generateCheck()
-            elif check.format_type == "string":
-                generator_class = cls.CHECK_GENERATORS["FormatString"]["generator"]
-                generator = generator_class(rule, check_id)
-                return generator.generateCheck()
-            elif check.format_type == "currency_code":
-                generator_class = cls.CHECK_GENERATORS["FormatBillingCurrencyCode"]["generator"]
-                generator = generator_class(rule, check_id)
-                return generator.generateCheck()
-            elif check.format_type == "key_value":
-                generator_class = cls.CHECK_GENERATORS["FormatKeyValue"]["generator"]
-                generator = generator_class(rule, check_id)
-                return generator.generateCheck()
-            elif check.format_type == "unit":
-                generator_class = cls.CHECK_GENERATORS["FormatUnit"]["generator"]
-                generator = generator_class(rule, check_id)
-                return generator.generateCheck()
-
-        # Handle DistinctCountCheck objects
-        elif isinstance(check, DistinctCountCheck):
-            generator_class = cls.CHECK_GENERATORS["CheckDistinctCount"]["generator"]
-            generator = generator_class(rule, check_id, check.column_a_name, check.column_b_name, check.expected_count)
-            return generator.generateCheck()
-
-        # Handle ConformanceRuleCheck objects
-        elif isinstance(check, ConformanceRuleCheck):
-            generator_class = cls.CHECK_GENERATORS["CheckConformanceRule"]["generator"]
-            generator = generator_class(rule, check_id, check.conformance_rule_id)
-            return generator.generateCheck()
-
-        # Handle ColumnComparisonCheck objects
-        elif isinstance(check, ColumnComparisonCheck):
-            generator_class = cls.CHECK_GENERATORS["ColumnByColumnEqualsColumnValue"]["generator"]
-            generator = generator_class(rule, check_id, check.comparison_column)
-            return generator.generateCheck()
-
-        # Handle CompositeCheck objects
-        elif isinstance(check, CompositeCheck):
-            # For composite rules, we need dependency results which are handled separately
-            # Return None here and handle composite rules in a special method
+        # Handle CompositeCheck separately (needs dependency results)
+        if isinstance(check, CompositeCheck):
             return None
+
+        # Try dispatch by simple string match
+        if isinstance(check, str):
+            dispatch_config = cls.CHECK_TYPE_DISPATCH.get(check)
+        # Try dispatch by (type, attribute) tuple
+        elif isinstance(check, (DataTypeCheck, ValueComparisonCheck, FormatCheck)):
+            if isinstance(check, DataTypeCheck):
+                key = (DataTypeCheck, check.data_type)
+            elif isinstance(check, ValueComparisonCheck):
+                key = (ValueComparisonCheck, check.operator)
+            elif isinstance(check, FormatCheck):
+                key = (FormatCheck, check.format_type)
+            dispatch_config = cls.CHECK_TYPE_DISPATCH.get(key)
+        # Try dispatch by type only
+        else:
+            dispatch_config = cls.CHECK_TYPE_DISPATCH.get(type(check))
+
+        if dispatch_config:
+            generator_name, arg_builder = dispatch_config
+            generator_class = cls.CHECK_GENERATORS[generator_name]["generator"]
+            args = arg_builder(rule, check_id, check)
+            generator = generator_class(*args)
+            return generator.generateCheck()
 
         return None
 
@@ -755,13 +672,14 @@ class FocusToDuckDBSchemaConverter:
     def generateDuckDBValidation(
         cls,
         rules: List[Union[Rule, InvalidRule]],
-    ) -> tuple[List[DuckDBColumnCheck], Dict[str, ChecklistObject]]:
+    ) -> tuple[List[DuckDBColumnCheck], Dict[str, ChecklistObject], List[str]]:
         log = logging.getLogger(f"{__name__}.{cls.__name__}")
         log.info("Generating DuckDB validation checks for %d rules", len(rules))
 
         startTime = time.time()
         checks = []
         checklist = {}
+        compositeRuleIds = []
         invalidRuleCount = 0
         dynamicRuleCount = 0
         pendingRuleCount = 0
@@ -789,6 +707,10 @@ class FocusToDuckDBSchemaConverter:
                 log.debug("Processing static rule: %s", rule.check_id)
                 pendingRuleCount += 1
 
+            # Track composite rules separately for efficient processing
+            if isinstance(rule.check, CompositeCheck):
+                compositeRuleIds.append(rule.check_id)
+
             checklist[rule.check_id] = ChecklistObject(
                 check_name=rule.check_id,
                 column_id=rule.column_id,
@@ -807,10 +729,11 @@ class FocusToDuckDBSchemaConverter:
         log.info("DuckDB validation generation completed in %.3f seconds", generationTime)
         log.info("  Generated checks: %d", len(checks))
         log.info("  Pending rules: %d", pendingRuleCount)
+        log.info("  Composite rules: %d", len(compositeRuleIds))
         log.info("  Dynamic rules (skipped): %d", dynamicRuleCount)
         log.info("  Invalid rules: %d", invalidRuleCount)
 
-        return checks, checklist
+        return checks, checklist, compositeRuleIds
 
     @staticmethod
     def executeDuckDBValidation(
@@ -818,6 +741,7 @@ class FocusToDuckDBSchemaConverter:
         tableName: str,
         checks: List[DuckDBColumnCheck],
         checklist: Dict[str, ChecklistObject],
+        compositeRuleIds: Optional[List[str]] = None,
         dependency_results: Optional[Dict[str, bool]] = None
     ) -> Dict[str, ChecklistObject]:
         log = logging.getLogger(f"{__name__}.FocusToDuckDBSchemaConverter")
@@ -828,6 +752,12 @@ class FocusToDuckDBSchemaConverter:
         passedCount = 0
         failedCount = 0
         errorCount = 0
+
+        # Create lookup dictionary for O(1) access: maps (column_name, check_id) to checklist item
+        checklistLookup = {}
+        for check_id, item in checklist.items():
+            if hasattr(item.rule_ref, 'check'):
+                checklistLookup[(item.column_id, check_id)] = item
 
         # Execute DuckDB validation checks
         for check in checks:
@@ -842,23 +772,13 @@ class FocusToDuckDBSchemaConverter:
                 result = connection.execute(sql).fetchone()
                 checkDuration = time.time() - checkStartTime
 
-                # Find corresponding checklist item by matching check type and column
-                checklistItem = None
-                for check_id, item in checklist.items():
-                    if (item.column_id == check.columnName and
-                        hasattr(item.rule_ref, 'check')):
-                        # Try to match by error message which contains the check ID
-                        if check_id in check.errorMessage:
-                            checklistItem = item
-                            break
+                # Extract check_id from error message (format: "check_id: friendly_name")
+                check_id = check.errorMessage.split(':')[0].strip() if ':' in check.errorMessage else None
 
-                # Fallback: if no specific match found, just match by column and check type
-                if not checklistItem:
-                    for item in checklist.values():
-                        if (item.column_id == check.columnName and
-                            hasattr(item.rule_ref, 'check')):
-                            checklistItem = item
-                            break
+                # O(1) lookup using check_id and column name
+                checklistItem = None
+                if check_id:
+                    checklistItem = checklistLookup.get((check.columnName, check_id))
 
                 if checklistItem:
                     if result and result[0]:  # check_failed is True
@@ -877,34 +797,22 @@ class FocusToDuckDBSchemaConverter:
                 log.error("DuckDB check failed: %s on column %s - %s", check.checkType, check.columnName, str(e))
                 errorCount += 1
 
-                # Find corresponding checklist item and mark as errored
-                errorItem = None
-                for check_id, item in checklist.items():
-                    if (item.column_id == check.columnName and
-                        hasattr(item.rule_ref, 'check')):
-                        if check_id in check.errorMessage:
-                            errorItem = item
-                            break
-
-                # Fallback matching
-                if not errorItem:
-                    for item in checklist.values():
-                        if (item.column_id == check.columnName and
-                            hasattr(item.rule_ref, 'check')):
-                            errorItem = item
-                            break
-
-                if errorItem:
-                    errorItem.status = ChecklistObjectStatus.ERRORED
-                    errorItem.error = f"DuckDB validation error: {str(e)}"
+                # Extract check_id and lookup checklist item
+                check_id = check.errorMessage.split(':')[0].strip() if ':' in check.errorMessage else None
+                if check_id:
+                    errorItem = checklistLookup.get((check.columnName, check_id))
+                    if errorItem:
+                        errorItem.status = ChecklistObjectStatus.ERRORED
+                        errorItem.error = f"DuckDB validation error: {str(e)}"
 
             # Progress logging
             if executedCount % 100 == 0:
                 log.debug("Progress: %d/%d checks executed", executedCount, len(checks))
 
         # Handle composite rules after basic validation
-        log.debug("Executing composite rules...")
-        FocusToDuckDBSchemaConverter._executeCompositeRules(checklist, dependency_results or {})
+        if compositeRuleIds:
+            log.debug("Executing %d composite rules...", len(compositeRuleIds))
+            FocusToDuckDBSchemaConverter._executeCompositeRules(checklist, compositeRuleIds, dependency_results or {})
 
         executionTime = time.time() - startTime
         log.info("DuckDB validation execution completed in %.3f seconds", executionTime)
@@ -918,34 +826,38 @@ class FocusToDuckDBSchemaConverter:
         return checklist
 
     @staticmethod
-    def _executeCompositeRules(checklist: Dict[str, ChecklistObject], dependency_results: Dict[str, bool]):
+    def _executeCompositeRules(checklist: Dict[str, ChecklistObject], compositeRuleIds: List[str], dependency_results: Dict[str, bool]):
         """Execute composite rule validation based on dependency results."""
-        for check_id, item in checklist.items():
-            if (hasattr(item.rule_ref, 'check') and
-                isinstance(item.rule_ref.check, CompositeCheck)):
+        for check_id in compositeRuleIds:
+            item = checklist.get(check_id)
+            if not item or not hasattr(item.rule_ref, 'check'):
+                continue
 
-                composite_check = item.rule_ref.check
-                logic_operator = composite_check.logic_operator
-                dependency_rule_ids = composite_check.dependency_rule_ids
+            composite_check = item.rule_ref.check
+            if not isinstance(composite_check, CompositeCheck):
+                continue
 
-                try:
-                    if logic_operator == "AND":
-                        assessment_func = all
-                    elif logic_operator == "OR":
-                        assessment_func = any
-                    else:
-                        raise FocusNotImplementedError(f"Unsupported logic operator: {logic_operator}")
+            logic_operator = composite_check.logic_operator
+            dependency_rule_ids = composite_check.dependency_rule_ids
 
-                    # All dependencies must pass for composite to pass (SKIPPED counts as PASSED)
-                    all_passed = assessment_func(
-                        dep_id in checklist and checklist[dep_id].status in [ChecklistObjectStatus.PASSED, ChecklistObjectStatus.SKIPPED]
-                        for dep_id in dependency_rule_ids
-                    )
-                    item.status = ChecklistObjectStatus.PASSED if all_passed else ChecklistObjectStatus.FAILED
+            try:
+                if logic_operator == "AND":
+                    assessment_func = all
+                elif logic_operator == "OR":
+                    assessment_func = any
+                else:
+                    raise FocusNotImplementedError(f"Unsupported logic operator: {logic_operator}")
 
-                    if item.status == ChecklistObjectStatus.FAILED:
-                        item.error = f"Composite rule {logic_operator} logic failed for dependencies: {dependency_rule_ids}"
+                # All dependencies must pass for composite to pass (SKIPPED counts as PASSED)
+                all_passed = assessment_func(
+                    dep_id in checklist and checklist[dep_id].status in [ChecklistObjectStatus.PASSED, ChecklistObjectStatus.SKIPPED]
+                    for dep_id in dependency_rule_ids
+                )
+                item.status = ChecklistObjectStatus.PASSED if all_passed else ChecklistObjectStatus.FAILED
 
-                except Exception as e:
-                    item.status = ChecklistObjectStatus.ERRORED
-                    item.error = f"Error evaluating composite rule: {str(e)}"
+                if item.status == ChecklistObjectStatus.FAILED:
+                    item.error = f"Composite rule {logic_operator} logic failed for dependencies: {dependency_rule_ids}"
+
+            except Exception as e:
+                item.status = ChecklistObjectStatus.ERRORED
+                item.error = f"Error evaluating composite rule: {str(e)}"
