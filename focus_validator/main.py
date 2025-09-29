@@ -1,6 +1,7 @@
 from __future__ import annotations
 import argparse
 import sys
+import time
 import yaml
 import io, os, sys, logging, logging.config
 from focus_validator.validator import DEFAULT_VERSION_SETS_PATH, Validator
@@ -71,8 +72,11 @@ def _load_config_path(path: str) -> None:
 def main():
     setup_logging()
     log = logging.getLogger(__name__)
-    log.debug("Starting FOCUS Validator from main")
-    log.debug("Arguments: %s", sys.argv)
+
+    log.info("=== FOCUS Validator Starting ===")
+    log.info("Python version: %s", sys.version.split()[0])
+    log.info("Command line: %s", " ".join(sys.argv))
+    log.debug("Full arguments: %s", sys.argv)
     parser = argparse.ArgumentParser(description="FOCUS specification validator.")
     parser.add_argument(
         "--data-file",
@@ -154,7 +158,23 @@ def main():
 
     args = parser.parse_args()
 
+    # Log parsed configuration
+    log.info("Configuration parsed:")
+    log.info("  Data file: %s", args.data_file)
+    log.info("  Validation version: %s", args.validate_version)
+    log.info("  Focus dataset: %s", args.focus_dataset)
+    log.info("  Output type: %s", args.output_type)
+    log.info("  Output destination: %s", args.output_destination)
+    log.info("  Rule set path: %s", args.rule_set_path)
+    log.info("  Transitional rules: %s", args.transitional)
+    log.info("  Visualization: %s", args.visualize)
+    if args.filter_rules:
+        log.info("  Filter rules: %s", args.filter_rules)
+    if args.column_namespace:
+        log.info("  Column namespace: %s", args.column_namespace)
+
     if args.output_type != "console" and args.output_destination is None:
+        log.error("Output destination required for output type: %s", args.output_type)
         parser.error("--output-destination required {}".format(args.output_type))
         sys.exit(1)
 
@@ -172,11 +192,40 @@ def main():
         allow_prerelease_releases=args.allow_prerelease_releases,
     )
     if args.supported_versions:
+        log.info("Retrieving supported versions...")
         local, remote = validator.get_supported_versions()
+        log.info("Local versions: %s", local)
+        log.info("Remote versions: %s", remote)
         print("Supported local versions:", local)
         print("Supported remote versions:", remote)
     else:
-        results = validator.validate()
+        log.info("Starting validation process...")
+        startTime = time.time()
+
+        try:
+            results = validator.validate()
+            duration = time.time() - startTime
+
+            # Log validation summary
+            if hasattr(results, 'checklist') and results.checklist:
+                totalRules = len(results.checklist)
+                passedRules = sum(1 for check in results.checklist.values()
+                                if hasattr(check, 'status') and check.status.name == 'PASS')
+                failedRules = totalRules - passedRules
+
+                log.info("=== Validation Completed ===")
+                log.info("Duration: %.3f seconds", duration)
+                log.info("Total rules checked: %d", totalRules)
+                log.info("Passed: %d", passedRules)
+                log.info("Failed: %d", failedRules)
+                log.info("Success rate: %.1f%%", (passedRules / totalRules * 100) if totalRules > 0 else 0)
+            else:
+                log.info("Validation completed in %.3f seconds", duration)
+
+        except Exception as e:
+            duration = time.time() - startTime
+            log.error("Validation failed after %.3f seconds: %s", duration, str(e))
+            raise
 
         if args.visualize:
             import os
@@ -185,6 +234,7 @@ def main():
 
             filename = "visualize.svg"
 
+            log.info("Generating visualization: %s", filename)
             try:
                 visualizeValidationResults(
                     validationResult=results,
@@ -193,13 +243,22 @@ def main():
                     spec_rules_path=validator.get_spec_rules_path(),
                 )
 
+                log.info("Visualization generated successfully: %s", filename)
+
+                # Open visualization
                 if os.name == 'nt':  # Windows
+                    log.debug("Opening visualization with Windows default handler")
                     os.startfile(filename)
                 elif os.name == 'posix':  # macOS and Linux
-                    subprocess.run(['open', filename] if sys.platform == 'darwin' else ['xdg-open', filename])
+                    openCmd = ['open', filename] if sys.platform == 'darwin' else ['xdg-open', filename]
+                    log.debug("Opening visualization with command: %s", openCmd)
+                    subprocess.run(openCmd)
 
             except Exception as e:
+                log.error("Failed to generate visualization: %s", str(e))
                 print(f"Failed to generate visualization: {e}")
+
+    log.info("=== FOCUS Validator Finished ===")
 
 
 if __name__ == "__main__":

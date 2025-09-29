@@ -1,5 +1,6 @@
 import os
 import requests
+import time
 from typing import Dict, Any, Optional
 import logging
 
@@ -123,26 +124,44 @@ class SpecRules:
             self.rule_set_path, f"{self.rules_file_prefix}{self.rules_version}{self.rules_file_suffix}"
         )
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
+
+        self.log.info("Initializing SpecRules for version %s", rules_version)
+        self.log.debug("Rule set path: %s", rule_set_path)
+        self.log.debug("Focus dataset: %s", focus_dataset)
+        self.log.debug("Rule file pattern: %s*%s", rules_file_prefix, rules_file_suffix)
+        self.log.debug("Target rule file: %s", self.json_rule_file)
+
         self.rules_force_remote_download = rules_force_remote_download
         self.allow_draft_releases = allow_draft_releases
         self.allow_prerelease_releases = allow_prerelease_releases
         self.local_supported_versions = self.supported_local_versions()
-        self.log.debug("Local supported versions: %s", self.local_supported_versions)
+        self.log.info("Found %d local supported versions: %s", len(self.local_supported_versions), self.local_supported_versions)
         self.remote_versions = {}
         if self.rules_force_remote_download or self.rules_version not in self.local_supported_versions:
+            self.log.info("Remote rule download needed (force: %s, version available locally: %s)",
+                         self.rules_force_remote_download, self.rules_version in self.local_supported_versions)
+
+            self.log.debug("Fetching remote supported versions...")
             self.remote_supported_versions = self.supported_remote_versions()
+            self.log.info("Found %d remote supported versions: %s", len(self.remote_supported_versions), self.remote_supported_versions)
+
             if self.rules_version not in self.remote_supported_versions:
+                self.log.error("Version %s not found in remote versions", self.rules_version)
                 raise UnsupportedVersion(
                     f"FOCUS version {self.rules_version} not supported. Supported versions: local {self.local_supported_versions} remote {self.remote_supported_versions}"
                 )
             else:
-                if not self.download_remote_version(
-                    remote_url=self.remote_versions[self.rules_version]["asset_browser_download_url"],
-                    save_path=self.json_rule_file
-                ):
+                self.log.info("Downloading remote rules for version %s...", self.rules_version)
+                download_url = self.remote_versions[self.rules_version]["asset_browser_download_url"]
+                self.log.debug("Download URL: %s", download_url)
+
+                if not self.download_remote_version(remote_url=download_url, save_path=self.json_rule_file):
+                    self.log.error("Failed to download remote rules file")
                     raise FailedDownloadError(
                         f"Failed to download remote rules file for version {self.rules_version}"
                     )
+                else:
+                    self.log.info("Remote rules downloaded successfully")
         self.rules = []
         self.column_namespace = column_namespace
         self.json_rules = {}
@@ -251,18 +270,37 @@ class SpecRules:
 
     def load_rules(self):
         # Load rules from JSON with dependency resolution
-        self.log.debug(f"Loading rules from {self.json_rule_file} using focus_dataset {self.focus_dataset}")
+        self.log.info("Loading rules from file: %s", self.json_rule_file)
+        self.log.debug("Focus dataset: %s", self.focus_dataset)
+        if self.filter_rules:
+            self.log.info("Rule filtering active: %s", self.filter_rules)
+
+        self.log.debug("Loading rules with dependency resolution...")
+        startTime = time.time()
 
         self.json_rules, self.json_checkfunctions, rule_order = JsonLoader.load_json_rules_with_dependencies(
             json_rule_file=self.json_rule_file, focus_dataset=self.focus_dataset, filter_rules=self.filter_rules
         )
 
+        loadDuration = time.time() - startTime
+        self.log.info("Rules loaded in %.3f seconds", loadDuration)
+        self.log.info("Total raw rules: %d", len(self.json_rules))
+        self.log.info("Check functions: %d", len(self.json_checkfunctions))
+        self.log.info("Rule processing order determined: %d rules", len(rule_order))
+
         # Process rules in dependency order (topologically sorted)
+        processedCount = 0
+        dynamicRulesCount = 0
+        invalidRulesCount = 0
+
+        self.log.debug("Processing %d rules in dependency order...", len(rule_order))
+
         for rule_id in rule_order:
             ruleDescription = self.json_rules[rule_id]
-            
+
             # Check if this is a Dynamic rule - handle specially
             if ruleDescription.get("Type", "").lower() == "dynamic":
+                self.log.debug("Processing dynamic rule: %s", rule_id)
                 # Create a minimal rule object for Dynamic rules that will be skipped
                 dynamic_rule = Rule(
                     check_id=rule_id,
@@ -272,12 +310,16 @@ class SpecRules:
                 )
                 dynamic_rule._rule_type = "Dynamic"
                 self.rules.append(dynamic_rule)
+                dynamicRulesCount += 1
             else:
+                self.log.debug("Processing static rule: %s", rule_id)
                 # Use the new method that creates sub-rules for conditions
                 rule_objects = Rule.load_json_with_subchecks(ruleDescription, rule_id=rule_id, column_namespace=self.column_namespace)
 
                 for ruleObj in rule_objects:
                     if isinstance(ruleObj, InvalidRule):
+                        self.log.warning("Skipping invalid rule: %s", rule_id)
+                        invalidRulesCount += 1
                         continue  # Skip invalid rules
 
                     # Mark rule type for all rules
@@ -286,8 +328,25 @@ class SpecRules:
 
                     self.rules.append(ruleObj)
 
+            processedCount += 1
+            if processedCount % 50 == 0:
+                self.log.debug("Processed %d/%d rules", processedCount, len(rule_order))
+
+        self.log.info("Rule processing completed:")
+        self.log.info("  Processed: %d rules", processedCount)
+        self.log.info("  Valid rules created: %d", len(self.rules))
+        self.log.info("  Dynamic rules: %d", dynamicRulesCount)
+        self.log.info("  Invalid rules skipped: %d", invalidRulesCount)
+
     def validate(self, focus_data, connection: Optional[duckdb.DuckDBPyConnection] = None, table_name: Optional[str] = "focus_data") -> ValidationResult:
+        self.log.info("Starting rule validation...")
+        self.log.debug("Table name: %s", table_name)
+        self.log.debug("Using external connection: %s", connection is not None)
+
         # Generate DuckDB validation checks and checklist
+        self.log.debug("Generating DuckDB validation checks...")
+        startTime = time.time()
+
         (
             duckdb_checks,
             checklist,
@@ -295,12 +354,21 @@ class SpecRules:
             rules=self.rules
         )
 
+        generationTime = time.time() - startTime
+        self.log.info("Generated %d validation checks in %.3f seconds", len(duckdb_checks), generationTime)
+        self.log.debug("Checklist contains %d items", len(checklist))
+
         if connection is None:
+            self.log.debug("Creating in-memory DuckDB connection")
             connection = duckdb.connect(":memory:")
             connection.register(table_name, focus_data)
-
+        else:
+            self.log.debug("Using provided DuckDB connection")
 
         # Execute DuckDB validation
+        self.log.info("Executing DuckDB validation...")
+        executionStartTime = time.time()
+
         updated_checklist = FocusToDuckDBSchemaConverter.executeDuckDBValidation(
             connection=connection,
             tableName=table_name,
@@ -308,9 +376,23 @@ class SpecRules:
             checklist=checklist
         )
 
-        # No failure cases for now
+        executionTime = time.time() - executionStartTime
+        self.log.info("Validation execution completed in %.3f seconds", executionTime)
+
+        # Process validation results
+        self.log.debug("Processing validation results...")
         validation_result = ValidationResult(
             checklist=updated_checklist, failure_cases=None
         )
         validation_result.process_result()
+
+        # Log validation summary
+        if updated_checklist:
+            passedCount = sum(1 for check in updated_checklist.values()
+                            if hasattr(check, 'status') and check.status.name == 'PASS')
+            failedCount = len(updated_checklist) - passedCount
+            self.log.info("Validation summary: %d passed, %d failed (%.1f%% success rate)",
+                         passedCount, failedCount,
+                         (passedCount / len(updated_checklist) * 100) if updated_checklist else 0)
+
         return validation_result
