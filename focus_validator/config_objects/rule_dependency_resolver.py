@@ -1,11 +1,6 @@
 import logging
-from typing import Dict, List, Set, Any, Optional
+from typing import Dict, List, Set, Any, Optional, Iterable, Tuple
 from collections import defaultdict, deque
-
-# === Instrumentation utilities ================================================
-import logging
-from collections import deque, defaultdict
-from typing import Iterable, Dict, Set, List, Tuple, Optional
 
 log = logging.getLogger(__name__)
 
@@ -378,8 +373,8 @@ class RuleDependencyResolver:
         if len(result) != len(self.in_degree):
             remaining_rules = [rule for rule in self.in_degree if rule not in result]
             # Log the circular dependency warning but continue processing
-            print(f"Warning: Circular dependency detected among rules: {remaining_rules}")
-            print("Adding these rules to the end of the processing order...")
+            log.warning("Circular dependency detected among rules: %s", remaining_rules)
+            log.info("Adding these rules to the end of the processing order...")
             result.extend(remaining_rules)
 
         return result

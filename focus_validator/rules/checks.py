@@ -12,7 +12,7 @@ from pandera.errors import SchemaError
 from focus_validator.utils.download_currency_codes import get_currency_codes
 
 
-def is_camel_case(column_name):
+def is_camel_case(column_name: str) -> bool:
     return (
         column_name != column_name.lower()
         and column_name != column_name.upper()
@@ -21,23 +21,23 @@ def is_camel_case(column_name):
 
 
 @extensions.register_check_method()
-def check_not_null(pandas_obj: pd.Series):
+def check_not_null(pandas_obj: pd.Series) -> pd.Series:
     check_values = pandas_obj.isnull()
     return ~check_values
 
 
 @extensions.register_check_method()
-def check_unique(pandas_obj: pd.Series):
+def check_unique(pandas_obj: pd.Series) -> pd.Series:
     return ~pandas_obj.duplicated()
 
 
 @extensions.register_check_method()
-def check_value_in(pandas_obj: pd.Series, allowed_values):
+def check_value_in(pandas_obj: pd.Series, allowed_values: list) -> pd.Series:
     return pandas_obj.isin(allowed_values)
 
 
 @extensions.register_check_method(check_type="groupby")
-def check_sql_query(df_groups, sql_query, column_alias):
+def check_sql_query(df_groups, sql_query: str, column_alias: list) -> bool:
     grouped_elements = []
     for values in list(df_groups):
         row_obj = {}
@@ -74,7 +74,7 @@ def check_sql_query(df_groups, sql_query, column_alias):
 
 
 @extensions.register_check_method()
-def check_datetime_dtype(pandas_obj: pd.Series):
+def check_datetime_dtype(pandas_obj: pd.Series) -> pd.Series:
     def __validate_date_obj__(value: Union[str, datetime]):
         if isinstance(value, str):
             # fix of python 3.10 and lower, strings ending with Z are not parsed automatically
@@ -96,7 +96,7 @@ def check_datetime_dtype(pandas_obj: pd.Series):
 
 
 @extensions.register_check_method()
-def check_currency_code_dtype(pandas_obj: pd.Series):
+def check_currency_code_dtype(pandas_obj: pd.Series) -> pd.Series:
     currency_codes = set(get_currency_codes())
     return pd.Series(
         map(lambda v: isinstance(v, str) and v in currency_codes, pandas_obj.values)
@@ -104,7 +104,7 @@ def check_currency_code_dtype(pandas_obj: pd.Series):
 
 
 @extensions.register_check_method()
-def check_stringified_json_object_dtype(pandas_obj: pd.Series):
+def check_stringified_json_object_dtype(pandas_obj: pd.Series) -> pd.Series:
     def __validate_stringified_json_object__(value: str):
         try:
             parsed = json.loads(value)
