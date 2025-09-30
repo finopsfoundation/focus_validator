@@ -362,27 +362,6 @@ class CheckNationalCurrencyGenerator(DuckDBCheckGenerator):
         return "national_currency"
 
 
-class FormatCurrencyGenerator(DuckDBCheckGenerator):
-    # Generate currency format validation check
-    def generateSql(self) -> str:
-        return f"""
-        SELECT COUNT(CASE
-            WHEN {self.rule.column_id} IS NOT NULL
-            AND NOT (
-                ({self.rule.column_id}::TEXT ~ '^[A-Z]{{3}}$') OR
-                (
-                    ({self.rule.column_id}::TEXT ~ '^[A-Z][a-zA-Z0-9]*$') OR
-                    ({self.rule.column_id}::TEXT ~ '^x_[A-Z][a-zA-Z0-9]*$')
-                )
-            )
-            THEN 1
-        END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "format_currency"
-
 
 class FormatKeyValueGenerator(DuckDBCheckGenerator):
     # Generate key-value format validation check for JSON-like structures
@@ -403,24 +382,6 @@ class FormatKeyValueGenerator(DuckDBCheckGenerator):
         return "format_key_value"
 
 
-class FormatUnitGenerator(DuckDBCheckGenerator):
-    # Generate unit format validation check
-    def generateSql(self) -> str:
-        return f"""
-        SELECT COUNT(CASE
-            WHEN {self.rule.column_id} IS NOT NULL
-            AND NOT (
-                ({self.rule.column_id}::TEXT ~ '^[A-Z][a-zA-Z0-9]*$') OR
-                ({self.rule.column_id}::TEXT ~ '^x_[A-Z][a-zA-Z0-9]*$')
-            )
-            OR LENGTH({self.rule.column_id}::TEXT) > 50
-            THEN 1
-        END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "format_unit"
 
 
 class TypeDateTimeGenerator(DuckDBCheckGenerator):
@@ -527,7 +488,7 @@ class FocusToDuckDBSchemaConverter:
             "factory": lambda args: FormatCheck(format_type="string")
         },
         "FormatCurrency": {
-            "generator": FormatCurrencyGenerator,
+            "generator": FormatBillingCurrencyCodeGenerator,
             "factory": lambda args: FormatCheck(format_type="currency_code")
         },
         "FormatKeyValue": {
@@ -535,7 +496,7 @@ class FocusToDuckDBSchemaConverter:
             "factory": lambda args: FormatCheck(format_type="key_value")
         },
         "FormatUnit": {
-            "generator": FormatUnitGenerator,
+            "generator": FormatStringGenerator,
             "factory": lambda args: FormatCheck(format_type="unit")
         },
         "CheckGreaterOrEqualThanValue": {
