@@ -21,42 +21,45 @@ from focus_validator.exceptions import UnsupportedVersion, FailedDownloadError
 
 log = logging.getLogger(__name__)
 
-def convert_missing_column_errors(df, checklist):
+def convert_column_errors(df, checklist, condition_fn, match_fn):
     def process_row(row):
-        if (
-            row["schema_context"] == "DataFrameSchema"
-            and row["check"] == "column_in_dataframe"
-        ):
+        if condition_fn(row):
             for check_name, check_obj in checklist.items():
-                if (
-                    row["failure_case"] == check_obj.column_id
-                    and check_obj.rule_ref.check == "column_required"
-                ):
+                if match_fn(row, check_obj):
                     row["check"] = f"{check_name}:::{check_obj.friendly_name}"
                     row["column"] = check_obj.column_id
                     row["failure_case"] = None
                     return row
-        else:
-            return row
+        return row
 
-    filtered_df = df.apply(process_row, axis=1)
-    return filtered_df
+    return df.apply(process_row, axis=1)
+
+
+def convert_missing_column_errors(df, checklist):
+    return convert_column_errors(
+        df,
+        checklist,
+        condition_fn=lambda row: (
+            row["schema_context"] == "DataFrameSchema"
+            and row["check"] == "column_in_dataframe"
+        ),
+        match_fn=lambda row, check_obj: (
+            row["failure_case"] == check_obj.column_id
+            and check_obj.rule_ref.check == "column_required"
+        )
+    )
 
 
 def convert_dtype_column_errors(df, checklist):
-    def process_row(row):
-        if row["schema_context"] == "Column" and row["check"].startswith("dtype"):
-            for check_name, check_obj in checklist.items():
-                if row["column"] == check_obj.column_id:
-                    row["check"] = f"{check_name}:::{check_obj.friendly_name}"
-                    row["column"] = check_obj.column_id
-                    row["failure_case"] = None
-                    return row
-        else:
-            return row
-
-    filtered_df = df.apply(process_row, axis=1)
-    return filtered_df
+    return convert_column_errors(
+        df,
+        checklist,
+        condition_fn=lambda row: (
+            row["schema_context"] == "Column"
+            and row["check"].startswith("dtype")
+        ),
+        match_fn=lambda row, check_obj: row["column"] == check_obj.column_id
+    )
 
 
 def restructure_failure_cases_df(failure_cases: pd.DataFrame, checklist):
