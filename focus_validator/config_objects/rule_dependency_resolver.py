@@ -194,7 +194,7 @@ class RuleDependencyResolver:
         self.dataset_rules = dataset_rules
         self.raw_rules_data = raw_rules_data
         self.rules_data = self.collectDatasetRules()
-        self.dependency_graph = defaultdict(list)  # rule_id -> [dependent_rule_ids]
+        self.dependency_graph = defaultdict(set)  # rule_id -> {dependent_rule_ids}
         self.reverse_graph = defaultdict(list)  # rule_id -> [rules_that_depend_on_this]
         self.in_degree = defaultdict(int)  # rule_id -> number of dependencies
 
@@ -204,27 +204,35 @@ class RuleDependencyResolver:
             raise ValueError("No dataset rules provided to collectDatasetRules.")
 
         relevant_rules = {}
-        dependencies = set()
+        dependencies = deque()
+        raw_rules = self.raw_rules_data
+
         for rule_id in self.dataset_rules:
-            if rule_id in self.raw_rules_data:
-                relevant_rules[rule_id] = self.raw_rules_data[rule_id]
-                if(rule_id in dependencies):
-                    dependencies.remove(rule_id)
-                rule_dependencies = self._extractRuleDependencies(self.raw_rules_data[rule_id])
+            rule_data = raw_rules.get(rule_id)
+            if rule_data is not None:
+                relevant_rules[rule_id] = rule_data
+                rule_dependencies = self._extractRuleDependencies(rule_data)
                 for rule_dep in rule_dependencies:
                     if rule_dep not in relevant_rules:
-                        dependencies.add(rule_dep)
+                        dependencies.append(rule_dep)
             else:
                 self.log.warning("Rule ID %s listed in dataset but not found in raw rules data", rule_id)
+
+        processed_deps = set()
         while dependencies:
-            dep_id = dependencies.pop()
-            if dep_id in self.raw_rules_data and dep_id not in relevant_rules:
-                relevant_rules[dep_id] = self.raw_rules_data[dep_id]
-                rule_dependencies = self._extractRuleDependencies(self.raw_rules_data[dep_id])
+            dep_id = dependencies.popleft()
+            if dep_id in processed_deps:
+                continue
+            processed_deps.add(dep_id)
+
+            dep_rule_data = raw_rules.get(dep_id)
+            if dep_rule_data is not None and dep_id not in relevant_rules:
+                relevant_rules[dep_id] = dep_rule_data
+                rule_dependencies = self._extractRuleDependencies(dep_rule_data)
                 for rule_dep in rule_dependencies:
-                    if rule_dep not in relevant_rules:
-                        dependencies.add(rule_dep)
-            else:
+                    if rule_dep not in relevant_rules and rule_dep not in processed_deps:
+                        dependencies.append(rule_dep)
+            elif dep_rule_data is None:
                 self.log.warning("Dependency Rule ID %s not found in raw rules data", dep_id)
 
         return relevant_rules
@@ -254,10 +262,10 @@ class RuleDependencyResolver:
             dependencies = self._extractRuleDependencies(rule_data)
 
             # Only add dependencies that are also in our filtered set
-            filtered_dependencies = [
+            filtered_dependencies = {
                 dep for dep in dependencies
                 if dep in filtered_rules
-            ]
+            }
 
             self.dependency_graph[rule_id] = filtered_dependencies
             self.in_degree[rule_id] = len(filtered_dependencies)
@@ -272,11 +280,11 @@ class RuleDependencyResolver:
         child rules of composite rules that may not match the prefix filter.
         """
         all_rules = initial_rules.copy()
-        to_process = list(initial_rules.keys())
+        to_process = deque(initial_rules.keys())
         processed = set()
 
         while to_process:
-            current_rule_id = to_process.pop(0)
+            current_rule_id = to_process.popleft()
             if current_rule_id in processed:
                 continue
 
@@ -302,37 +310,14 @@ class RuleDependencyResolver:
         Extract ConformanceRule dependencies from ValidationCriteria.
         Prioritizes explicit Dependencies field, then falls back to parsing Requirements/Conditions.
         """
-        dependencies = []
         validation_criteria = rule_data.get("ValidationCriteria", {})
 
         # Check explicit Dependencies field first - this is the preferred method
         explicit_deps = validation_criteria.get("Dependencies", [])
         if explicit_deps:
-            dependencies.extend(explicit_deps)
+            return list(set(explicit_deps))
 
-        return list(set(dependencies))  # Remove duplicates
-
-    def _extractDependenciesFromRequirement(self, requirement: Dict[str, Any]) -> List[str]:
-        """
-        Recursively extract dependencies from a requirement structure.
-        Handles CheckConformanceRule, AND, and OR operations.
-        """
-        dependencies = []
-
-        check_function = requirement.get("CheckFunction")
-
-        if check_function == "CheckConformanceRule":
-            conformance_rule_id = requirement.get("ConformanceRuleId")
-            if conformance_rule_id:
-                dependencies.append(conformance_rule_id)
-
-        elif check_function in ["AND", "OR"]:
-            items = requirement.get("Items", [])
-            for item in items:
-                if isinstance(item, dict):
-                    dependencies.extend(self._extractDependenciesFromRequirement(item))
-
-        return dependencies
+        return []
 
     def getTopologicalOrder(self) -> List[str]:
         """
@@ -344,15 +329,11 @@ class RuleDependencyResolver:
         queue = deque()
         result = []
 
-        forward_graph = {rule: set() for rule in self.in_degree}
-        for depender, prereqs in self.reverse_graph.items():
-            for prereq in prereqs:
-                forward_graph[depender].add(prereq)
-
-        # and then:
-        _log_graph_snapshot(forward_graph, name="rule-graph", sample=8)
-        _cycles = _log_sccs(forward_graph)
-        _log_cycle_details(forward_graph, _cycles)
+        if log.isEnabledFor(logging.DEBUG) or log.isEnabledFor(logging.WARNING):
+            forward_graph = {rule: deps for rule, deps in self.dependency_graph.items()}
+            _log_graph_snapshot(forward_graph, name="rule-graph", sample=8)
+            _cycles = _log_sccs(forward_graph)
+            _log_cycle_details(forward_graph, _cycles)
 
         # Find all rules with no dependencies
         for rule_id in in_degree_copy:
@@ -381,7 +362,7 @@ class RuleDependencyResolver:
 
     def getDependencies(self, rule_id: str) -> List[str]:
         """Get direct dependencies for a specific rule."""
-        return self.dependency_graph.get(rule_id, [])
+        return list(self.dependency_graph.get(rule_id, set()))
 
     def getDependents(self, rule_id: str) -> List[str]:
         """Get rules that depend on the specified rule."""
