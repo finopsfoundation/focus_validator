@@ -586,6 +586,10 @@ class FocusToDuckDBSchemaConverter:
     def __generate_duckdb_check__(cls, rule: Rule, check_id: str) -> Optional[DuckDBColumnCheck]:
         check = rule.check
 
+        # Skip rules with empty or composite column_id to prevent SQL syntax errors
+        if not rule.column_id or rule.column_id == "__COMPOSITE__":
+            return None
+
         # Handle CompositeCheck separately (needs dependency results)
         if isinstance(check, CompositeCheck):
             return None
@@ -763,7 +767,7 @@ class FocusToDuckDBSchemaConverter:
                 if check_id:
                     errorItem = checklistLookup.get((check.columnName, check_id))
                     if errorItem:
-                        errorItem.status = ChecklistObjectStatus.ERRORED
+                        errorItem.status = ChecklistObjectStatus.FAILED
                         errorItem.error = f"DuckDB validation error: {str(e)}"
 
             # Progress logging

@@ -136,7 +136,10 @@ class Rule(BaseModel):
             check_function = requirement.get("CheckFunction")
             column_name = requirement.get("ColumnName", "")
 
-            if column_name and column_namespace:
+            # Handle composite rules (AND/OR) that have no ColumnName
+            if not column_name and check_function in ["AND", "OR"]:
+                column_id = "__COMPOSITE__"
+            elif column_name and column_namespace:
                 column_id = f"{column_namespace}:{column_name}"
             else:
                 column_id = column_name
