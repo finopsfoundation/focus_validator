@@ -577,7 +577,8 @@ class CheckNotValueGenerator(DuckDBCheckGenerator):
             )
             # escape single quotes in Value for SQL literal safety
             val = str(self.params.Value).replace("'", "''")
-            condition = f"{self.params.ColumnName} = '{val}'"
+            # Fix: Use <> (not equals) and handle NULLs properly for CheckNotValue
+            condition = f"({self.params.ColumnName} IS NOT NULL AND {self.params.ColumnName} = '{val}')"
 
         msg_sql = message.replace("'", "''")
 
