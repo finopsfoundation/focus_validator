@@ -116,7 +116,7 @@ make coverage-config-objects
 make coverage-outputter
 ```
 
-**Current Test Coverage: 70% overall (257 tests passing)**
+#### Current Test Coverage: 70% overall (257 tests passing)
 
 - **Data Loaders**: 100% coverage (50 tests)
 - **Config Objects**: 97%+ coverage (120 tests)

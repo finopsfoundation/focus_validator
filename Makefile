@@ -61,5 +61,11 @@ test-data-loaders: ## Run data_loaders tests only
 test-config-objects: ## Run config_objects tests only
 	poetry run pytest tests/config_objects/ -v
 
+test-generators: ## Run DuckDB generator tests only
+	poetry run pytest tests/config_objects/test_focus_to_duckdb_generators.py -v
+
+coverage-generators: ## Run coverage for DuckDB generators specifically
+	poetry run pytest tests/config_objects/test_focus_to_duckdb_generators.py --cov=focus_validator.config_objects.focus_to_duckdb_converter --cov-report=term-missing
+
 test-outputter: ## Run outputter tests only
 	poetry run pytest tests/outputter/ -v
