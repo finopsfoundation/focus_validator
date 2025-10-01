@@ -1,7 +1,7 @@
 import os
 import requests
 import logging
-import duckdb
+import duckdb  # type: ignore[import-untyped]
 from dataclasses import dataclass
 from typing import Dict, Any, Callable, Tuple, Optional, List
 from focus_validator.config_objects import JsonLoader, ConformanceRule
