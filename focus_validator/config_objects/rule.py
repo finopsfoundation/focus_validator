@@ -1,11 +1,10 @@
-import os
 import logging
-from typing import Dict, Any, Annotated, Optional, Union, List, Literal
+import os
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 from pydantic_core.core_schema import ValidationInfo
-
 
 from focus_validator.config_objects.common import (
     SIMPLE_CHECKS,
@@ -19,7 +18,9 @@ from focus_validator.config_objects.common import (
     ValueInCheck,
     generate_check_friendly_name,
 )
+
 log = logging.getLogger(__name__)
+
 
 class CompositeCheck(BaseModel):
     # Handles composite rules with AND/OR logic
@@ -48,15 +49,18 @@ class ValidationCriteria(BaseModel):
     def precondition(self) -> Optional[Dict[str, Any]]:
         """Get the inherited precondition dict (or None if unset)."""
         return self._precondition
-    
+
     @precondition.setter
     def precondition(self, value: Optional[Dict[str, Any]]) -> None:
         """Set the inherited precondition; must be None or a dict."""
         if value is not None and not isinstance(value, dict):
             raise TypeError("inherited_precondition must be a dict or None")
         if self._precondition is not None:
-            raise ValueError("inherited_precondition is already set and cannot be modified")
+            raise ValueError(
+                "inherited_precondition is already set and cannot be modified"
+            )
         self._precondition = value
+
     # ---- runtime-only, private storage  ------------
     # allow population by field name OR alias
     model_config = ConfigDict(populate_by_name=True)
@@ -95,16 +99,17 @@ class ConformanceRule(BaseModel):
         if self._rule_id is not None:
             raise ValueError("rule_id is already set and cannot be modified")
         self._rule_id = value
+
     # -----------------------------------------------------------------------------
-    
+
     def is_active(self) -> bool:
         return self.status == "Active"
-    
+
     def is_dynamic(self) -> bool:
         return self.type == "Dynamic"
-    
+
     def is_composite(self) -> bool:
-        return self.function == 'Composite'
+        return self.function == "Composite"
 
     # Optional metadata
     notes: Optional[str] = Field(None, alias="Notes")

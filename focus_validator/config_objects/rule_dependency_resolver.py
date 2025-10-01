@@ -1,11 +1,17 @@
 import logging
-from typing import Dict, List, Set, Any, Optional, Iterable, Tuple
 from collections import defaultdict, deque
-from .rule import ConformanceRule
-from .plan_builder import PlanBuilder, compile_validation_plan, default_key_fn, ValidationPlan
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
+from .plan_builder import (
+    PlanBuilder,
+    ValidationPlan,
+    compile_validation_plan,
+    default_key_fn,
+)
+from .rule import ConformanceRule
 
 log = logging.getLogger(__name__)
+
 
 def _tarjan_scc(graph: Dict[str, Set[str]]) -> List[List[str]]:
     r"""Tarjan SCC for cycle diagnostics."""
@@ -21,7 +27,8 @@ def _tarjan_scc(graph: Dict[str, Set[str]]) -> List[List[str]]:
         indices[v] = index
         lowlink[v] = index
         index += 1
-        stack.append(v); onstack.add(v)
+        stack.append(v)
+        onstack.add(v)
         for w in graph.get(v, ()):
             if w not in indices:
                 strongconnect(w)
@@ -31,15 +38,18 @@ def _tarjan_scc(graph: Dict[str, Set[str]]) -> List[List[str]]:
         if lowlink[v] == indices[v]:
             comp: List[str] = []
             while True:
-                w = stack.pop(); onstack.discard(w)
+                w = stack.pop()
+                onstack.discard(w)
                 comp.append(w)
-                if w == v: break
+                if w == v:
+                    break
             sccs.append(comp)
 
     for v in graph.keys():
         if v not in indices:
             strongconnect(v)
     return sccs
+
 
 def _build_reverse_graph(graph: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
     rev: Dict[str, Set[str]] = defaultdict(set)
@@ -48,12 +58,20 @@ def _build_reverse_graph(graph: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
             rev[b].add(a)
     return rev
 
-def _log_graph_snapshot(graph: Dict[str, Set[str]], *, name: str = "rule-graph", sample: int = 10) -> None:
+
+def _log_graph_snapshot(
+    graph: Dict[str, Set[str]], *, name: str = "rule-graph", sample: int = 10
+) -> None:
     node_count = len(graph)
     edge_count = sum(len(v) for v in graph.values())
     zeros = [n for n, deps in graph.items() if not deps]
-    log.debug("%s: nodes=%d, edges=%d, zero-incoming (prereqs=0) count=%d",
-             name, node_count, edge_count, len(zeros))
+    log.debug(
+        "%s: nodes=%d, edges=%d, zero-incoming (prereqs=0) count=%d",
+        name,
+        node_count,
+        edge_count,
+        len(zeros),
+    )
     if zeros:
         log.debug("sample zero-prereq nodes: %s", ", ".join(sorted(zeros)[:sample]))
     # Show a few edges
@@ -65,12 +83,13 @@ def _log_graph_snapshot(graph: Dict[str, Set[str]], *, name: str = "rule-graph",
             if shown >= sample:
                 break
 
+
 def _export_dot(graph: Dict[str, Set[str]], path: str) -> None:
     r"""Write a Graphviz DOT file for visualization (dependency -> dependent)."""
     rev = _build_reverse_graph(graph)
     with open(path, "w", encoding="utf-8") as f:
         f.write("digraph G {\n")
-        f.write('  rankdir=LR;\n  node [shape=box, fontsize=10];\n')
+        f.write("  rankdir=LR;\n  node [shape=box, fontsize=10];\n")
         for dep, dependents in rev.items():
             for d in sorted(dependents):
                 # dep -> d (dep is prerequisite of d)
@@ -78,21 +97,30 @@ def _export_dot(graph: Dict[str, Set[str]], path: str) -> None:
         f.write("}\n")
     log.debug("Wrote DOT graph to %s", path)
 
+
 def _log_sccs(graph: Dict[str, Set[str]], *, top_k: int = 10) -> List[List[str]]:
     sccs = _tarjan_scc(graph)
     cycles = [c for c in sccs if len(c) > 1]
     if cycles:
-        log.warning("Detected %d cycle component(s). Showing up to %d:", len(cycles), top_k)
+        log.warning(
+            "Detected %d cycle component(s). Showing up to %d:", len(cycles), top_k
+        )
         for i, comp in enumerate(sorted(cycles, key=len, reverse=True)[:top_k], 1):
-            log.warning("  Cycle %d (size %d): %s", i, len(comp), ", ".join(sorted(comp)))
+            log.warning(
+                "  Cycle %d (size %d): %s", i, len(comp), ", ".join(sorted(comp))
+            )
     else:
         log.debug("No cycles found by Tarjan SCC.")
     return cycles
 
+
 def _restrict_graph(graph: Dict[str, Set[str]], nodes: Set[str]) -> Dict[str, Set[str]]:
     return {n: set(d for d in graph.get(n, ()) if d in nodes) for n in nodes}
 
-def _find_simple_cycle(graph: Dict[str, Set[str]], nodes: List[str]) -> Optional[List[str]]:
+
+def _find_simple_cycle(
+    graph: Dict[str, Set[str]], nodes: List[str]
+) -> Optional[List[str]]:
     r"""Return one simple cycle within the subgraph induced by `nodes`, if any."""
     target = set(nodes)
     visited: Set[str] = set()
@@ -108,7 +136,8 @@ def _find_simple_cycle(graph: Dict[str, Set[str]], nodes: List[str]) -> Optional
                 continue
             if v not in visited:
                 cyc = dfs(v)
-                if cyc: return cyc
+                if cyc:
+                    return cyc
             elif v in onpath:
                 # reconstruct cycle v -> ... -> u -> v
                 idx = len(stack) - 1
@@ -127,7 +156,13 @@ def _find_simple_cycle(graph: Dict[str, Set[str]], nodes: List[str]) -> Optional
                 return cyc
     return None
 
-def _export_scc_dot(graph: Dict[str, Set[str]], comp: List[str], idx: int, path_prefix: str = "rule_graph_scc") -> str:
+
+def _export_scc_dot(
+    graph: Dict[str, Set[str]],
+    comp: List[str],
+    idx: int,
+    path_prefix: str = "rule_graph_scc",
+) -> str:
     sg = _restrict_graph(graph, set(comp))
     dot_path = f"{path_prefix}_{idx}.dot"
     with open(dot_path, "w", encoding="utf-8") as f:
@@ -141,7 +176,10 @@ def _export_scc_dot(graph: Dict[str, Set[str]], comp: List[str], idx: int, path_
     log.debug("Wrote SCC #%d DOT to %s", idx, dot_path)
     return dot_path
 
-def _log_cycle_details(graph: Dict[str, Set[str]], cycles: List[List[str]], *, top_k: int = 10) -> None:
+
+def _log_cycle_details(
+    graph: Dict[str, Set[str]], cycles: List[List[str]], *, top_k: int = 10
+) -> None:
     r"""For each SCC cycle, dump adjacency within the SCC, a simple cycle path, and write a DOT subgraph."""
     for i, comp in enumerate(sorted(cycles, key=len, reverse=True)[:top_k], 1):
         log.warning("=== Cycle %d detail (size %d) ===", i, len(comp))
@@ -149,7 +187,9 @@ def _log_cycle_details(graph: Dict[str, Set[str]], cycles: List[List[str]], *, t
         # Adjacency within SCC
         for n in sorted(comp):
             outs = sorted(d for d in graph.get(n, ()) if d in comp_set)
-            log.warning("  %s depends on: %s", n, ", ".join(outs) if outs else "(none?)")
+            log.warning(
+                "  %s depends on: %s", n, ", ".join(outs) if outs else "(none?)"
+            )
         # Example simple cycle path
         cyc = _find_simple_cycle(graph, comp)
         if cyc:
@@ -162,6 +202,7 @@ def _log_cycle_details(graph: Dict[str, Set[str]], cycles: List[List[str]], *, t
         except Exception as e:
             log.exception("  Failed to export DOT for SCC %d: %s", i, e)
 
+
 def _trace_node(graph: Dict[str, Set[str]], node: str, *, max_depth: int = 4) -> None:
     r"""Log a bounded DFS of prerequisites for a node to see why its in-degree never reaches 0."""
     seen: Set[str] = set()
@@ -169,7 +210,7 @@ def _trace_node(graph: Dict[str, Set[str]], node: str, *, max_depth: int = 4) ->
     log.debug("Tracing prerequisites for %s (depth<=%d)", node, max_depth)
     while stack:
         cur, depth = stack.pop()
-        if cur in seen: 
+        if cur in seen:
             continue
         seen.add(cur)
         if depth == max_depth:
@@ -179,30 +220,40 @@ def _trace_node(graph: Dict[str, Set[str]], node: str, *, max_depth: int = 4) ->
         for dep in sorted(graph.get(cur, ())):
             stack.append((dep, depth + 1))
 
+
 def _dump_blockers(graph: Dict[str, Set[str]], remaining: Iterable[str]) -> None:
     r"""For each remaining node after Kahn, log its prereqs (with counts) to reveal blockers."""
     for n in sorted(remaining):
         deps = sorted(graph.get(n, ()))
         log.warning("BLOCKED: %s needs %d prereq(s): %s", n, len(deps), ", ".join(deps))
 
-# === End instrumentation utilities ===========================================
 
+# === End instrumentation utilities ===========================================
 
 
 class RuleDependencyResolver:
     # Build a DAG and do Topological sort to get dependencies
 
-    def __init__(self, dataset_rules: Dict[str, Any], raw_rules_data: Dict[str, Any], validated_applicability_criteria: Optional[List[str]] = None):
+    def __init__(
+        self,
+        dataset_rules: Dict[str, Any],
+        raw_rules_data: Dict[str, Any],
+        validated_applicability_criteria: Optional[List[str]] = None,
+    ):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.dataset_rules = dataset_rules
         self.raw_rules_data = raw_rules_data
         self.validated_applicability_criteria = validated_applicability_criteria or []
         self.rules = self.collectDatasetRules(raw_rules_data)
-        self.dependency_graph: Dict[str, set] = defaultdict(set)  # rule_id -> {dependent_rule_ids}
-        self.reverse_graph: Dict[str, List[str]] = defaultdict(list)  # rule_id -> [rules_that_depend_on_this]
-        self.in_degree: Dict[str, int] = defaultdict(int)  # rule_id -> number of dependencies
-
-
+        self.dependency_graph: Dict[str, set] = defaultdict(
+            set
+        )  # rule_id -> {dependent_rule_ids}
+        self.reverse_graph: Dict[str, List[str]] = defaultdict(
+            list
+        )  # rule_id -> [rules_that_depend_on_this]
+        self.in_degree: Dict[str, int] = defaultdict(
+            int
+        )  # rule_id -> number of dependencies
 
     def collectDatasetRules(self, raw_rules_data: Dict[str, Any]) -> Dict[str, Any]:
         """Collect rules relevant to the specified dataset."""
@@ -218,12 +269,17 @@ class RuleDependencyResolver:
                 rule = ConformanceRule.model_validate(rule_data).with_rule_id(rule_id)
                 # Always include the rule - let the converter handle applicability filtering with SkippedNonApplicableCheck
                 relevant_rules[rule_id] = rule
-                rule_dependencies = relevant_rules[rule_id].validation_criteria.dependencies
+                rule_dependencies = relevant_rules[
+                    rule_id
+                ].validation_criteria.dependencies
                 for rule_dep in rule_dependencies:
                     if rule_dep not in relevant_rules:
                         dependencies.append(rule_dep)
             else:
-                self.log.warning("Rule ID %s listed in dataset but not found in raw rules data", rule_id)
+                self.log.warning(
+                    "Rule ID %s listed in dataset but not found in raw rules data",
+                    rule_id,
+                )
 
         processed_deps = set()
         while dependencies:
@@ -234,22 +290,33 @@ class RuleDependencyResolver:
 
             dep_rule_data = raw_rules_data.get(dep_id)
             if dep_rule_data is not None and dep_id not in relevant_rules:
-                dep_rule = ConformanceRule.model_validate(dep_rule_data).with_rule_id(dep_id)
+                dep_rule = ConformanceRule.model_validate(dep_rule_data).with_rule_id(
+                    dep_id
+                )
                 # Always include the dependency rule - let the converter handle applicability filtering with SkippedNonApplicableCheck
                 relevant_rules[dep_id] = dep_rule
-                rule_dependencies = relevant_rules[dep_id].validation_criteria.dependencies
+                rule_dependencies = relevant_rules[
+                    dep_id
+                ].validation_criteria.dependencies
                 for rule_dep in rule_dependencies:
-                    if rule_dep not in relevant_rules and rule_dep not in processed_deps:
+                    if (
+                        rule_dep not in relevant_rules
+                        and rule_dep not in processed_deps
+                    ):
                         dependencies.append(rule_dep)
             elif dep_rule_data is None:
-                self.log.warning("Dependency Rule ID %s not found in raw rules data", dep_id)
-        
+                self.log.warning(
+                    "Dependency Rule ID %s not found in raw rules data", dep_id
+                )
+
         # Propagate composite conditions into each referenced rule's private attr
         self._propagate_composite_conditions(relevant_rules)
 
         return relevant_rules
 
-    def buildDependencyGraph(self, target_rule_prefix: Optional[str] = "BilledCost") -> None:
+    def buildDependencyGraph(
+        self, target_rule_prefix: Optional[str] = "BilledCost"
+    ) -> None:
         """
         Build dependency graph for rules with the given prefix.
         If target_rule_prefix is None, processes all rules.
@@ -274,8 +341,7 @@ class RuleDependencyResolver:
 
             # Only add dependencies that are also in our filtered set
             filtered_dependencies = {
-                dep for dep in dependencies
-                if dep in filtered_rules
+                dep for dep in dependencies if dep in filtered_rules
             }
 
             self.dependency_graph[rule_id] = filtered_dependencies
@@ -399,12 +465,17 @@ class RuleDependencyResolver:
                 condition = rule.validation_criteria.condition
 
                 for item in rule.validation_criteria.requirement.get("Items", []):
-                    if item.get('CheckFunction', None) == "CheckConformanceRule":
+                    if item.get("CheckFunction", None) == "CheckConformanceRule":
                         dep_rule_id = item.get("ConformanceRuleId", None)
                         if dep_rule_id in rules:
-                            rules[dep_rule_id].validation_criteria.precondition = condition
+                            rules[
+                                dep_rule_id
+                            ].validation_criteria.precondition = condition
                         else:
-                            self.log.warning("Referenced rule ID %s not found for condition propagation", dep_rule_id)
+                            self.log.warning(
+                                "Referenced rule ID %s not found for condition propagation",
+                                dep_rule_id,
+                            )
 
     def getRelevantRules(self) -> Dict[str, "ConformanceRule"]:
         """Return the filtered set of rules relevant to the target prefix and dependencies."""
@@ -427,7 +498,9 @@ class RuleDependencyResolver:
         - rules_dict/checkfunctions_dict: pass-through of your raw JSON maps so the plan can
           carry everything the executor might need, without extra plumbing.
         """
-        relevant_rules = self.getRelevantRules()  # already computed after buildDependencyGraph()
+        relevant_rules = (
+            self.getRelevantRules()
+        )  # already computed after buildDependencyGraph()
 
         # Choose roots
         roots = entry_rule_ids if entry_rule_ids else list(relevant_rules.keys())
@@ -439,8 +512,9 @@ class RuleDependencyResolver:
         # Compile to execution-ready plan
         val_plan = compile_validation_plan(
             plan_graph=plan_graph,
-            rules_dict=rules_dict or self.raw_rules_data,         # fall back to what you already hold
-            checkfunctions=checkfunctions_dict or {},             # pass through if available
+            rules_dict=rules_dict
+            or self.raw_rules_data,  # fall back to what you already hold
+            checkfunctions=checkfunctions_dict or {},  # pass through if available
             key_fn=default_key_fn(plan_graph),
             exec_ctx=exec_ctx,
         )

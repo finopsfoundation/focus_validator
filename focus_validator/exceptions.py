@@ -10,9 +10,12 @@ class FocusNotImplementedError(FocusValidationError):
 class UnsupportedVersion(FocusValidationError):
     pass
 
+
 class FailedDownloadError(FocusValidationError):
     pass
 
+
 class InvalidRuleException(ValueError):
     """Raised when a rule's requirement/spec is invalid or incomplete."""
+
     pass

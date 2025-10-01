@@ -1,16 +1,20 @@
 from __future__ import annotations
+
 import argparse
 import io
 import logging
 import logging.config
 import os
+import subprocess
 import sys
 import time
-import yaml
-import subprocess
-from typing import Dict, Any
-from focus_validator.validator import DEFAULT_VERSION_SETS_PATH, Validator
 from importlib import resources as ir
+from typing import Any, Dict
+
+import yaml
+
+from focus_validator.validator import DEFAULT_VERSION_SETS_PATH, Validator
+
 from .outputter.outputter_validation_graph import build_validation_graph
 
 
@@ -63,6 +67,7 @@ def setup_logging(config_path: str | None = None) -> None:
         force=True,
     )
 
+
 def _load_config_path(path: str) -> None:
     if path.lower().endswith((".yaml", ".yml")):
         with open(path, "r", encoding="utf-8") as f:
@@ -74,6 +79,7 @@ def _load_config_path(path: str) -> None:
             defaults={"logfilename": os.getenv("APP_LOG", "app.log")},
             disable_existing_loggers=False,
         )
+
 
 def main() -> None:
     setup_logging()
@@ -87,7 +93,8 @@ def main() -> None:
     parser.add_argument(
         "--data-file",
         help="Path to the data file (CSV)",
-        required="--supported-versions" not in sys.argv and "--show-applicability-criteria" not in sys.argv,
+        required="--supported-versions" not in sys.argv
+        and "--show-applicability-criteria" not in sys.argv,
     )
     parser.add_argument(
         "--column-namespace",
@@ -129,7 +136,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--focus-dataset",
-        default='CostAndUsage',
+        default="CostAndUsage",
         help="Specify which FOCUS datasets to validate against (CostAndUsage)",
     )
     parser.add_argument(
@@ -219,14 +226,20 @@ def main() -> None:
         print("Supported local versions:", local)
         print("Supported remote versions:", remote)
     elif args.show_applicability_criteria:
-        log.info("Retrieving applicability criteria for version %s...", args.validate_version)
+        log.info(
+            "Retrieving applicability criteria for version %s...", args.validate_version
+        )
         try:
             criteria = validator.get_applicability_criteria()
-            print("Available applicability criteria for FOCUS version {}:".format(args.validate_version))
+            print(
+                "Available applicability criteria for FOCUS version {}:".format(
+                    args.validate_version
+                )
+            )
             print("ApplicabilityCriteriaId\tDescription")
             for criteria_id, criteria_data in criteria.items():
-                if isinstance(criteria_data, dict) and 'Description' in criteria_data:
-                    description = criteria_data['Description']
+                if isinstance(criteria_data, dict) and "Description" in criteria_data:
+                    description = criteria_data["Description"]
                 else:
                     description = str(criteria_data)
                 print(f"{criteria_id}\t{description}")
@@ -257,15 +270,19 @@ def main() -> None:
                 sql_map: Dict[str, Any] = {}
                 g = build_validation_graph(plan=plan, results=results, sql_map=sql_map)
                 g.render(filename, cleanup=True)
-                
+
                 log.info("Visualization generated successfully: %s", filename)
 
                 # Open visualization
-                if os.name == 'nt':  # Windows
+                if os.name == "nt":  # Windows
                     log.debug("Opening visualization with Windows default handler")
                     os.startfile(f"{filename}.svg")  # type: ignore
-                elif os.name == 'posix':  # macOS and Linux
-                    openCmd = ['open', f"{filename}.svg"] if sys.platform == 'darwin' else ['xdg-open', f"{filename}.svg"]
+                elif os.name == "posix":  # macOS and Linux
+                    openCmd = (
+                        ["open", f"{filename}.svg"]
+                        if sys.platform == "darwin"
+                        else ["xdg-open", f"{filename}.svg"]
+                    )
                     log.debug("Opening visualization with command: %s", openCmd)
                     subprocess.run(openCmd)
 
