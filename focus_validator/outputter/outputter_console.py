@@ -88,4 +88,10 @@ class ConsoleOutputter:
                 d = entry.get("details") or {}
                 msg = d.get("message") or d.get("reason") or f"{rule_id} failed"
                 vio = d.get("violations", "?")
+                
+                # Access MustSatisfy from the rule object
+                rule = results.rules.get(rule_id)
+                must_satisfy = rule.validation_criteria.must_satisfy if rule else "N/A"
+                
                 print(f"- {rule_id}: violations={vio}; {msg}")
+                print(f"  MustSatisfy: {must_satisfy}")
