@@ -16,7 +16,7 @@ class TestColumnNamespace(TestCase):
                 focus_dataset="CostAndUsage",
             )
             validator.load()
-            sql_map, plan, results = validator.spec_rules.validate(focus_data=validator.focus_data)
+            results = validator.spec_rules.validate(focus_data=validator.focus_data)
             
             # Test should pass - we're just checking that namespace doesn't break loading
             self.assertIsNotNone(results)

@@ -1,7 +1,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Edge helpers (as provided)
 from typing import Any, Dict, Iterable, Tuple, Optional
-from graphviz import Digraph
+from graphviz import Digraph  # type: ignore
 
 def _idx2rid_map(plan) -> Dict[int, str]:
     m = {}
@@ -180,8 +180,6 @@ def add_plan_edges(g: Digraph, plan, *, use_rule_ids: bool = True) -> None:
 COLOR_MAP = {
     "PASSED":  "lightgreen",
     "FAILED":  "lightcoral",
-    "ERRORED": "orange",
-    "ERRORED*":"orange",
     "SKIPPED": "lightgray",
     "PENDING": "lightyellow",
 }
@@ -193,31 +191,8 @@ def _status_from_entry(entry: Dict[str, Any]) -> str:
     if d.get("skipped"):
         return "SKIPPED"
     
-    # Check if this is a column presence check - treat as business rule failure, not technical error
-    is_column_presence = False
-    
-    # First check if we have explicit check type information
-    check_type = d.get("check_type") or d.get("checkType") or ""
-    if check_type == "column_presence":
-        is_column_presence = True
-    elif "error" in d:
-        # Fallback: pattern matching in error messages for column presence checks
-        error_msg = str(d.get("error", "")).lower()
-        message = str(d.get("message", "")).lower()
-        combined_text = f"{error_msg} {message}"
-        
-        if ("column" in combined_text and 
-            any(phrase in combined_text for phrase in ["must be present", "not found", "does not exist"])):
-            is_column_presence = True
-    
-    # For column presence checks, treat missing columns as FAILED instead of ERRORED
-    if is_column_presence:
-        return "PASSED" if ok else "FAILED"
-    
-    # For other checks, missing columns or errors are technical issues (ERRORED)
-    if "error" in d or "missing_columns" in d:
-        return "ERRORED" if not ok else "ERRORED*"
-    
+    # All non-skipped validations are either PASSED or FAILED
+    # No more ERRORED states - everything is either a business validation pass/fail
     return "PASSED" if ok else "FAILED"
 
 def _pick_shape(rule: Any, sql_map: Optional[Dict[str, Any]], rid: str) -> str:

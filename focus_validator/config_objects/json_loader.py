@@ -9,7 +9,7 @@ from .plan_builder import ValidationPlan
 class JsonLoader:
     log = logging.getLogger(f"{__name__}.{__qualname__}")
     @staticmethod
-    def load_json_rules(json_rule_file: str) -> tuple[Dict[str, Any], OrderedDict[str, Any]]:
+    def load_json_rules(json_rule_file: str) -> Dict[str, Any]:
         if not os.path.exists(json_rule_file):
             raise FileNotFoundError(f"JSON rules file not found: {json_rule_file}")
 

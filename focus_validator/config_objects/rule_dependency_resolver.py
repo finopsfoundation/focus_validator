@@ -195,11 +195,12 @@ class RuleDependencyResolver:
     def __init__(self, dataset_rules: Dict[str, Any], raw_rules_data: Dict[str, Any], validated_applicability_criteria: Optional[List[str]] = None):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.dataset_rules = dataset_rules
+        self.raw_rules_data = raw_rules_data
         self.validated_applicability_criteria = validated_applicability_criteria or []
         self.rules = self.collectDatasetRules(raw_rules_data)
-        self.dependency_graph = defaultdict(set)  # rule_id -> {dependent_rule_ids}
-        self.reverse_graph = defaultdict(list)  # rule_id -> [rules_that_depend_on_this]
-        self.in_degree = defaultdict(int)  # rule_id -> number of dependencies
+        self.dependency_graph: Dict[str, set] = defaultdict(set)  # rule_id -> {dependent_rule_ids}
+        self.reverse_graph: Dict[str, List[str]] = defaultdict(list)  # rule_id -> [rules_that_depend_on_this]
+        self.in_degree: Dict[str, int] = defaultdict(int)  # rule_id -> number of dependencies
 
 
 
@@ -209,7 +210,7 @@ class RuleDependencyResolver:
             raise ValueError("No dataset rules provided to collectDatasetRules.")
 
         relevant_rules = {}
-        dependencies = deque()
+        dependencies: deque = deque()
 
         for rule_id in self.dataset_rules:
             rule_data = raw_rules_data.get(rule_id)
@@ -322,7 +323,7 @@ class RuleDependencyResolver:
         """
         # Copy in_degree to avoid modifying original
         in_degree_copy = self.in_degree.copy()
-        queue = deque()
+        queue: deque = deque()
         result = []
 
         if log.isEnabledFor(logging.DEBUG) or log.isEnabledFor(logging.WARNING):
@@ -380,6 +381,8 @@ class RuleDependencyResolver:
             return None
 
         rule = self.rules.get(rule_id)
+        if rule is None:
+            return None
         return rule.validation_criteria.requirement.get("CheckFunction")
 
     def _propagate_composite_conditions(
@@ -412,8 +415,8 @@ class RuleDependencyResolver:
         entry_rule_ids: Optional[List[str]] = None,
         *,
         exec_ctx: Optional[dict] = None,
-        rules_dict: Optional[Dict[str, any]] = None,
-        checkfunctions_dict: Optional[Dict[str, any]] = None,
+        rules_dict: Optional[Dict[str, Any]] = None,
+        checkfunctions_dict: Optional[Dict[str, Any]] = None,
     ) -> ValidationPlan:
         """
         Build a parent-preserving PlanGraph via recursive expansion, then compile to a

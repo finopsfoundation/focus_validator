@@ -18,7 +18,7 @@ class PerformanceTracker:
         self.operation = None
         self.context = {}
 
-    def start(self, operation: str, context: Dict[str, Any] = None):
+    def start(self, operation: str, context: Optional[Dict[str, Any]] = None):
         self.operation = operation
         self.context = context or {}
         self.startTime = time.time()
@@ -27,7 +27,7 @@ class PerformanceTracker:
         contextStr = ", ".join(f"{k}={v}" for k, v in self.context.items()) if self.context else "no context"
         perfLogger.info(f"Started {operation} ({contextStr})")
 
-    def finish(self, additionalContext: Dict[str, Any] = None):
+    def finish(self, additionalContext: Optional[Dict[str, Any]] = None):
         if self.startTime is None:
             return
 
@@ -56,7 +56,7 @@ class PerformanceTracker:
         self.operation = None
         self.context = {}
 
-def logPerformance(operation: str = None, includeArgs: bool = False):
+def logPerformance(operation: str, includeArgs: bool = False, context: Optional[dict[str, Any]] = None) -> Callable:
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
