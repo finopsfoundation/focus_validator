@@ -27,7 +27,10 @@ class TestPerformanceProfiler(unittest.TestCase):
             # Write each row
             for row in profiling_result.stats.items():
                 func_name, (cc, nc, tt, ct, callers) = row
-                w.writerow([nc, tt, tt/nc, ct, ct/cc, func_name])
+                # Handle division by zero
+                tt_per_call = tt/nc if nc > 0 else 0
+                ct_per_call = ct/cc if cc > 0 else 0
+                w.writerow([nc, tt, tt_per_call, ct, ct_per_call, func_name])
 
     def execute_profiler(self, file_name, performance_threshold):
         # Set the environment variable for logging level
@@ -37,15 +40,15 @@ class TestPerformanceProfiler(unittest.TestCase):
         # Get the current directory of this test file
         test_dir = os.path.dirname(os.path.abspath(__file__))
         base_dir =  os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        version_set_path=os.path.join(base_dir, "focus_validator", "rules", "version_sets")
+        rule_set_path=os.path.join(base_dir, "focus_validator", "rules")
         validator = Validator(
             data_filename=os.path.join(test_dir, '../' + file_name),
-            override_filename=None,
-            rule_set_path=version_set_path,
-            rules_version="0.5",
+            rule_set_path=rule_set_path,
+            rules_version="1.2",
             output_type="console",
             output_destination=None,
             column_namespace=None,
+            focus_dataset="CostAndUsage",
         )
 
         # Set up the profiler

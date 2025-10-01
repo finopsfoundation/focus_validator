@@ -12,6 +12,7 @@ from .plan_builder import ValidationPlan, EdgeCtx
 from .rule import ConformanceRule
 from focus_validator.config_objects import InvalidRule, ConformanceRule
 from focus_validator.exceptions import InvalidRuleException
+from focus_validator.utils.download_currency_codes import get_currency_codes
 
 
 log = logging.getLogger(__name__)
@@ -406,17 +407,22 @@ class FormatBillingCurrencyCodeGenerator(DuckDBCheckGenerator):
     def generateSql(self) -> str:
         message = (
             self.errorMessage
-            or f"{self.params.ColumnName} MUST be a 3-letter uppercase ISO 4217 currency code (e.g., USD, EUR)."
+            or f"{self.params.ColumnName} MUST be a valid ISO 4217 currency code (e.g., USD, EUR)."
         )
         msg_sql = message.replace("'", "''")
         col = f"{self.params.ColumnName}"
-
+        
+        # Get valid currency codes from CSV file
+        valid_codes = get_currency_codes()
+        # Create SQL IN clause with properly quoted currency codes
+        codes_list = "', '".join(sorted(valid_codes))
+        
         return f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
             WHERE {col} IS NOT NULL
-              AND NOT ( TRIM({col}::TEXT) ~ '^[A-Z]{{3}}$' )
+              AND TRIM({col}::TEXT) NOT IN ('{codes_list}')
         )
         SELECT
             COUNT(*) AS violations,

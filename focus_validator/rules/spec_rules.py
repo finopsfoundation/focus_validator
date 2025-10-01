@@ -4,7 +4,7 @@ import logging
 import duckdb
 from dataclasses import dataclass
 from typing import Dict, Any, Callable, Tuple, Optional, List
-from focus_validator.config_objects import JsonLoader
+from focus_validator.config_objects import JsonLoader, ConformanceRule
 from focus_validator.config_objects.plan_builder import ValidationPlan, ExecNode
 from focus_validator.config_objects.focus_to_duckdb_converter import FocusToDuckDBSchemaConverter
 from focus_validator.exceptions import UnsupportedVersion, FailedDownloadError, InvalidRuleException
@@ -18,6 +18,7 @@ class ValidationResults:
     """Holds validation outputs in both index-keyed and rule_id-keyed forms."""
     by_idx: Dict[int, Dict[str, Any]]
     by_rule_id: Dict[str, Dict[str, Any]]
+    rules: Dict[str, ConformanceRule]  # rule_id -> full rule object for outputter access
 
 
 class SpecRules:
@@ -245,7 +246,8 @@ class SpecRules:
                     if stop_on_first_error and not ok:
                         # Allow converter to cleanup if it needs to
                         converter.finalize(success=False, results_by_idx=results_by_idx)
-                        return ValidationResults(results_by_idx, self._results_by_rule_id(results_by_idx))
+                        rules_dict = {self.plan.nodes[i].rule_id: self.plan.nodes[i].rule for i in results_by_idx.keys()}
+                        return ValidationResults(results_by_idx, self._results_by_rule_id(results_by_idx), rules_dict)
 
             # 6) Normal finalization (e.g., drop temps, flush logs)
             converter.finalize(success=True, results_by_idx=results_by_idx)
@@ -257,7 +259,8 @@ class SpecRules:
             finally:
                 raise
         sql_map = converter.emit_sql_map()
-        return sql_map, self.plan, ValidationResults(results_by_idx, self._results_by_rule_id(results_by_idx))
+        rules_dict = {self.plan.nodes[i].rule_id: self.plan.nodes[i].rule for i in results_by_idx.keys()}
+        return sql_map, self.plan, ValidationResults(results_by_idx, self._results_by_rule_id(results_by_idx), rules_dict)
 
     # Optional helper(s)
     def _results_by_rule_id(self, by_idx: Dict[int, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:

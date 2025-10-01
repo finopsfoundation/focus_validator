@@ -4,7 +4,7 @@ import pandas as pd
 import requests
 
 DATAHUB_URL = "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml"
-CURRENCY_CODE_CSV_PATH = "focus_validator/utils/currency_codes.csv"
+CURRENCY_CODE_CSV_PATH = "focus_validator/rules/currency_codes.csv"
 
 
 def download_currency_codes():  # pragma: no cover

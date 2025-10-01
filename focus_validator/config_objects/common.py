@@ -84,6 +84,6 @@ class ChecklistObjectStatus(Enum):
 
 
 def generate_check_friendly_name(check, column_id, description=None):
-    if description:
+    if description and description.strip():
         return description.strip()
     return "Rule that does something"

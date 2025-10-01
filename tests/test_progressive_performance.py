@@ -77,13 +77,12 @@ class TestProgressivePerformance(unittest.TestCase):
         # Get the current directory of this test file
         test_dir = os.path.dirname(os.path.abspath(__file__))
 
-        # Construct the path to the application directory
-        app_dir = os.path.join(test_dir, '../focus_validator')
         # Set the environment variable for logging level
         env = os.environ.copy()
         env["LOG_LEVEL"] = "INFO"
         
-        command = ['poetry', 'run', 'python', os.path.join(app_dir, 'main.py')] + args
+        # Use module execution instead of direct file execution
+        command = ['poetry', 'run', 'python', '-m', 'focus_validator.main'] + args
         return subprocess.run(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
 
     def test_1000_record_csv_performance(self):
@@ -111,7 +110,7 @@ class TestProgressivePerformance(unittest.TestCase):
         start_time = time.time()
 
         # Command to execute the focus_validator tool
-        result = self.run_validator(['--data-file', os.path.join(test_dir, '../' + file_name)])
+        result = self.run_validator(['--data-file', os.path.join(test_dir, '../' + file_name), '--validate-version', '1.2'])
         print(result.stdout)
 
         end_time = time.time()
