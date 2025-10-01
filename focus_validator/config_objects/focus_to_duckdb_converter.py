@@ -186,6 +186,12 @@ class SkippedDynamicCheck(SkippedCheck):
         self.errorMessage = "dynamic rule"
 
 
+class SkippedNonApplicableCheck(SkippedCheck):
+    def __init__(self, rule, rule_id: str, **kwargs: Any) -> None:
+        super().__init__(rule, rule_id, **kwargs)
+        self.errorMessage = "non applicable rule"
+
+
 class ColumnPresentCheckGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
 
@@ -1102,17 +1108,61 @@ class FocusToDuckDBSchemaConverter:
         }
     }
 
-    def __init__(self, *, focus_data: Any, focus_table_name: str = "focus_data", pragma_threads: int | None = None, explain_mode: bool = False) -> None:
+    def __init__(self, *, focus_data: Any, focus_table_name: str = "focus_data", pragma_threads: int | None = None, explain_mode: bool = False, validated_applicability_criteria: Optional[List[str]] = None) -> None:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.conn: duckdb.DuckDBPyConnection | None = None
         self.plan: ValidationPlan | None = None
         self.pragma_threads = pragma_threads
         self.focus_data = focus_data
         self.table_name = focus_table_name
+        self.validated_applicability_criteria = validated_applicability_criteria or []
         # Example caches (optional)
         self._prepared: Dict[str, Any] = {}
         self._views: Dict[str, str] = {}  # rule_id -> temp view name
         self.explain_mode = explain_mode
+
+    def _should_include_rule(self, rule: Any, parent_edges: Optional[Tuple[Any, ...]] = None) -> bool:
+        """Check if a rule should be included based on applicability criteria.
+        
+        Performs hierarchical check:
+        1. Check this rule's applicability criteria
+        2. Check all parent dependencies up to the root
+        """
+        # First check this rule's own applicability criteria
+        if not self._check_rule_applicability(rule):
+            return False
+        
+        # Then check all parent dependencies recursively
+        if parent_edges:
+            for parent_rule in self._parent_rules_from_edges(parent_edges):
+                if parent_rule and not self._check_rule_applicability(parent_rule):
+                    self.log.debug("Excluding rule %s due to parent %s applicability criteria mismatch", 
+                                 getattr(rule, 'rule_id', '<unknown>'), 
+                                 getattr(parent_rule, 'rule_id', '<unknown>'))
+                    return False
+                # Recursively check parent's parents if available
+                parent_node = self._node_by_rule_id(getattr(parent_rule, 'rule_id', None))
+                if parent_node and hasattr(parent_node, 'parent_edges'):
+                    if not self._should_include_rule(parent_rule, parent_node.parent_edges):
+                        return False
+        
+        return True
+    
+    def _check_rule_applicability(self, rule: Any) -> bool:
+        """Check a single rule's applicability criteria without checking parents."""
+        # Check if rule has applicability criteria
+        rule_criteria = rule.applicability_criteria if hasattr(rule, 'applicability_criteria') and rule.applicability_criteria else []
+        
+        # If rule has no applicability criteria, always include it (backwards compatibility)
+        if not rule_criteria:
+            return True
+        
+        # If no criteria were provided by user, skip rules that have applicability criteria
+        if not self.validated_applicability_criteria:
+            return False
+        
+        # Include rule if any of its criteria match our validated list
+        return any(criteria in self.validated_applicability_criteria for criteria in rule_criteria)
 
     # -- lifecycle ------------------------------------------------------------
     def prepare(self, *, conn: duckdb.DuckDBPyConnection, plan: ValidationPlan) -> None:
@@ -1161,6 +1211,10 @@ class FocusToDuckDBSchemaConverter:
         # or extend DuckDBCheckGenerator to accept them. Keeping it simple for now.
         if rule.is_dynamic():
             return SkippedDynamicCheck(rule=rule, rule_id=rule_id)
+
+        # Check if rule should be skipped due to applicability criteria (including parent chain)
+        if not self._should_include_rule(rule, parent_edges):
+            return SkippedNonApplicableCheck(rule=rule, rule_id=rule_id)
 
         requirement = self.__requirement_for_rule__(rule)
         check_obj = self.__generate_duckdb_check__(rule, rule_id, requirement, 

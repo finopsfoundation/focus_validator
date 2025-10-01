@@ -22,6 +22,7 @@ class JsonLoader:
         json_rule_file: str,
         focus_dataset: Optional[str] = "",
         filter_rules: Optional[str] = None,
+        applicability_criteria_list: Optional[List[str]] = None,
     ) -> ValidationPlan:
         """
         Load CR JSON, build the dependency graph with RuleDependencyResolver,
@@ -41,11 +42,35 @@ class JsonLoader:
         dataset_rules = dataset.get("ConformanceRules", [])
         rules_dict = cr_data.get("ConformanceRules", {})
         checkfunctions_dict = OrderedDict(cr_data.get("CheckFunctions", {}))
+        applicability_criteria_dict = OrderedDict(cr_data.get("ApplicabilityCriteria", {}))
+
+        # ---- validate and filter applicability criteria ----------------------
+        validated_criteria = []
+        if applicability_criteria_list:
+            # Check if 'ALL' is specified (case insensitive)
+            if len(applicability_criteria_list) == 1 and applicability_criteria_list[0].upper() == 'ALL':
+                validated_criteria = list(applicability_criteria_dict.keys())
+                JsonLoader.log.info("Using ALL applicability criteria (%d total): %s", len(validated_criteria), validated_criteria)
+            else:
+                for criteria in applicability_criteria_list:
+                    if criteria in applicability_criteria_dict:
+                        validated_criteria.append(criteria)
+                        JsonLoader.log.info("Using applicability criteria: %s", criteria)
+                    else:
+                        JsonLoader.log.warning("Applicability criteria '%s' not found in rules file. Available: %s", 
+                                             criteria, list(applicability_criteria_dict.keys()))
+                if not validated_criteria:
+                    JsonLoader.log.warning("No valid applicability criteria found. Rules with applicability criteria will be skipped.")
+        else:
+            # If no criteria specified, pass empty list (rules with criteria will be skipped)
+            JsonLoader.log.info("No applicability criteria specified. Rules with applicability criteria will be skipped.")
+            validated_criteria = []
 
         # ---- build dependency graph (closure + diagnostics) --------------------
         resolver = RuleDependencyResolver(
             dataset_rules=dataset_rules,
             raw_rules_data=rules_dict,
+            validated_applicability_criteria=validated_criteria,
         )
         resolver.buildDependencyGraph(target_rule_prefix=filter_rules)
         relevant_rules = resolver.getRelevantRules()  # Dict[str, ConformanceRule]
