@@ -3,9 +3,42 @@ import math
 import pandas as pd
 import logging
 
-from focus_validator.config_objects import Rule
-from focus_validator.rules.spec_rules import ValidationResult
+from focus_validator.config_objects import ConformanceRule
+from focus_validator.rules.spec_rules import ValidationResults
+from typing import Dict, Any
+from dataclasses import dataclass
 
+# from focus_validator.rules.spec_rules import ValidationResults  # wherever it lives
+
+STATUS_PASS = "PASS"
+STATUS_FAIL = "FAIL"
+STATUS_SKIP = "SKIPPED"
+
+def _status_from_result(entry: Dict[str, Any]) -> str:
+    # entry = {"ok": bool, "details": {...}, "rule_id": "..."}
+    details = entry.get("details") or {}
+    if details.get("skipped"):
+        return STATUS_SKIP
+    return STATUS_PASS if entry.get("ok") else STATUS_FAIL
+
+def _line_for_rule(rule_id: str, entry: Dict[str, Any]) -> str:
+    status = _status_from_result(entry)
+    details = entry.get("details") or {}
+    extra = []
+
+    # add useful extras if present
+    if "violations" in details:
+        extra.append(f"violations={details['violations']}")
+    if details.get("reason"):
+        extra.append(f"reason={details['reason']}")
+    if details.get("message"):
+        extra.append(f"msg={details['message']}")
+    if "timing_ms" in details:
+        extra.append(f"{details['timing_ms']:.1f}ms")
+
+    tail = f"  ({', '.join(extra)})" if extra else ""
+    icon = "✅" if status == STATUS_PASS else ("⏭️" if status == STATUS_SKIP else "❌")
+    return f"{icon} {rule_id}: {status}{tail}"
 
 class ConsoleOutputter:
     def __init__(self, output_destination):
@@ -13,115 +46,46 @@ class ConsoleOutputter:
         self.output_destination = output_destination
         self.result_set = None
 
-    @staticmethod
-    def __restructure_check_list__(result_set: ValidationResult):
-        rows = []
-        for value in result_set.checklist.values():
-            if isinstance(value.rule_ref, Rule):
-                check_type = value.rule_ref.check_type_friendly_name
+
+    def write(self, results) -> None:
+        """
+        results: ValidationResults (new type)
+        """
+        # Expect the new API; fail loudly if the old one is passed
+        if not hasattr(results, "by_rule_id"):
+            raise TypeError("ConsoleOutputter.write expected ValidationResults with by_rule_id")
+
+        # Summary counts
+        passed = failed = skipped = 0
+        lines = []
+
+        for rule_id, entry in results.by_rule_id.items():
+            status = _status_from_result(entry)
+            if status == STATUS_PASS:
+                passed += 1
+            elif status == STATUS_FAIL:
+                failed += 1
             else:
-                check_type = "ERRORED"
+                skipped += 1
+            lines.append(_line_for_rule(rule_id, entry))
 
-            row_obj = value.model_dump()
-            row_obj.update(
-                {
-                    "check_type": check_type,
-                    "status": row_obj["status"].value.title(),
-                }
-            )
-            rows.append(row_obj)
+        # stable ordering helps in consoles
+        lines.sort()
 
-        df = pd.DataFrame(rows)
-        df.rename(
-            columns={
-                "check_name": "Check Name",
-                "check_type": "Check Type",
-                "column_id": "Column",
-                "friendly_name": "Friendly Name",
-                "error": "Error",
-                "status": "Status",
-            },
-            inplace=True,
-        )
-        df = df.reindex(
-            columns=[
-                "Check Name",
-                "Check Type",
-                "Column",
-                "Friendly Name",
-                "Error",
-                "Status",
-            ]
-        )
-        return df
+        # Print
+        print("\n=== Validation Results ===")
+        print(f"Total: {passed + failed + skipped} | "
+              f"Pass: {passed} | Fail: {failed} | Skipped: {skipped}")
+        for line in lines:
+            print(line)
 
-    def write(self, result_set: ValidationResult):
-        self.result_set = result_set
-
-        status_groups = {
-            "passed": [],
-            "failed": [],
-            "skipped": [],
-            "errored": [],
-            "pending": []
-        }
-
-        for item in result_set.checklist.values():
-            status_groups[item.status.value].append(item)
-
-
-        # Show all results by status
-        for status in ["passed", "failed", "skipped", "errored", "pending"]:
-            items = status_groups[status]
-            print(status, "(" + str(len(items)) + ")")
-            for item in items:
-                if status == "failed" and item.error:
-                    print(item.check_name, "FAIL")
-                    print("     Description", item.error)
-                    print("     Error", item.friendly_name)
-                else:
-                    print(item.check_name, status.upper())
-
-        if len(status_groups['failed']) > 0 or len(status_groups['errored']) > 0:
-            print("*********************")
-            print("Validation failed!")
-            print("*********************")
-        else:
-            print("*********************")
-            print("Validation succeeded.")
-            print("*********************")
-
-
-def collapse_occurrence_range(occurrence_range: list):
-    start = None
-    i = None
-    collapsed = []
-
-    # Edge case
-    if len(occurrence_range) == 1:
-        if isinstance(occurrence_range[0], float) and math.isnan(occurrence_range[0]):
-            return ""
-        if occurrence_range[0] is None:
-            return ""
-
-    for n in sorted(occurrence_range):
-        if not isinstance(n, int) and not (isinstance(n, float) and not math.isnan(n)):
-            return ",".join([str(x) for x in occurrence_range])
-        elif i is None:
-            start = i = int(n)
-        elif n == i + 1:
-            i = int(n)
-        elif i:
-            if i == start:
-                collapsed.append(f"{start}")
-            else:
-                collapsed.append(f"{start}-{i}")
-            start = i = int(n)
-
-    if start is not None:
-        if i == start:
-            collapsed.append(f"{start}")
-        else:
-            collapsed.append(f"{start}-{i}")
-
-    return ",".join(collapsed)
+        # Optional: print a small failures section with reasons
+        if failed:
+            print("\n--- Failures ---")
+            for rule_id, entry in results.by_rule_id.items():
+                if _status_from_result(entry) != STATUS_FAIL:
+                    continue
+                d = entry.get("details") or {}
+                msg = d.get("message") or d.get("reason") or f"{rule_id} failed"
+                vio = d.get("violations", "?")
+                print(f"- {rule_id}: violations={vio}; {msg}")

@@ -12,3 +12,7 @@ class UnsupportedVersion(FocusValidationError):
 
 class FailedDownloadError(FocusValidationError):
     pass
+
+class InvalidRuleException(ValueError):
+    """Raised when a rule's requirement/spec is invalid or incomplete."""
+    pass

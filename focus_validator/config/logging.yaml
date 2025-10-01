@@ -10,36 +10,18 @@ formatters:
     format: "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d [%(funcName)s] — %(message)s"
     datefmt: "%Y-%m-%d %H:%M:%S"
 
-  performance:
-    format: "%(asctime)s [PERF] %(name)s — %(message)s"
-    datefmt: "%Y-%m-%d %H:%M:%S"
-
 handlers:
-  console:
-    class: logging.StreamHandler
-    formatter: standard
-    stream: ext://sys.stdout
-    level: INFO
-
   file_detailed:
     class: logging.handlers.RotatingFileHandler
     filename: focus_validator_detailed.log
-    maxBytes: 10485760  # 10MB
+    maxBytes: 10485760 # 10MB
     backupCount: 5
     formatter: detailed
     level: DEBUG
 
-  file_performance:
-    class: logging.handlers.RotatingFileHandler
-    filename: focus_validator_performance.log
-    maxBytes: 5242880  # 5MB
-    backupCount: 3
-    formatter: performance
-    level: INFO
-
 root:
   level: DEBUG
-  handlers: [console, file_detailed]
+  handlers: [file_detailed]
 
 loggers:
   focus_validator.main:
@@ -67,14 +49,9 @@ loggers:
     propagate: true
 
   focus_validator.outputter:
-    level: INFO
+    level: DEBUG
     propagate: true
 
   validation_results_visualizer:
-    level: INFO
+    level: DEBUG
     propagate: true
-
-  performance:
-    level: INFO
-    handlers: [file_performance]
-    propagate: false

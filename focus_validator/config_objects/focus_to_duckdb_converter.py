@@ -1,51 +1,85 @@
-import os
 import logging
 import time
+import re
+import textwrap
+import json
 from abc import ABC, abstractmethod
-from itertools import groupby
-from typing import Dict, List, Optional, Set, Union
-
-import pandas as pd
+from typing import Callable, ClassVar, Dict, List, Optional, Any, Tuple
+from types import SimpleNamespace, MappingProxyType
 import duckdb
-import sqlglot
 
-from focus_validator.config_objects import ChecklistObject, InvalidRule, Rule
-from focus_validator.config_objects.common import (
-    AllowNullsCheck,
-    ChecklistObjectStatus,
-    ColumnComparisonCheck,
-    ConformanceRuleCheck,
-    DataTypeCheck,
-    DataTypes,
-    DistinctCountCheck,
-    FormatCheck,
-    SQLQueryCheck,
-    ValueComparisonCheck,
-    ValueInCheck,
-)
-from focus_validator.config_objects.rule import CompositeCheck
-from focus_validator.exceptions import FocusNotImplementedError
+from .plan_builder import ValidationPlan, EdgeCtx
+from .rule import ConformanceRule
+from focus_validator.config_objects import InvalidRule, ConformanceRule
+from focus_validator.exceptions import InvalidRuleException
 
+
+log = logging.getLogger(__name__)
+
+
+def _compact_json(data: dict, max_len: int = 600) -> str:
+    s = json.dumps(data, indent=2, ensure_ascii=False)
+    if len(s) <= max_len:
+        return s
+    return s[:max_len] + " ... (truncated)"
+
+# --- DuckDB check generators -------------------------------------------------
 
 class DuckDBColumnCheck:
-    log = logging.getLogger(f"{__name__}.DuckDBColumnCheck")
-
-    def __init__(self, column_name: str, check_type: str, check_sql: str, error_message: str):
-        self.columnName = column_name
+    def __init__(self, rule_id: str, rule: ConformanceRule, check_type: str, 
+                 check_sql: str, error_message: str, nested_checks: List['DuckDBColumnCheck']|None, 
+        special_executor: Optional[Callable] = None, meta: Optional[Dict[str, Any]] = None,
+        exec_mode: Optional[str] = None, referenced_rule_id: Optional[str] = None,
+        nested_check_handler: Optional[Callable] = None) -> None:
+        self.rule_id = rule_id
+        self.rule = rule
         self.checkType = check_type
         self.checkSql = check_sql
         self.errorMessage = error_message
+        self.nestedChecks = nested_checks or []
+        self.nestedCheckHandler = None
+        self.meta = meta or {}             # generator name, row_condition_sql, exec_mode, etc.
+        self.special_executor = special_executor
+        self.exec_mode = exec_mode or "requirement"  # "requirement" / "condition" / "reference"
+        self.referenced_rule_id = referenced_rule_id  # if applicable
 
 
 class DuckDBCheckGenerator(ABC):
     # Abstract base class for generating DuckDB validation checks
-    log = logging.getLogger(f"{__name__}.DuckDBCheckGenerator")
+    RESERVED: ClassVar[set[str]] = {"rule", "rule_id", "params"}
+    REQUIRED_KEYS: ClassVar[set[str]] = set()          # subclasses may override
+    DEFAULTS: ClassVar[Dict[str, Any]] = {}            # subclasses may override
+    FREEZE_PARAMS: ClassVar[bool] = True               # make params read-only
 
-    def __init__(self, rule: Rule, check_id: str):
-        self.rule = rule
-        self.checkId = check_id
-        self.columnName = rule.column_id
-        self.errorMessage = f"{check_id}: {rule.check_friendly_name}"
+    def __init__(self, rule, rule_id: str, **kwargs: Any) -> None:
+        self.rule                  = rule
+        self.rule_id               = rule_id
+        self.errorMessage          = None
+        self.nestedChecks          = []
+        self.nestedCheckHandler    = None
+        self.compile_condition     = kwargs.pop("compile_condition", None)
+        self.child_builder         = kwargs.pop("child_builder", None)
+        self.breadcrumb            = kwargs.pop("breadcrumb", rule_id)
+        self.parent_results_by_idx = kwargs.pop("parent_results_by_idx", {}) or {}
+        self.parent_edges          = kwargs.pop("parent_edges", ()) or ()
+        self.plan                  = kwargs.pop("plan", None)
+        self.row_condition_sql     = kwargs.pop("row_condition_sql", None)
+        self.exec_mode             = kwargs.pop("exec_mode", "requirement")
+        # Validate required keys (allow defaults to satisfy)
+        missing = self.REQUIRED_KEYS - (set(kwargs) | set(self.DEFAULTS))
+        if missing:
+            raise KeyError(f"Missing required generator args: {sorted(missing)}")
+
+        # Merge defaults → kwargs wins
+        merged = {**self.DEFAULTS, **kwargs}
+
+        # Guard reserved collisions
+        for k in merged:
+            if k in self.RESERVED:
+                raise ValueError(f"Param name '{k}' is reserved")
+
+        self.p = MappingProxyType(dict(merged))
+        self.params = SimpleNamespace(**merged)
 
     @abstractmethod
     def generateSql(self) -> str:
@@ -56,25 +90,121 @@ class DuckDBCheckGenerator(ABC):
     def getCheckType(self) -> str:
         # Return the check type identifier
         pass
-
+    
     def generateCheck(self) -> DuckDBColumnCheck:
-        # Generate the complete DuckDB check
-        return DuckDBColumnCheck(
-            column_name=self.columnName,
+        """
+        Build a DuckDBColumnCheck describing this rule’s validation.
+        - For leaves: check_sql holds the final SELECT ... AS violations with any effective row condition applied by the generator.
+        - For composites: nested_checks holds the children; check_sql is typically None or a trivial SELECT.
+        - For special/reference checks: special_executor/exec_mode can be set by the generator.
+        """
+        # 1) Build own SQL (for leaf) or composite shell (composite often still returns trivial sql)
+        sql = self.generateSql()
+
+        # 2) Normalize nested checks: keep existing DuckDBColumnCheck objects as-is,
+        #    otherwise wrap minimal structure (rare; depends on how child_builder returns)
+        child_checks: List[DuckDBColumnCheck] = []
+        for chk in getattr(self, "nestedChecks", []) or []:
+            if isinstance(chk, DuckDBColumnCheck):
+                child_checks.append(chk)
+            else:
+                # best-effort wrapping from generator-returned "check-like" objects
+                child_checks.append(
+                    DuckDBColumnCheck(
+                        rule_id=getattr(chk, "rule_id", getattr(self, "rule_id", "")),
+                        rule=getattr(chk, "rule", getattr(self, "rule", None)),
+                        check_type=getattr(chk, "checkType", getattr(chk, "check_type", "unknown")),
+                        check_sql=getattr(chk, "checkSql", getattr(chk, "check_sql", None)),
+                        error_message=getattr(chk, "errorMessage", None),
+                        nested_checks=getattr(chk, "nestedChecks", None),
+                        nested_check_handler=getattr(chk, "nestedCheckHandler", None),
+                        meta=getattr(chk, "meta", None),
+                        special_executor=getattr(chk, "special_executor", None),
+                        exec_mode=getattr(chk, "exec_mode", None),
+                        referenced_rule_id=getattr(chk, "referenced_rule_id", None),
+                    )
+                )
+
+        # 3) Compose meta for explainability
+        meta = {
+            "generator": self.__class__.__name__,
+            "row_condition_sql": getattr(self, "row_condition_sql", None),
+            "exec_mode": getattr(self, "exec_mode", "requirement"),
+        }
+
+        # 4) Create the final check object
+        chk = DuckDBColumnCheck(
+            rule_id=self.rule_id,
+            rule=self.rule,
             check_type=self.getCheckType(),
-            check_sql=self.generateSql(),
-            error_message=self.errorMessage
+            check_sql=sql,
+            error_message=getattr(self, "errorMessage", None),
+            nested_checks=child_checks or None,
+            nested_check_handler=getattr(self, "nestedCheckHandler", None),
+            meta=meta,
+            special_executor=getattr(self, "special_executor", None),
+            exec_mode=getattr(self, "exec_mode", None),
+            referenced_rule_id=getattr(self, "referenced_rule_id", None),
         )
+
+        return chk
+
+    def _lit(self, v) -> str:
+        if v is None:
+            return "NULL"
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return str(v)
+        return "'" + str(v).replace("'", "''") + "'"
+
+    def generatePredicate(self) -> str | None:
+            """
+            Return a SQL boolean expression (no SELECT), suitable for WHERE filters.
+            Default: None (generator not usable as a condition).
+            Subclasses that support conditions should override.
+            """
+            return None
+
+
+class SkippedCheck(DuckDBCheckGenerator):
+    REQUIRED_KEYS = set()
+
+    def run(self, _conn) -> tuple[bool, dict]:
+        return True, {"skipped": True, "reason": self.errorMessage, "violations": 0}
+
+    def generateSql(self):
+        self.errorMessage = 'FormatUnit check is dynamic'
+        return None
+    
+    def getCheckType(self) -> str:
+        return "skipped_check"
+
+
+class SkippedDynamicCheck(SkippedCheck):
+    def __init__(self, rule, rule_id: str, **kwargs: Any) -> None:
+        super().__init__(rule, rule_id, **kwargs)
+        self.errorMessage = "dynamic rule"
 
 
 class ColumnPresentCheckGenerator(DuckDBCheckGenerator):
-    # Generate column presence check SQL for DuckDB
+    REQUIRED_KEYS = {"ColumnName"}
+
     def generateSql(self) -> str:
+        col = self.params.ColumnName
+        message = self.errorMessage or f"Column '{col}' MUST be present in the table."
+        self.errorMessage = message  # <-- make sure run_check can see it
+        msg_sql = message.replace("'", "''")
+
         return f"""
-        SELECT COUNT(*) = 0 as check_failed
-        FROM information_schema.columns
-        WHERE table_name = '{{table_name}}'
-        AND column_name = '{self.rule.column_id}'
+        WITH col_check AS (
+            SELECT COUNT(*) AS found
+            FROM information_schema.columns
+            WHERE table_name = '{{table_name}}'
+              AND column_name = '{col}'
+        )
+        SELECT
+            CASE WHEN found = 0 THEN 1 ELSE 0 END AS violations,
+            CASE WHEN found = 0 THEN '{msg_sql}' END AS error_message
+        FROM col_check
         """
 
     def getCheckType(self) -> str:
@@ -82,14 +212,28 @@ class ColumnPresentCheckGenerator(DuckDBCheckGenerator):
 
 
 class TypeStringCheckGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName"}
+
     # Generate type string validation check
     def generateSql(self) -> str:
+        message = (
+            self.errorMessage
+            or f"{self.params.ColumnName} MUST be of type VARCHAR (string)."
+        )
+        msg_sql = message.replace("'", "''")
+        col = f"{self.params.ColumnName}"
+
         return f"""
-        SELECT CASE
-            WHEN COUNT(*) = 0 THEN FALSE
-            ELSE COUNT(CASE WHEN typeof({self.rule.column_id}) != 'VARCHAR' THEN 1 END) > 0
-        END as check_failed
-        FROM {{table_name}}
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {col} IS NOT NULL
+              AND typeof({col}) != 'VARCHAR'
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
         """
 
     def getCheckType(self) -> str:
@@ -97,732 +241,1592 @@ class TypeStringCheckGenerator(DuckDBCheckGenerator):
 
 
 class TypeDecimalCheckGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName"}
+
     # Generate type decimal validation check
     def generateSql(self) -> str:
+        message = (
+            self.errorMessage
+            or f"{self.params.ColumnName} MUST be of type DECIMAL, DOUBLE, or FLOAT."
+        )
+        msg_sql = message.replace("'", "''")
+        col = f"{self.params.ColumnName}"
+
         return f"""
-        SELECT CASE
-            WHEN COUNT(*) = 0 THEN FALSE
-            ELSE COUNT(CASE WHEN typeof({self.rule.column_id}) NOT IN ('DECIMAL', 'DOUBLE', 'FLOAT') THEN 1 END) > 0
-        END as check_failed
-        FROM {{table_name}}
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {col} IS NOT NULL
+              AND typeof({col}) NOT IN ('DECIMAL', 'DOUBLE', 'FLOAT')
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
         """
 
     def getCheckType(self) -> str:
         return "type_decimal"
 
 
-class CheckValueGenerator(DuckDBCheckGenerator):
-    # Generate check for specific value
-    def __init__(self, rule: Rule, check_id: str, expected_value):
-        super().__init__(rule, check_id)
-        self.expectedValue = expected_value
-
-    def generateSql(self) -> str:
-        if self.expectedValue is None:
-            condition = f"{self.rule.column_id} IS NOT NULL"
-        else:
-            condition = f"{self.rule.column_id} != '{self.expectedValue}'"
-
-        return f"""
-        SELECT COUNT(CASE WHEN {condition} THEN 1 END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "check_value"
-
-
-class CheckNotValueGenerator(DuckDBCheckGenerator):
-    # Generate check for not having specific value
-    def __init__(self, rule: Rule, check_id: str, forbidden_value):
-        super().__init__(rule, check_id)
-        self.forbiddenValue = forbidden_value
-
-    def generateSql(self) -> str:
-        if self.forbiddenValue is None:
-            condition = f"{self.rule.column_id} IS NULL"
-        else:
-            condition = f"{self.rule.column_id} = '{self.forbiddenValue}'"
-
-        return f"""
-        SELECT COUNT(CASE WHEN {condition} THEN 1 END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "check_not_value"
-
-
-class ColumnComparisonGenerator(DuckDBCheckGenerator):
-    # Generate check for comparing two columns (consolidated from CheckSameValue, CheckNotSameValue, ColumnByColumnEquals)
-    def __init__(self, rule: Rule, check_id: str, comparison_column: str, operator: str):
-        super().__init__(rule, check_id)
-        self.comparisonColumn = comparison_column
-        self.operator = operator
-
-    def generateSql(self) -> str:
-        # operator "equals" means columns should be equal, so fail if they're not equal
-        # operator "not_equals" means columns should be different, so fail if they're equal
-        if self.operator == "equals":
-            condition = f"{self.rule.column_id} != {self.comparisonColumn}"
-        elif self.operator == "not_equals":
-            condition = f"{self.rule.column_id} = {self.comparisonColumn}"
-        else:
-            condition = "FALSE"
-
-        return f"""
-        SELECT COUNT(CASE WHEN {condition} THEN 1 END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return f"column_comparison_{self.operator}"
-
-
-class FormatNumericGenerator(DuckDBCheckGenerator):
-    # Generate numeric format validation check
-    def generateSql(self) -> str:
-        return f"""
-        SELECT COUNT(CASE
-            WHEN {self.rule.column_id} IS NOT NULL
-            AND NOT ({self.rule.column_id}::TEXT ~ '^[+-]?([0-9]*[.])?[0-9]+$')
-            THEN 1
-        END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "format_numeric"
-
-
-class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
-    # Generate greater than or equal check
-    def __init__(self, rule: Rule, check_id: str, min_value):
-        super().__init__(rule, check_id)
-        self.minValue = min_value
-
-    def generateSql(self) -> str:
-        return f"""
-        SELECT COUNT(CASE WHEN {self.rule.column_id} < {self.minValue} THEN 1 END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "check_greater_equal"
-
-
-class FormatDateTimeGenerator(DuckDBCheckGenerator):
-    # Generate datetime format validation check for ISO 8601 extended format with UTC (YYYY-MM-DDTHH:mm:ssZ)
-    def generateSql(self) -> str:
-        return f"""
-        SELECT COUNT(CASE
-            WHEN {self.rule.column_id} IS NOT NULL
-            AND NOT ({self.rule.column_id}::TEXT ~ '^[0-9]{{4}}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z$')
-            THEN 1
-        END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "format_datetime"
-
-
-class FormatStringGenerator(DuckDBCheckGenerator):
-    # Generate string format validation check for Pascal case, alphanumeric, and length requirements
-    def generateSql(self) -> str:
-        return f"""
-        SELECT COUNT(CASE
-            WHEN {self.rule.column_id} IS NOT NULL
-            AND NOT (
-                ({self.rule.column_id}::TEXT ~ '^[A-Z][a-zA-Z0-9]*$') OR
-                ({self.rule.column_id}::TEXT ~ '^x_[A-Z][a-zA-Z0-9]*$')
-            )
-            OR LENGTH({self.rule.column_id}::TEXT) > 50
-            THEN 1
-        END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "format_string"
-
-
-class FormatBillingCurrencyCodeGenerator(DuckDBCheckGenerator):
-    # Generate currency code format validation for ISO 4217 (national) and string handling (virtual) currencies
-    def generateSql(self) -> str:
-        return f"""
-        SELECT COUNT(CASE
-            WHEN {self.rule.column_id} IS NOT NULL
-            AND NOT (
-                ({self.rule.column_id}::TEXT ~ '^[A-Z]{{3}}$') OR
-                (
-                    ({self.rule.column_id}::TEXT ~ '^[A-Z][a-zA-Z0-9]*$') OR
-                    ({self.rule.column_id}::TEXT ~ '^x_[A-Z][a-zA-Z0-9]*$')
-                )
-            )
-            THEN 1
-        END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "format_currency_code"
-
-
-class CompositeRuleGenerator(DuckDBCheckGenerator):
-    # Generate composite rule check (AND/OR of other rules)
-    def __init__(self, rule: Rule, check_id: str, dependency_results: Dict[str, bool]):
-        super().__init__(rule, check_id)
-        self.dependencyResults = dependency_results
-        self.composite_check = rule.check
-
-    def generateSql(self) -> str:
-        # For composite rules, we don't generate SQL but evaluate dependencies
-        if isinstance(self.composite_check, CompositeCheck):
-            logic_operator = self.composite_check.logic_operator
-            dependency_rule_ids = self.composite_check.dependency_rule_ids
-
-            if logic_operator == "AND":
-                # All dependencies must pass for composite to pass
-                all_passed = all(
-                    not self.dependencyResults.get(dep_id, True) # True means failed, False means passed
-                    for dep_id in dependency_rule_ids
-                )
-                check_failed = not all_passed
-            elif logic_operator == "OR":
-                # At least one dependency must pass for composite to pass
-                any_passed = any(
-                    not self.dependencyResults.get(dep_id, True)
-                    for dep_id in dependency_rule_ids
-                )
-                check_failed = not any_passed
-            else:
-                check_failed = True  # Unknown logic operator
-
-            return f"SELECT {check_failed} as check_failed"
-
-        return "SELECT TRUE as check_failed"  # Fallback
-
-    def getCheckType(self) -> str:
-        return "composite_rule"
-
-
-class CheckConformanceRuleGenerator(DuckDBCheckGenerator):
-    # Generate check for referencing other conformance rules
-    def __init__(self, rule: Rule, check_id: str, conformance_rule_id: str):
-        super().__init__(rule, check_id)
-        self.conformanceRuleId = conformance_rule_id
-
-    def generateSql(self) -> str:
-        # For conformance rule checks, we reference other rules' results
-        # This will be handled in the execution phase via dependency resolution
-        return f"SELECT FALSE as check_failed -- Conformance rule reference: {self.conformanceRuleId}"
-
-    def getCheckType(self) -> str:
-        return "conformance_rule_reference"
-
-
-class CheckDistinctCountGenerator(DuckDBCheckGenerator):
-    # Generate distinct count validation check
-    def __init__(self, rule: Rule, check_id: str, column_a_name: str, column_b_name: str, expected_count: int):
-        super().__init__(rule, check_id)
-        self.columnAName = column_a_name
-        self.columnBName = column_b_name
-        self.expectedCount = expected_count
-
-    def generateSql(self) -> str:
-        return f"""
-        SELECT COUNT(*) > 0 as check_failed
-        FROM (
-            SELECT {self.columnAName}, COUNT(DISTINCT {self.columnBName}) as distinct_count
-            FROM {{table_name}}
-            GROUP BY {self.columnAName}
-            HAVING COUNT(DISTINCT {self.columnBName}) != {self.expectedCount}
-        ) violations
-        """
-
-    def getCheckType(self) -> str:
-        return "distinct_count"
-
-
-class CheckNationalCurrencyGenerator(DuckDBCheckGenerator):
-    # Generate national currency code validation check (ISO 4217)
-    def generateSql(self) -> str:
-        # ISO 4217 currency codes are 3-letter uppercase codes
-        return f"""
-        SELECT COUNT(CASE
-            WHEN {self.rule.column_id} IS NOT NULL
-            AND NOT ({self.rule.column_id}::TEXT ~ '^[A-Z]{{3}}$')
-            THEN 1
-        END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "national_currency"
-
-
-
-class FormatKeyValueGenerator(DuckDBCheckGenerator):
-    # Generate key-value format validation check for JSON-like structures
-    def generateSql(self) -> str:
-        return f"""
-        SELECT COUNT(CASE
-            WHEN {self.rule.column_id} IS NOT NULL
-            AND NOT (
-                {self.rule.column_id}::TEXT ~ '^\\{{.*\\}}$' OR
-                {self.rule.column_id}::TEXT = '{{}}'
-            )
-            THEN 1
-        END) > 0 as check_failed
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "format_key_value"
-
-
-
-
 class TypeDateTimeGenerator(DuckDBCheckGenerator):
-    # Generate datetime type validation check
+    REQUIRED_KEYS = {"ColumnName"}
+
+    # Validate the *type* is datetime-like:
+    # - Accept native DATE, TIMESTAMP, TIMESTAMP WITH TIME ZONE
+    # - Also accept ISO 8601 UTC text: YYYY-MM-DDTHH:mm:ssZ
     def generateSql(self) -> str:
+        message = (
+            self.errorMessage
+            or f"{self.params.ColumnName} MUST be a DATE/TIMESTAMP (with/without TZ) "
+               f"or an ISO 8601 UTC string (YYYY-MM-DDTHH:mm:ssZ)."
+        )
+        msg_sql = message.replace("'", "''")
+        col = f"{self.params.ColumnName}"
+
         return f"""
-        SELECT CASE
-            WHEN COUNT(*) = 0 THEN FALSE
-            ELSE COUNT(CASE
-                WHEN typeof({self.rule.column_id}) NOT IN ('TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'DATE')
-                AND NOT ({self.rule.column_id}::TEXT ~ '^[0-9]{{4}}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z$')
-                THEN 1
-            END) > 0
-        END as check_failed
-        FROM {{table_name}}
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {col} IS NOT NULL
+              AND typeof({col}) NOT IN ('TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'DATE')
+              AND NOT ({col}::TEXT ~ '^[0-9]{{4}}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z$')
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
         """
 
     def getCheckType(self) -> str:
         return "type_datetime"
 
 
+class FormatNumericGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName"}
+
+    # Generate numeric format validation check
+    def generateSql(self) -> str:
+        message = (
+            self.errorMessage
+            or f"{self.params.ColumnName} MUST be a numeric value (optional +/- sign, optional decimal)."
+        )
+        msg_sql = message.replace("'", "''")
+        col = f"{self.params.ColumnName}"
+
+        return f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {col} IS NOT NULL
+              AND NOT (
+                TRIM({col}::TEXT) ~ '^[+-]?([0-9]*[.])?[0-9]+$'
+              )
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+    def getCheckType(self) -> str:
+        return "format_numeric"
+
+
+class FormatStringGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName"}
+
+    # Generate string format validation check for Pascal case, alphanumeric, and length requirements
+    def generateSql(self) -> str:
+        message = (
+            self.errorMessage
+            or f"{self.params.ColumnName} MUST be in PascalCase or start with 'x_' "
+               f"and contain only alphanumeric characters, with a maximum length of 50."
+        )
+        msg_sql = message.replace("'", "''")
+        col = f"{self.params.ColumnName}"
+
+        return f"""
+        WITH invalid AS (
+            SELECT {col}::TEXT AS value
+            FROM {{table_name}}
+            WHERE {col} IS NOT NULL
+              AND (
+                    NOT (
+                        {col}::TEXT ~ '^[A-Z][a-zA-Z0-9]*$'      -- PascalCase
+                        OR {col}::TEXT ~ '^x_[A-Z][a-zA-Z0-9]*$' -- x_PascalCase
+                    )
+                    OR LENGTH({col}::TEXT) > 50                  -- Length restriction
+              )
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+    def getCheckType(self) -> str:
+        return "format_string"
+
+
+class FormatDateTimeGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName"}
+
+    # Generate datetime format validation check for ISO 8601 extended format with UTC (YYYY-MM-DDTHH:mm:ssZ)
+    def generateSql(self) -> str:
+        message = (
+            self.errorMessage
+            or f"{self.params.ColumnName} MUST be in ISO 8601 UTC format: YYYY-MM-DDTHH:mm:ssZ"
+        )
+        msg_sql = message.replace("'", "''")
+        col = f"{self.params.ColumnName}"
+
+        return f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {col} IS NOT NULL
+              AND NOT (
+                {col}::TEXT ~ '^[0-9]{{4}}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z$'
+              )
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+    def getCheckType(self) -> str:
+        return "format_datetime"
+
+
+class FormatBillingCurrencyCodeGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName"}
+
+    def generateSql(self) -> str:
+        message = (
+            self.errorMessage
+            or f"{self.params.ColumnName} MUST be a 3-letter uppercase ISO 4217 currency code (e.g., USD, EUR)."
+        )
+        msg_sql = message.replace("'", "''")
+        col = f"{self.params.ColumnName}"
+
+        return f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {col} IS NOT NULL
+              AND NOT ( TRIM({col}::TEXT) ~ '^[A-Z]{{3}}$' )
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+    def getCheckType(self) -> str:
+        return "format_currency_code"
+
+
+class FormatKeyValueGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName"}
+
+    # Generate key-value format validation check for JSON-like structures
+    def generateSql(self) -> str:
+        col = self.params.ColumnName
+        self.required_columns = [col]  # NEW
+        # Your desired message:
+        self.errorMessage = "Format not in key value"
+
+        # Example predicate: invalid if non-null and not key=value;key=value...
+        # Adjust to your accepted separators/pattern.
+        # DuckDB supports regexp via ~ / !~ operators.
+        pattern = r'^[^=;]+=[^=;]+(?:;[^=;]+=[^=;]+)*$'
+        cond = f"{col} IS NOT NULL AND NOT ({col} ~ '{pattern}')"
+
+        return f"""
+            SELECT
+            COUNT(*) FILTER (WHERE {cond}) AS violations
+            FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return "format_key_value"
+
+
+class FormatCurrencyGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName"}
+
+    # Generate national currency code validation check (ISO 4217)
+    def generateSql(self) -> str:
+        message = (
+            self.errorMessage
+            or f"{self.params.ColumnName} MUST be a valid ISO 4217 currency code (3 uppercase letters, e.g. USD, EUR)."
+        )
+        msg_sql = message.replace("'", "''")
+        col = f"{self.params.ColumnName}"
+
+        return f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {col} IS NOT NULL
+              AND NOT (TRIM({col}::TEXT) ~ '^[A-Z]{{3}}$')
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+    def getCheckType(self) -> str:
+        return "national_currency"
+
+
+class FormatUnitGenerator(SkippedCheck):
+    REQUIRED_KEYS = {"ColumnName"}
+
+    def __init__(self, rule, rule_id: str, **kwargs: Any) -> None:
+        super().__init__(rule, rule_id, **kwargs)
+        self.errorMessage = "FormatUnit rule is dynamic"
+
+
+class CheckValueGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName", "Value"}
+
+    def generateSql(self) -> str:
+        if self.params.Value is None:
+            message = (
+                self.errorMessage
+                or f"{self.params.ColumnName} MUST be NULL."
+            )
+            condition = f"{self.params.ColumnName} IS NOT NULL"
+        else:
+            val = str(self.params.Value).replace("'", "''")
+            message = (
+                self.errorMessage
+                or f"{self.params.ColumnName} MUST equal '{self.params.Value}'."
+            )
+            condition = f"{self.params.ColumnName} != '{val}'"
+
+        msg_sql = message.replace("'", "''")
+
+        return f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {condition}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+    def getCheckType(self) -> str:
+        return "check_value"
+
+    def generatePredicate(self) -> str | None:
+        """
+        Condition mode: return a boolean predicate that selects rows where
+        ColumnName == Value (or IS NULL when Value is None).
+        """
+        if getattr(self, "exec_mode", "requirement") != "condition":
+            return None
+
+        col = self.params.ColumnName
+        v = self.params.Value
+
+        # use base literalizer if present; fall back to a simple one
+        _lit = getattr(self, "_lit", None)
+        if _lit is None:
+            def _lit(x):
+                if x is None:
+                    return "NULL"
+                if isinstance(x, (int, float)) and not isinstance(x, bool):
+                    return str(x)
+                return "'" + str(x).replace("'", "''") + "'"
+
+        if v is None:
+            return f"{col} IS NULL"
+        else:
+            return f"{col} = {_lit(v)}"
+
+
+class CheckNotValueGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName", "Value"}
+
+    def generateSql(self) -> str:
+        # Default error message if none provided
+        if self.params.Value is None:
+            message = (
+                self.errorMessage
+                or f"{self.params.ColumnName} MUST NOT be NULL."
+            )
+            condition = f"{self.params.ColumnName} IS NULL"
+        else:
+            message = (
+                self.errorMessage
+                or f"{self.params.ColumnName} MUST NOT be '{self.params.Value}'."
+            )
+            # escape single quotes in Value for SQL literal safety
+            val = str(self.params.Value).replace("'", "''")
+            condition = f"{self.params.ColumnName} = '{val}'"
+
+        msg_sql = message.replace("'", "''")
+
+        return f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {condition}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+    def getCheckType(self) -> str:
+        return "check_not_value"
+
+    def generatePredicate(self) -> str | None:
+        if self.exec_mode != "condition":
+            return None
+        col = self.params.ColumnName
+        val = self.params.Value
+        # CONDITION predicate: rows where requirement applies
+        # For "CheckNotValue", the natural condition is: col IS NOT NULL (if Value is NULL) or col <> Value
+        if val is None:
+            return f"{col} IS NOT NULL"
+        else:
+            return f"({col} IS NOT NULL AND {col} <> {self._lit(val)})"
+
+
+class CheckSameValueGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnAName", "ColumnBName"}
+
+    def generateSql(self) -> str:
+        message = (
+            self.errorMessage
+            or f"{self.params.ColumnAName} and {self.params.ColumnBName} MUST have the same value."
+        )
+        msg_sql = message.replace("'", "''")
+        col_a = f"{self.params.ColumnAName}"
+        col_b = f"{self.params.ColumnBName}"
+
+        return f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {col_a} IS NOT NULL
+              AND {col_b} IS NOT NULL
+              AND {col_a} <> {col_b}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+    def getCheckType(self) -> str:
+        return "column_comparison_equals"
+
+    def generatePredicate(self) -> str | None:
+        """
+        Condition mode: select rows where both columns are non-null and equal.
+        """
+        if getattr(self, "exec_mode", "requirement") != "condition":
+            return None
+
+        col_a = self.params.ColumnAName
+        col_b = self.params.ColumnBName
+        return f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} = {col_b}"
+
+
+class CheckNotSameValueGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnAName", "ColumnBName"}
+
+    def generateSql(self) -> str:
+        message = (
+            self.errorMessage
+            or f"{self.params.ColumnAName} and {self.params.ColumnBName} MUST NOT have the same value."
+        )
+        msg_sql = message.replace("'", "''")
+        col_a = f"{self.params.ColumnAName}"
+        col_b = f"{self.params.ColumnBName}"
+
+        return f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {col_a} IS NOT NULL
+              AND {col_b} IS NOT NULL
+              AND {col_a} = {col_b}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+    def getCheckType(self) -> str:
+        return "column_comparison_not_equals"
+
+    def generatePredicate(self) -> str | None:
+        """
+        Condition mode: select rows where both columns are non-null and not equal.
+        """
+        if getattr(self, "exec_mode", "requirement") != "condition":
+            return None
+
+        col_a = self.params.ColumnAName
+        col_b = self.params.ColumnBName
+        return f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} <> {col_b}"
+
+
+class ColumnByColumnEqualsColumnValueGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnAName", "ColumnBName", "ResultColumnName"}
+
+    def generateSql(self) -> str:
+        a = self.params.ColumnAName
+        b = self.params.ColumnBName
+        r = self.params.ResultColumnName
+        self.errorMessage = f"Expected {r} = {a} * {b}"
+        return f"""
+        SELECT
+          COUNT(*) FILTER (
+            WHERE {a} IS NOT NULL
+              AND {b} IS NOT NULL
+              AND {r} IS NOT NULL
+              AND ({a} * {b}) <> {r}
+          ) AS violations
+        FROM {{table_name}}
+        """
+
+    def getCheckType(self) -> str:
+        return f"column_by_column_equals_column_value"
+
+    def generatePredicate(self) -> str | None:
+        """
+        Condition mode: select rows where all three columns are non-null
+        AND the equality holds: (a * b) = r
+        """
+        if getattr(self, "exec_mode", "requirement") != "condition":
+            return None
+
+        a = self.params.ColumnAName
+        b = self.params.ColumnBName
+        r = self.params.ResultColumnName
+
+        return f"{a} IS NOT NULL AND {b} IS NOT NULL AND {r} IS NOT NULL AND ({a} * {b}) = {r}"
+
+
+class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName", "Value"}
+
+    def generateSql(self) -> str:
+        message = (
+            self.errorMessage
+            or f"{self.params.ColumnName} MUST be greater than or equal to {self.params.Value}."
+        )
+        msg_sql = message.replace("'", "''")
+        col = f"{self.params.ColumnName}"
+        val = self.params.Value
+
+        return f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {col} IS NOT NULL
+              AND {col} < {val}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+    def getCheckType(self) -> str:
+        return "check_greater_equal"
+
+    def generatePredicate(self) -> str | None:
+        """
+        Condition mode: select rows where the requirement applies, i.e., col >= value.
+        """
+        if getattr(self, "exec_mode", "requirement") != "condition":
+            return None
+
+        col = self.params.ColumnName
+        v = self.params.Value
+        _lit = getattr(self, "_lit", None)
+        if _lit is None:
+            def _lit(x):
+                if x is None:
+                    return "NULL"
+                if isinstance(x, (int, float)) and not isinstance(x, bool):
+                    return str(x)
+                return "'" + str(x).replace("'", "''") + "'"
+        val_sql = _lit(v)
+
+        # rows satisfying the condition (non-null and >= value)
+        return f"{col} IS NOT NULL AND {col} >= {val_sql}"
+
+
+class CheckDistinctCountGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnAName", "ColumnBName", "ExpectedCount"}
+
+    def generateSql(self) -> str:
+        a = f"{self.params.ColumnAName}"
+        b = f"{self.params.ColumnBName}"
+        n = self.params.ExpectedCount
+
+        message = (
+            self.errorMessage
+            or f"For each {a}, there MUST be exactly {n} distinct {b} values."
+        )
+        msg_sql = message.replace("'", "''")
+
+        return f"""
+        WITH counts AS (
+            SELECT {a} AS grp, COUNT(DISTINCT {b}) AS distinct_count
+            FROM {{table_name}}
+            GROUP BY {a}
+        ),
+        invalid AS (
+            SELECT grp, distinct_count
+            FROM counts
+            WHERE distinct_count <> {n}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+    def getCheckType(self) -> str:
+        return "distinct_count"
+
+
+class CheckConformanceRuleGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ConformanceRuleId"}
+
+    def getCheckType(self) -> str:
+        return "conformance_rule_reference"
+
+    def generateSql(self) -> str:
+        # Won’t be executed; we’ll attach a special executor instead.
+        self.errorMessage = f"Conformance reference to {self.params.ConformanceRuleId}"
+        return "SELECT 0 AS violations"
+
+    def generateCheck(self):
+        # Let the base create the DuckDBColumnCheck (with errorMessage, type, sql)
+        chk = super().generateCheck()
+
+        target_id = self.params.ConformanceRuleId
+        plan = self.plan
+        # Make a dict {rule_id -> result} out of parent_results_by_idx + plan
+        id2res: dict[str, dict] = {}
+        if plan:
+            for pidx, res in (self.parent_results_by_idx or {}).items():
+                rid = getattr(plan.nodes[pidx], "rule_id", None)
+                if rid:
+                    # normalize shape: we expect {"ok": bool, "details": {...}}
+                    id2res[rid] = res
+
+        def _exec_reference(_conn):
+            # Try to find the referenced rule’s result among parents
+            res = id2res.get(target_id)
+            if res is None:
+                # Not a direct parent? Fall back to a clear failure.
+                details = {
+                    "violations": 1,
+                    "message": f"Referenced rule '{target_id}' not found upstream",
+                    "referenced_rule_id": target_id,
+                }
+                return False, details
+
+            ok = bool(res.get("ok", False))
+            det = dict(res.get("details") or {})
+            violations = det.get("violations", 0 if ok else 1)
+
+            details = {
+                "violations": int(violations),
+                "message": f"Conformance reference to {target_id} ({'OK' if ok else 'FAIL'})",
+                "referenced_rule_id": target_id,
+            }
+            return ok, details
+
+        # Attach the callable to the check so run_check can use it
+        chk.special_executor = _exec_reference
+        chk.exec_mode = "reference"
+        return chk
+
+
+class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
+    """
+    Base for AND/OR composites.
+    REQUIRED_KEYS = {"Items"}
+    Expects the converter to pass:
+      - self.child_builder(requirement_dict, breadcrumb:str) -> DuckDBColumnCheck
+      - self.composite_factory not needed; we’ll construct DuckDBColumnCheck directly
+      - self.breadcrumb (string path for good error messages)
+    """
+    REQUIRED_KEYS = {"Items"}
+    COMPOSITE_NAME = "COMPOSITE"
+    HANDLER = staticmethod(all)  # override in subclasses
+
+    def generateSql(self) -> str:
+        if not callable(self.child_builder):
+            raise RuntimeError(f"{self.__class__.__name__} requires child_builder")
+
+        items = self.p.get("Items")
+        if not isinstance(items, list) or not items:
+            raise InvalidRule(f"{self.rule_id} @ {self.breadcrumb}: {self.COMPOSITE_NAME} needs non-empty 'Items'")
+
+        children = []
+        for i, child_req in enumerate(items):
+            if not isinstance(child_req, dict) or "CheckFunction" not in child_req:
+                raise InvalidRule(
+                    f"{self.rule_id} @ {self.breadcrumb}: Item[{i}] must be a requirement dict with 'CheckFunction'"
+                )
+            child_bc = f"{self.breadcrumb} > {self.COMPOSITE_NAME}[{i}]"
+            # IMPORTANT: pass the REQUIREMENT DICT here
+            child_check = self.child_builder(child_req, child_bc)
+            children.append(child_check)
+       
+        # --- identify upstream failed deps (excluding Items) ------------------------
+        # 1) collect failed parent rule_ids
+        failed_parent_rule_ids = set()
+        if self.plan:
+            for pidx, pres in self.parent_results_by_idx.items():
+                if not pres.get("ok", True):
+                    failed_parent_rule_ids.add(self.plan.nodes[pidx].rule_id)
+
+        # 2) dependencies declared on this rule
+        deps = []
+        vc = getattr(self.rule, "validation_criteria", None)
+        if vc and hasattr(vc, "dependencies"):
+            deps = list(vc.dependencies or [])
+        elif isinstance(vc, dict):
+            deps = list(vc.get("dependencies") or [])
+
+        # 3) rule_ids that appear inside Items (if Items are references with RuleId)
+        item_rule_ids = set()
+        for item in items:
+            if isinstance(item, dict):
+                rid = item.get("RuleId") or item.get("rule_id")
+                if rid:
+                    item_rule_ids.add(rid)
+
+        # 4) external deps = declared deps minus item rule_ids
+        external_deps = set(deps) - item_rule_ids
+
+        # 5) which external deps actually failed upstream?
+        external_failed = sorted(external_deps & failed_parent_rule_ids)
+
+        if external_failed:
+            # Tag the composite check to force a short-circuit fail in run_check
+            self.force_fail_due_to_upstream = {
+                "failed_dependencies": external_failed,
+                "reason": "upstream dependency failure",
+            }
+            # Give a clear message now (executor will reuse it)
+            self.errorMessage = (
+                self.p.get("Message")
+                or f"{self.rule_id}: upstream dependency failure ({', '.join(external_failed)})"
+            )
+
+        self.nestedChecks = children
+        self.nestedCheckHandler = self.HANDLER
+        self.errorMessage = self.p.get("Message") or f"{self.rule_id}: {self.COMPOSITE_NAME} failed"
+        return "SELECT 0 AS violations"
+
+    def getCheckType(self) -> str:
+        return "composite"
+
+
+class CompositeANDRuleGenerator(CompositeBaseRuleGenerator):
+    COMPOSITE_NAME = "AND"
+    HANDLER = staticmethod(all)
+
+    def generatePredicate(self) -> str | None:
+        # Only meaningful in condition mode
+        if getattr(self, "exec_mode", "requirement") != "condition":
+            return None
+
+        if not callable(self.compile_condition):
+            # No compiler available; safest is to “no filter”
+            return "TRUE"
+
+        items = self.p.get("Items") if hasattr(self, "p") else self.params.Items
+        items = items or []
+
+        preds = []
+        for i, spec in enumerate(items):
+            pred = self.compile_condition(
+                spec, rule=self.rule, rule_id=self.rule_id,
+                breadcrumb=f"{self.breadcrumb}>AND[{i}]"
+            )
+            if pred:
+                preds.append(f"({pred})")
+
+        # AND of nothing → TRUE (no additional filtering)
+        return " AND ".join(preds) if preds else "TRUE"
+
+
+class CompositeORRuleGenerator(CompositeBaseRuleGenerator):
+    COMPOSITE_NAME = "OR"
+    HANDLER = staticmethod(any)
+
+    def generatePredicate(self) -> str | None:
+        if getattr(self, "exec_mode", "requirement") != "condition":
+            return None
+
+        if not callable(self.compile_condition):
+            return "FALSE"  # OR without a compiler → safest to match nothing
+
+        items = self.p.get("Items") if hasattr(self, "p") else self.params.Items
+        items = items or []
+
+        preds = []
+        for i, spec in enumerate(items):
+            pred = self.compile_condition(
+                spec, rule=self.rule, rule_id=self.rule_id,
+                breadcrumb=f"{self.breadcrumb}>OR[{i}]"
+            )
+            if pred:
+                preds.append(f"({pred})")
+
+        # OR of nothing → FALSE (no rows match)
+        return " OR ".join(preds) if preds else "FALSE"
+
+
 class FocusToDuckDBSchemaConverter:
     # Central registry for all check types with both generators and check object factories
-    CHECK_GENERATORS = {
+    CHECK_GENERATORS: dict[str, type[DuckDBCheckGenerator]] = {
         "ColumnPresent": {
             "generator": ColumnPresentCheckGenerator,
-            "factory": lambda args: "column_required"
+            "factory": lambda args: "ColumnName"
         },
         "TypeString": {
             "generator": TypeStringCheckGenerator,
-            "factory": lambda args: DataTypeCheck(data_type=DataTypes.STRING)
+            "factory": lambda args: "ColumnName"
         },
         "TypeDecimal": {
             "generator": TypeDecimalCheckGenerator,
-            "factory": lambda args: DataTypeCheck(data_type=DataTypes.DECIMAL)
+            "factory": lambda args: "ColumnName"
         },
         "TypeDateTime": {
             "generator": TypeDateTimeGenerator,
-            "factory": lambda args: DataTypeCheck(data_type=DataTypes.DATETIME)
-        },
-        "CheckValue": {
-            "generator": CheckValueGenerator,
-            "factory": lambda args: ValueComparisonCheck(
-                operator="equals",
-                value=args.get("Value")
-            )
-        },
-        "CheckNotValue": {
-            "generator": CheckNotValueGenerator,
-            "factory": lambda args: ValueComparisonCheck(
-                operator="not_equals",
-                value=args.get("Value")
-            )
-        },
-        "CheckSameValue": {
-            "generator": ColumnComparisonGenerator,
-            "factory": lambda args: ValueComparisonCheck(
-                operator="equals_column",
-                value=args.get("ComparisonColumn")
-            )
-        },
-        "CheckNotSameValue": {
-            "generator": ColumnComparisonGenerator,
-            "factory": lambda args: ValueComparisonCheck(
-                operator="not_equals_column",
-                value=args.get("ComparisonColumn")
-            )
-        },
-        "CheckDistinctCount": {
-            "generator": CheckDistinctCountGenerator,
-            "factory": lambda args: DistinctCountCheck(
-                column_a_name=args.get("ColumnAName"),
-                column_b_name=args.get("ColumnBName"),
-                expected_count=args.get("ExpectedCount")
-            )
-        },
-        "CheckConformanceRule": {
-            "generator": CheckConformanceRuleGenerator,
-            "factory": lambda args: ConformanceRuleCheck(
-                conformance_rule_id=args.get("ConformanceRuleId")
-            )
-        },
-        "CheckNationalCurrency": {
-            "generator": CheckNationalCurrencyGenerator,
-            "factory": lambda args: FormatCheck(format_type="currency_code")
-        },
-        "ColumnByColumnEqualsColumnValue": {
-            "generator": ColumnComparisonGenerator,
-            "factory": lambda args: ColumnComparisonCheck(
-                comparison_column=args.get("ComparisonColumn"),
-                operator="equals"
-            )
+            "factory": lambda args: "ColumnName"
         },
         "FormatNumeric": {
             "generator": FormatNumericGenerator,
-            "factory": lambda args: FormatCheck(format_type="numeric")
-        },
-        "FormatDateTime": {
-            "generator": FormatDateTimeGenerator,
-            "factory": lambda args: FormatCheck(format_type="datetime")
+            "factory": lambda args: "ColumnName"
         },
         "FormatString": {
             "generator": FormatStringGenerator,
-            "factory": lambda args: FormatCheck(format_type="string")
+            "factory": lambda args: "ColumnName"
         },
-        "FormatCurrency": {
+        "FormatDateTime": {
+            "generator": FormatDateTimeGenerator,
+            "factory": lambda args: "ColumnName"
+        },
+        "FormatBillingCurrencyCode": {
             "generator": FormatBillingCurrencyCodeGenerator,
-            "factory": lambda args: FormatCheck(format_type="currency_code")
+            "factory": lambda args: "ColumnName"
         },
         "FormatKeyValue": {
             "generator": FormatKeyValueGenerator,
-            "factory": lambda args: FormatCheck(format_type="key_value")
+            "factory": lambda args: "ColumnName"
+        },
+        "FormatCurrency": {
+            "generator": FormatCurrencyGenerator,
+            "factory": lambda args: "ColumnName"
+        },
+        "CheckNationalCurrency": {
+            "generator": FormatCurrencyGenerator,
+            "factory": lambda args: "ColumnName"
         },
         "FormatUnit": {
-            "generator": FormatStringGenerator,
-            "factory": lambda args: FormatCheck(format_type="unit")
+            "generator": FormatUnitGenerator,
+            "factory": lambda args: "ColumnName"
+        },
+        "CheckValue": {
+            "generator": CheckValueGenerator,
+            "factory": lambda args: "ColumnName"
+        },
+        "CheckNotValue": {
+            "generator": CheckNotValueGenerator,
+            "factory": lambda args: "ColumnName"
+        },
+        "CheckSameValue": {
+            "generator": CheckSameValueGenerator,
+            "factory": lambda args: "ColumnAName"
+        },
+        "CheckNotSameValue": {
+            "generator": CheckNotSameValueGenerator,
+            "factory": lambda args: "ColumnAName"
         },
         "CheckGreaterOrEqualThanValue": {
             "generator": CheckGreaterOrEqualGenerator,
-            "factory": lambda args: ValueComparisonCheck(
-                operator="greater_equal",
-                value=args.get("Value")
-            )
+            "factory": lambda args: "ColumnName"
         },
-        "CompositeRule": {
-            "generator": CompositeRuleGenerator,
-            "factory": None  # Composite rules are handled separately
+        "CheckDistinctCount": {
+            "generator": CheckDistinctCountGenerator,
+            "factory": lambda args: "ColumnAName"
         },
-        # Additional check types that were in rule.py
-        "FormatBillingCurrencyCode": {
-            "generator": FormatBillingCurrencyCodeGenerator,
-            "factory": lambda args: FormatCheck(format_type="currency_code")
+        "CheckConformanceRule": {
+            "generator": CheckConformanceRuleGenerator,
+            "factory": lambda args: "ConformanceRuleId"
         },
         "AND": {
-            "generator": CompositeRuleGenerator,
-            "factory": lambda args: CompositeCheck(
-                logic_operator="AND",
-                dependency_rule_ids=FocusToDuckDBSchemaConverter._extractDependencyRuleIds(args.get("Items", []))
-            )
+            "generator": CompositeANDRuleGenerator,
+            "factory": lambda args: "Items"
         },
         "OR": {
-            "generator": CompositeRuleGenerator,
-            "factory": lambda args: CompositeCheck(
-                logic_operator="OR",
-                dependency_rule_ids=FocusToDuckDBSchemaConverter._extractDependencyRuleIds(args.get("Items", []))
-            )
+            "generator": CompositeORRuleGenerator,
+            "factory": lambda args: "Items"
         },
+        "ColumnByColumnEqualsColumnValue": {
+            "generator": ColumnByColumnEqualsColumnValueGenerator,
+            "factory": lambda args: "ColumnAName"
+        }
     }
 
-    @staticmethod
-    def _extractDependencyRuleIds(items: List) -> List[str]:
-        # Extract ConformanceRuleId values
-        dependency_rule_ids = []
-        for item in items:
-            if isinstance(item, dict) and item.get("CheckFunction") == "CheckConformanceRule":
-                rule_id = item.get("ConformanceRuleId")
-                if rule_id:
-                    dependency_rule_ids.append(rule_id)
-        return dependency_rule_ids
+    def __init__(self, *, focus_data: Any, focus_table_name: str = "focus_data", pragma_threads: int | None = None, explain_mode: bool = False) -> None:
+        self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
+        self.conn: duckdb.DuckDBPyConnection | None = None
+        self.plan: ValidationPlan | None = None
+        self.pragma_threads = pragma_threads
+        self.focus_data = focus_data
+        self.table_name = focus_table_name
+        # Example caches (optional)
+        self._prepared: Dict[str, Any] = {}
+        self._views: Dict[str, str] = {}  # rule_id -> temp view name
+        self.explain_mode = explain_mode
 
-    @classmethod
-    def getCheckFunctionMappings(cls):
-        # Central method that returns check function mappings using the registry
-        mappings = {}
-        for check_function, config in cls.CHECK_GENERATORS.items():
-            if config["factory"] is not None:
-                mappings[check_function] = config["factory"]
-        return mappings
-
-    # Dispatch map for check types to generator configuration
-    CHECK_TYPE_DISPATCH = {
-        # Simple string checks
-        "column_required": ("ColumnPresent", lambda rule, check_id, check: (rule, check_id)),
-
-        # DataTypeCheck mappings
-        (DataTypeCheck, DataTypes.DECIMAL): ("TypeDecimal", lambda rule, check_id, check: (rule, check_id)),
-        (DataTypeCheck, DataTypes.STRING): ("TypeString", lambda rule, check_id, check: (rule, check_id)),
-        (DataTypeCheck, DataTypes.DATETIME): ("TypeDateTime", lambda rule, check_id, check: (rule, check_id)),
-
-        # ValueComparisonCheck mappings
-        (ValueComparisonCheck, "not_equals"): ("CheckNotValue", lambda rule, check_id, check: (rule, check_id, check.value)),
-        (ValueComparisonCheck, "equals"): ("CheckValue", lambda rule, check_id, check: (rule, check_id, check.value)),
-        (ValueComparisonCheck, "greater_equal"): ("CheckGreaterOrEqualThanValue", lambda rule, check_id, check: (rule, check_id, check.value)),
-        (ValueComparisonCheck, "not_equals_column"): ("CheckNotSameValue", lambda rule, check_id, check: (rule, check_id, check.value, "not_equals")),
-        (ValueComparisonCheck, "equals_column"): ("CheckSameValue", lambda rule, check_id, check: (rule, check_id, check.value, "equals")),
-
-        # FormatCheck mappings
-        (FormatCheck, "numeric"): ("FormatNumeric", lambda rule, check_id, check: (rule, check_id)),
-        (FormatCheck, "datetime"): ("FormatDateTime", lambda rule, check_id, check: (rule, check_id)),
-        (FormatCheck, "string"): ("FormatString", lambda rule, check_id, check: (rule, check_id)),
-        (FormatCheck, "currency_code"): ("FormatBillingCurrencyCode", lambda rule, check_id, check: (rule, check_id)),
-        (FormatCheck, "key_value"): ("FormatKeyValue", lambda rule, check_id, check: (rule, check_id)),
-        (FormatCheck, "unit"): ("FormatUnit", lambda rule, check_id, check: (rule, check_id)),
-
-        # Other check types
-        DistinctCountCheck: ("CheckDistinctCount", lambda rule, check_id, check: (rule, check_id, check.column_a_name, check.column_b_name, check.expected_count)),
-        ConformanceRuleCheck: ("CheckConformanceRule", lambda rule, check_id, check: (rule, check_id, check.conformance_rule_id)),
-        ColumnComparisonCheck: ("ColumnByColumnEqualsColumnValue", lambda rule, check_id, check: (rule, check_id, check.comparison_column, check.operator)),
-    }
-
-    @classmethod
-    def __generate_duckdb_check__(cls, rule: Rule, check_id: str) -> Optional[DuckDBColumnCheck]:
-        check = rule.check
-
-        # Skip rules with empty or composite column_id to prevent SQL syntax errors
-        if not rule.column_id or rule.column_id == "__COMPOSITE__":
-            return None
-
-        # Handle CompositeCheck separately (needs dependency results)
-        if isinstance(check, CompositeCheck):
-            return None
-
-        # Try dispatch by simple string match
-        if isinstance(check, str):
-            dispatch_config = cls.CHECK_TYPE_DISPATCH.get(check)
-        # Try dispatch by (type, attribute) tuple
-        elif isinstance(check, (DataTypeCheck, ValueComparisonCheck, FormatCheck)):
-            if isinstance(check, DataTypeCheck):
-                key = (DataTypeCheck, check.data_type)
-            elif isinstance(check, ValueComparisonCheck):
-                key = (ValueComparisonCheck, check.operator)
-            elif isinstance(check, FormatCheck):
-                key = (FormatCheck, check.format_type)
-            dispatch_config = cls.CHECK_TYPE_DISPATCH.get(key)
-        # Try dispatch by type only
+    # -- lifecycle ------------------------------------------------------------
+    def prepare(self, *, conn: duckdb.DuckDBPyConnection, plan: ValidationPlan) -> None:
+        """Initialize connection, create temp schema/tables/UDFs, register sources."""
+        self.conn = conn
+        self.plan = plan
+        if self.conn is None:
+                self.log.debug("Creating in-memory DuckDB connection")
+                self.conn = duckdb.connect(":memory:")
+                self.conn.register(self.table_name, self.focus_data)
         else:
-            dispatch_config = cls.CHECK_TYPE_DISPATCH.get(type(check))
+            self.log.debug("Using provided DuckDB connection")
 
-        if dispatch_config:
-            generator_name, arg_builder = dispatch_config
-            generator_class = cls.CHECK_GENERATORS[generator_name]["generator"]
-            args = arg_builder(rule, check_id, check)
-            generator = generator_class(*args)
-            return generator.generateCheck()
+        if self.pragma_threads:
+            self.conn.execute(f"PRAGMA threads={int(self.pragma_threads)}")
+
+        # TODO:
+        # - register pandas/arrow tables or file paths
+        # - create temp schema or set search_path if needed
+        # - compile reusable SQL fragments; register any UDFs (from CheckFunctions)
+
+    def finalize(self, *, success: bool, results_by_idx: Dict[int, Dict[str, Any]]) -> None:
+        """Optional cleanup: drop temps, emit summaries, etc."""
+        # e.g., self.conn.execute("DROP VIEW IF EXISTS ...")
+        pass
+
+    # -- check build/execute --------------------------------------------------
+    def build_check(
+        self,
+        *,
+        rule: Any,
+        parent_results_by_idx: Dict[int, Dict[str, Any]],
+        parent_edges: Tuple[EdgeCtx, ...],
+        rule_id: str,
+        node_idx: int,
+    ) -> Any:
+        """
+        Build a runnable DuckDBColumnCheck (leaf or composite) for a rule.
+        Parent results/edges are available if your generators ever need them;
+        for now, we keep the API symmetric and future-proof.
+        """
+        if self.conn is None or self.plan is None:
+            raise RuntimeError("Converter not prepared. Call prepare(conn=..., plan=...) first.")
+
+        # If your generators need access to parents, you can stash them on self for this node
+        # or extend DuckDBCheckGenerator to accept them. Keeping it simple for now.
+        if rule.is_dynamic():
+            return SkippedDynamicCheck(rule=rule, rule_id=rule_id)
+
+        requirement = self.__requirement_for_rule__(rule)
+        check_obj = self.__generate_duckdb_check__(rule, rule_id, requirement, 
+                                                   breadcrumb=rule_id, 
+                                                   parent_results_by_idx=parent_results_by_idx, 
+                                                   parent_edges=parent_edges,
+                                                   )
+        return check_obj
+
+    def run_check(self, check: Any) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Execute a DuckDBColumnCheck (leaf or composite) or a SkippedCheck.
+        Ensures details always include: violations:int, message:str.
+        """
+
+
+        def _msg_for_outcome(obj, ok: bool, fallback_fail: str, fallback_ok: str | None = None) -> str | None:
+            if ok:
+                # Prefer an explicit successMessage if a generator sets it; else no message or a tiny 'OK'
+                sm = getattr(obj, "successMessage", None)
+                return sm if isinstance(sm, str) and sm.strip() else (fallback_ok or None)
+            else:
+                em = getattr(obj, "errorMessage", None)
+                return em if isinstance(em, str) and em.strip() else fallback_fail
+            
+        if self.conn is None:
+            raise RuntimeError("Converter not prepared. No DuckDB connection.")
+
+        # ---- helpers ------------------------------------------------------------
+        def _msg_for(obj, fallback: str) -> str:
+            msg = getattr(obj, "errorMessage", None)
+            return msg if (isinstance(msg, str) and msg.strip()) else fallback
+
+        def _sub_table(sql: str) -> str:
+            # support both {table_name} and {{table_name}} templates
+            if not hasattr(self, "table_name") or not self.table_name:
+                raise RuntimeError("FocusToDuckDBSchemaConverter.table_name is not set.")
+            return sql.replace("{{table_name}}", self.table_name).replace("{table_name}", self.table_name)
+
+        def _extract_missing_columns(err_msg: str) -> list[str]:
+            pats = [
+                r'Column with name ([A-Za-z0-9_"]+) does not exist',
+                r'Binder Error: .*? column ([A-Za-z0-9_"]+)',
+                r'"([A-Za-z0-9_]+)" not found',
+            ]
+            found = set()
+            for pat in pats:
+                for m in re.finditer(pat, err_msg):
+                    col = m.group(1).strip('"')
+                    if col:
+                        found.add(col)
+            return sorted(found)
+
+        # ---- skipped (dynamic) --------------------------------------------------
+        if isinstance(check, SkippedCheck) or getattr(check, "checkType", "") == "skipped_check":
+            ok, details = check.run(self.conn)
+            details.setdefault("violations", 0)
+            details.setdefault("message", _msg_for(check, f"{getattr(check,'rule_id','<rule>')}: skipped"))
+            return ok, details
+
+        # ---- composite (AND/OR) -------------------------------------------------
+        nested = getattr(check, "nestedChecks", None) or []
+        handler = getattr(check, "nestedCheckHandler", None)
+        if nested and handler:
+            # Upstream dependency short-circuit (tag set by composite generator)
+            upstream = getattr(check, "force_fail_due_to_upstream", None)
+            if upstream:
+                reason = upstream.get("reason", "upstream dependency failure")
+                failed_deps = upstream.get("failed_dependencies", [])
+                child_details: List[Dict[str, Any]] = []
+                for child in nested:
+                    child_details.append({
+                        "rule_id": getattr(child, "rule_id", None),
+                        "ok": False,
+                        "violations": 1,
+                        "message": f"{getattr(child, 'rule_id', '<child>')}: {reason}",
+                        "reason": reason,
+                    })
+                details = {
+                    "children": child_details,
+                    "aggregated": handler.__name__,
+                    "message": _msg_for(check, f"{getattr(check,'rule_id','<rule>')}: {reason}"),
+                    "reason": reason,
+                    "failed_dependencies": failed_deps,
+                    "violations": 1,
+                    "check_type": getattr(check, "checkType", None) or getattr(check, "check_type", None),
+                }
+                return False, details
+
+            # Normal composite: run children and aggregate
+            oks: List[bool] = []
+            child_details: List[Dict[str, Any]] = []
+            for child in nested:
+                ok_i, det_i = self.run_check(child)
+                oks.append(ok_i)
+                det_i.setdefault("violations", 0 if ok_i else 1)
+                det_i.setdefault("message", _msg_for(child, f"{getattr(child,'rule_id','<child>')}: check failed"))
+                child_details.append({"rule_id": getattr(child, "rule_id", None), **det_i})
+
+            agg_ok = bool(handler(oks))
+            details = {
+                "children": child_details,
+                "aggregated": handler.__name__,
+                "message": _msg_for_outcome(
+                    check,
+                    agg_ok,
+                    fallback_fail=f"{getattr(check,'rule_id','<rule>')}: composite failed",
+                    fallback_ok=None,  # or f"{getattr(check,'rule_id','<rule>')}: OK"
+                ),
+                "violations": 0 if agg_ok else 1,
+                "check_type": getattr(check, "checkType", None) or getattr(check, "check_type", None),
+            }
+            return agg_ok, details
+        
+        # ---- leaf ---------------------------------------------------------------
+        # Special executor path (e.g., conformance rule reference)
+        special = getattr(check, "special_executor", None)
+        if callable(special):
+            ok, details = special(self.conn)
+            details.setdefault("violations", 0 if ok else 1)
+            details.setdefault("message", getattr(check, "errorMessage", None)
+                            or f"{getattr(check,'rule_id','<rule>')}: reference evaluation")
+            details.setdefault("check_type", getattr(check, "checkType", None) or getattr(check, "check_type", None))
+            return ok, details
+        sql = getattr(check, "checkSql", None)
+        if not sql:
+            raise InvalidRule(f"Leaf check has no SQL to execute (rule_id={getattr(check, 'rule_id', None)})")
+        sql_final = _sub_table(sql)
+
+        t0 = time.perf_counter()
+        try:
+            df = self.conn.execute(sql_final).fetchdf()
+        except (duckdb.CatalogException, duckdb.BinderException, duckdb.ParserException) as e:
+            # Convert schema/binder errors into a clean failure
+            msg = str(e)
+            missing = _extract_missing_columns(msg)
+            reason = f"Missing columns: {', '.join(missing)}" if missing else "Missing required column(s)"
+            details = {
+                "violations": 1,
+                "message": _msg_for(check, f"{getattr(check,'rule_id','<rule>')}: {reason}"),
+                "error": msg,
+                "missing_columns": missing or None,
+                "timing_ms": (time.perf_counter() - t0) * 1000.0,
+                "check_type": getattr(check, "checkType", None) or getattr(check, "check_type", None),
+            }
+            return False, details
+
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+
+        if df.empty:
+            raise RuntimeError(
+                f"Validation query returned no rows for {getattr(check,'rule_id','<rule>')}.\nSQL:\n{sql_final}"
+            )
+
+        # Prefer explicit 'violations' column; fall back to first cell if needed.
+        if "violations" in df.columns:
+            raw = df.at[0, "violations"]
+        else:
+            raw = df.iloc[0, 0]
+
+        if raw is None:
+            raise RuntimeError(
+                f"'violations' returned NULL for {getattr(check,'rule_id','<rule>')}.\nSQL:\n{sql_final}"
+            )
+
+        try:
+            violations = int(raw)
+        except Exception:
+            raise RuntimeError(
+                f"'violations' is not an integer for {getattr(check,'rule_id','<rule>')} (got {type(raw).__name__}: {raw!r}).\nSQL:\n{sql_final}"
+            )
+
+        ok = (violations == 0)
+        details: Dict[str, Any] = {
+            "violations": violations,
+            "message": _msg_for_outcome(
+                check,
+                ok,
+                fallback_fail=f"{getattr(check,'rule_id','<rule>')}: check failed",
+                fallback_ok=None,  # or f"{getattr(check,'rule_id','<rule>')}: OK"
+            ),
+            "timing_ms": elapsed_ms,
+            "check_type": getattr(check, "checkType", None) or getattr(check, "check_type", None),
+        }
+
+        # Optional: sample rows if provided by the generator and the check failed
+        sample_sql = getattr(check, "sample_sql", None)
+        sample_limit = getattr(check, "sample_limit", 50)
+        if (not ok) and sample_sql:
+            try:
+                sql_sample = _sub_table(sample_sql) + f" LIMIT {int(sample_limit)}"
+                details["failure_cases"] = self.conn.execute(sql_sample).fetchdf()
+            except Exception as e:
+                details["sample_error"] = str(e)
+
+        return ok, details
+
+    def __requirement_for_rule__(self, rule: Any) -> dict:
+        """
+        Return the normalized Requirement dict for this rule.
+        Expects rule.validation_criteria.requirement to be a dict that contains either:
+        - {"CheckFunction": "<LeafType>", ...params...}
+        - {"CheckFunction": "AND"|"OR", "Items": [ ... child requirements ... ]}
+        """
+        vc = getattr(rule, "validation_criteria", None)
+        if not vc:
+            raise InvalidRule(f"{getattr(rule, 'rule_id', '<unknown>')} has no validation_criteria")
+        req = getattr(vc, "requirement", None)
+        if not isinstance(req, dict):
+            raise InvalidRule(f"{getattr(rule, 'rule_id', '<unknown>')} requirement must be a dict")
+        return req
+
+    def __make_generator__(self, rule: Any, rule_id: str, requirement: dict, 
+                           breadcrumb: str, parent_results_by_idx: dict = None, 
+                           parent_edges: dict = None, row_condition_sql=None) -> DuckDBCheckGenerator:
+        if not isinstance(requirement, dict):
+            raise InvalidRule(
+                f"{rule_id} @ {breadcrumb}: expected requirement dict, got {type(requirement).__name__}"
+            )
+        check_fn = requirement.get("CheckFunction")
+        if not check_fn or not isinstance(check_fn, str):
+            raise InvalidRuleException(
+                textwrap.dedent(f"""
+                Rule {rule_id} @ {breadcrumb}: Requirement missing 'CheckFunction'.
+                Requirement:
+                {_compact_json(requirement)}
+                """).strip()
+            )
+
+        reg = self.CHECK_GENERATORS.get(check_fn)
+        if not reg or "generator" not in reg:
+            raise InvalidRuleException(
+                textwrap.dedent(f"""
+                Rule {rule_id} @ {breadcrumb}: No generator registered for CheckFunction='{check_fn}'.
+                Available generators: {sorted(self.CHECK_GENERATORS.keys())}
+                Requirement:
+                {_compact_json(requirement)}
+                """).strip()
+            )
+
+        gen_cls = reg["generator"]
+
+        # Strip reserved + 'CheckFunction' and pass as-is (no aliasing)
+        reserved = getattr(DuckDBCheckGenerator, "RESERVED", set()) or set()
+        params = {k: v for k, v in requirement.items() if k not in reserved and k != "CheckFunction"}
+
+        # Let the generator’s REQUIRED_KEYS drive validation
+        required = set(getattr(gen_cls, "REQUIRED_KEYS", set()) or set())
+        missing = [rk for rk in sorted(required) if rk not in params]
+
+        if missing:
+            # Optional: capture parent context summary for composite trees (best-effort)
+            parent_summary = ""
+            try:
+                parents = getattr(rule, "_plan_parents_", None)  # if you want, attach this earlier
+                if parents:
+                    parent_status = ", ".join(
+                        f"{pid}={'FAIL' if not pres.get('ok', True) else 'OK'}"
+                        for pid, pres in parents.items()
+                    )
+                    parent_summary = f"\nParent status: {parent_status}"
+            except Exception:
+                pass
+
+            message = textwrap.dedent(f"""
+            Rule {rule_id} @ {breadcrumb}: Missing required parameter(s) for '{check_fn}'.
+            Required: {sorted(required)}
+            Provided: {sorted(params.keys())}
+            Requirement (snippet):
+            {_compact_json(requirement)}
+            """).rstrip() + parent_summary
+
+            # Log full requirement once (helps when stdout truncates exceptions)
+            log.error("Generator args missing: %s", message)
+            raise InvalidRuleException(message)
+
+        # Instantiate with *exactly* what was provided (plus defaults if your gen applies them)
+        return gen_cls(
+            rule=rule,
+            rule_id=rule_id,
+            plan=self.plan,
+            conn=self.conn,
+            parent_results_by_idx=parent_results_by_idx or {},
+            parent_edges=parent_edges or (),
+            row_condition_sql=row_condition_sql,
+            compile_condition=self._compile_condition_with_generators,
+            child_builder=lambda child_req, child_bc: self.__generate_duckdb_check__(
+                rule, rule_id, child_req,
+                breadcrumb=child_bc,
+                parent_results_by_idx=parent_results_by_idx or {},
+                parent_edges=parent_edges or (),
+            ),
+            breadcrumb=breadcrumb,
+            **params,
+        )
+
+    def __generate_duckdb_check__(self, rule: Any, rule_id: str, requirement: dict, breadcrumb: str,
+                                  parent_results_by_idx, parent_edges) -> "DuckDBColumnCheck":
+        """
+        Build a DuckDBColumnCheck for this requirement.
+        For composites (AND/OR), the Composite* generators will recursively call back here
+        to build child checks and set `nestedChecks` + `nestedCheckHandler`.
+        """
+        if not isinstance(requirement, dict):
+            raise InvalidRule(
+                f"{rule_id} @ {breadcrumb}: expected requirement dict, got {type(requirement).__name__}"
+            )
+        eff_cond = self._build_effective_condition(rule, parent_edges)
+        gen = self.__make_generator__(rule, rule_id, requirement,
+                                      breadcrumb=breadcrumb,
+                                      parent_results_by_idx=parent_results_by_idx,
+                                      parent_edges=parent_edges,
+                                      row_condition_sql=eff_cond,
+                                      )
+        # NOTE: Composite generators in your file already call __generate_duckdb_check__ for children
+        # and set self.nestedChecks + self.nestedCheckHandler before returning.
+        if isinstance(gen, SkippedCheck):
+            return gen
+        return gen.generateCheck()
+    
+    def _apply_condition(self, violation_pred_sql: str) -> str:
+        """
+        Given a boolean predicate that defines 'row is a violation',
+        AND it with the effective row_condition_sql if present.
+        """
+        cond = (self.row_condition_sql or "").strip()
+        if not cond:
+            return violation_pred_sql
+        return f"(({violation_pred_sql})) AND ({cond})"
+
+    # --- condition helpers -------------------------------------------------------
+    def _extract_condition_sql_from_rule(self, rule) -> str | None:
+        """
+        Return a SQL predicate string for this rule's Condition, or None if not present.
+        Supports both Pydantic models and dict-shaped rules.
+        We treat these keys as likely carriers of a raw SQL predicate:
+        - ValidationCriteria.ConditionSql
+        - ValidationCriteria.Condition.SQL / Sql / Expression / Where / Predicate
+        - ValidationCriteria.Condition (if it's already a string)
+        """
+        vc = getattr(rule, "validation_criteria", None)
+        if vc is None and isinstance(rule, dict):
+            vc = rule.get("ValidationCriteria")
+
+        cond = None
+        if vc is None:
+            return None
+
+        # direct fields
+        for key in ("ConditionSql", "ConditionSQL", "Condition_Sql"):
+            cond = getattr(vc, key, None) if not isinstance(vc, dict) else vc.get(key)
+            if isinstance(cond, str) and cond.strip():
+                return cond.strip()
+
+        # nested "Condition"
+        c = getattr(vc, "Condition", None) if not isinstance(vc, dict) else vc.get("Condition")
+        if isinstance(c, str) and c.strip():
+            return c.strip()
+        if isinstance(c, dict):
+            # try common keys for raw SQL
+            for key in ("SQL", "Sql", "Expression", "Expr", "Where", "Predicate"):
+                v = c.get(key)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            # If your Condition is a structured object, compile here (out of scope for now)
 
         return None
 
-    @classmethod
-    def __generate_checks__(
-        cls, rules: List[Rule]
-    ) -> List[DuckDBColumnCheck]:
-        # Generate DuckDB validation checks using registry
-        checks = []
+    def _node_by_rule_id(self, rid: str):
+        # Try fast path if your plan exposes a mapping; otherwise fallback scan.
+        plan = getattr(self, "plan", None)
+        if not plan:
+            return None
+        # common names people use:
+        for attr in ("nodes_by_rule_id", "by_rule_id", "id2node"):
+            ndict = getattr(plan, attr, None)
+            if isinstance(ndict, dict):
+                return ndict.get(rid)
+        # fallback: linear scan
+        nodes = getattr(plan, "nodes", None)
+        if isinstance(nodes, (list, tuple)):
+            for n in nodes:
+                if getattr(n, "rule_id", None) == rid:
+                    return n
+        return None
 
-        for rule in rules:
-            check = cls.__generate_duckdb_check__(rule, rule.check_id)
-            if check:
-                checks.append(check)
+    def _parent_rules_from_edges(self, parent_edges):
+        """
+        Yield parent rule objects from a variety of parent_edges shapes:
+        - iterable[EdgeCtx] (with .parent_idx / .src_idx / .parent_rule_id / .src_rule_id)
+        - dict[rule_id, EdgeCtx]
+        - iterable[int] (node indices)
+        - iterable[str] (rule_ids)
+        - iterable[PlanNode]
+        """
+        plan = getattr(self, "plan", None)
+        if not plan:
+            return
 
-        return checks
+        # Normalize to an iterable of edges/ids/indices/nodes
+        if isinstance(parent_edges, dict):
+            items = parent_edges.values()
+        else:
+            items = parent_edges or ()
 
-    @classmethod
-    def generateDuckDBValidation(
-        cls,
-        rules: List[Union[Rule, InvalidRule]],
-    ) -> tuple[List[DuckDBColumnCheck], Dict[str, ChecklistObject], List[str]]:
-        log = logging.getLogger(f"{__name__}.{cls.__name__}")
-        log.info("Generating DuckDB validation checks for %d rules", len(rules))
-
-        startTime = time.time()
-        checks = []
-        checklist = {}
-        compositeRuleIds = []
-        invalidRuleCount = 0
-        dynamicRuleCount = 0
-        pendingRuleCount = 0
-
-        for rule in rules:
-            if isinstance(rule, InvalidRule):
-                log.debug("Processing invalid rule: %s", rule.rule_path)
-                checklist[rule.rule_path] = ChecklistObject(
-                    check_name=os.path.splitext(os.path.basename(rule.rule_path))[0],
-                    column_id="Unknown",
-                    error=f"{rule.error_type}: {rule.error}",
-                    status=ChecklistObjectStatus.ERRORED,
-                    rule_ref=rule,
-                )
-                invalidRuleCount += 1
+        for e in items:
+            # 1) direct index
+            if isinstance(e, int):
+                try:
+                    node = plan.nodes[e]
+                    yield getattr(node, "rule", None)
+                except Exception:
+                    continue
                 continue
 
-            # Check if this is a dynamic rule (marked during loading)
-            is_dynamic_rule = hasattr(rule, '_rule_type') and getattr(rule, '_rule_type', '').lower() == "dynamic"
+            # 2) rule_id string
+            if isinstance(e, str):
+                node = self._node_by_rule_id(e)
+                if node is not None:
+                    yield getattr(node, "rule", None)
+                continue
 
-            if is_dynamic_rule:
-                log.debug("Skipping dynamic rule: %s", rule.check_id)
-                dynamicRuleCount += 1
-            else:
-                log.debug("Processing static rule: %s", rule.check_id)
-                pendingRuleCount += 1
+            # 3) plan node object
+            rid = getattr(e, "rule_id", None)
+            rule = getattr(e, "rule", None)
+            if rule is not None and rid is not None:
+                yield rule
+                continue
 
-            # Track composite rules separately for efficient processing
-            if isinstance(rule.check, CompositeCheck):
-                compositeRuleIds.append(rule.check_id)
+            # 4) EdgeCtx-like: try to pull an index, then rule_id
+            idx = None
+            for attr in ("parent_idx", "src_idx", "from_idx", "u", "parent_node_idx"):
+                v = getattr(e, attr, None)
+                if isinstance(v, int):
+                    idx = v
+                    break
+            if idx is not None:
+                try:
+                    node = plan.nodes[idx]
+                    yield getattr(node, "rule", None)
+                except Exception:
+                    pass
+                continue
 
-            checklist[rule.check_id] = ChecklistObject(
-                check_name=rule.check_id,
-                column_id=rule.column_id,
-                friendly_name=rule.check_friendly_name,
-                status=ChecklistObjectStatus.SKIPPED if is_dynamic_rule else ChecklistObjectStatus.PENDING,
-                rule_ref=rule,
-                reason="Dynamic rule - skipped in static validation" if is_dynamic_rule else None
+            for attr in ("parent_rule_id", "src_rule_id", "rule_id"):
+                rid = getattr(e, attr, None)
+                if isinstance(rid, str):
+                    node = self._node_by_rule_id(rid)
+                    if node is not None:
+                        yield getattr(node, "rule", None)
+                    break
+
+    def _compile_condition_with_generators(self, spec: dict | str | None, *, rule, rule_id: str, breadcrumb: str = "") -> str | None:
+        if not spec:
+            return None
+        if isinstance(spec, str):
+            s = spec.strip()
+            return s or None
+        if not isinstance(spec, dict):
+            return None
+
+        fn = spec.get("CheckFunction")
+        if not fn:
+            return None
+
+        # Composites (reuse your composite names)
+        if fn == "AND":
+            items = spec.get("Items") or []
+            parts = []
+            for i, it in enumerate(items):
+                pred = self._compile_condition_with_generators(it, rule=rule, rule_id=rule_id, breadcrumb=f"{breadcrumb}>AND[{i}]")
+                if pred:
+                    parts.append(f"({pred})")
+            if not parts:
+                return "TRUE"   # AND of nothing = TRUE (no filter)
+            return " AND ".join(parts)
+
+        if fn == "OR":
+            items = spec.get("Items") or []
+            parts = []
+            for i, it in enumerate(items):
+                pred = self._compile_condition_with_generators(it, rule=rule, rule_id=rule_id, breadcrumb=f"{breadcrumb}>OR[{i}]")
+                if pred:
+                    parts.append(f"({pred})")
+            if not parts:
+                return "FALSE"  # OR of nothing = FALSE (no rows)
+            return " OR ".join(parts)
+
+        # Leaf: reuse the CHECK_GENERATORS registry
+        reg = self.CHECK_GENERATORS.get(fn)
+        if not reg:
+            # Unknown function name → no filter (or raise if you want strict)
+            return None
+
+        gen_cls = reg["generator"]
+
+        # Basic required-key validation (optional)
+        required = getattr(gen_cls, "REQUIRED_KEYS", set()) or set()
+        missing = [k for k in required if k not in spec]
+        if missing:
+            # For conditions, you can choose to return None or raise
+            # raise ValueError(f"{rule_id} @ {breadcrumb}: Condition {fn} missing keys {missing}")
+            return None
+
+        # Build params (exclude CheckFunction)
+        params = {k: v for k, v in spec.items() if k != "CheckFunction"}
+
+        # Instantiate with exec_mode="condition"
+        gen = gen_cls(
+            rule=rule,
+            rule_id=rule_id,
+            exec_mode="condition",
+            breadcrumb=breadcrumb or rule_id,
+            **params,
+        )
+
+        pred = gen.generatePredicate()
+        return pred.strip() if pred else None
+
+    def _extract_condition_spec(self, rule):
+        vc = getattr(rule, "validation_criteria", None)
+        if vc is None and isinstance(rule, dict):
+            vc = rule.get("ValidationCriteria")
+        if not vc:
+            return None
+        cond = getattr(vc, "Condition", None) if not isinstance(vc, dict) else vc.get("Condition")
+        if cond is None:
+            for k in ("ConditionSql", "ConditionSQL", "Condition_Sql"):
+                v = getattr(vc, k, None) if not isinstance(vc, dict) else vc.get(k)
+                if v is not None:
+                    return v
+        return cond
+
+    def _build_effective_condition(self, rule, parent_edges) -> str | None:
+        parts = []
+
+        me = self._extract_condition_spec(rule)
+        me_sql = self._compile_condition_with_generators(me, rule=rule, rule_id=getattr(rule, "rule_id", None) or getattr(rule, "RuleId", None) or "<rule>", breadcrumb="Condition")
+        if me_sql:
+            parts.append(f"({me_sql})")
+
+        for prule in self._parent_rules_from_edges(parent_edges):
+            if prule is None:
+                continue
+            pspec = self._extract_condition_spec(prule)
+            psql = self._compile_condition_with_generators(pspec, rule=prule, rule_id=getattr(prule, "rule_id", None) or getattr(prule, "RuleId", None) or "<parent>", breadcrumb="ParentCondition")
+            if psql:
+                parts.append(f"({psql})")
+
+        if not parts:
+            return None
+        return " AND ".join(parts)
+
+    def emit_sql_map(self) -> dict:
+        """
+        Build (but do not execute) every check for the current plan and
+        return {rule_id: explanation_dict}.
+        The explanation includes final SQL (with table name substituted) for leaves,
+        effective row_condition_sql, and composite/reference/skip shapes.
+        """
+        if not getattr(self, "plan", None):
+            raise RuntimeError("emit_sql_map() requires an attached plan")
+
+        out = {}
+        # however you iterate in validate(): use plan.schedule (list of node indices), or plan.nodes
+        schedule = getattr(self.plan, "schedule", None) or range(len(self.plan.nodes))
+
+        for idx in schedule:
+            node = self.plan.nodes[idx]
+            rid = node.rule_id
+            rule = node.rule
+
+            # Gather the same parent context you use in validate()
+            parent_results_by_idx = getattr(node, "parent_results_by_idx", {}) or {}
+            parent_edges = getattr(node, "parent_edges", ()) or ()
+
+            # Build (don’t run) the check
+            check = self.build_check(
+                rule=rule,
+                rule_id=rid,
+                node_idx=idx,
+                parent_results_by_idx=parent_results_by_idx,
+                parent_edges=parent_edges,
             )
 
-        # Generate validation checks using registry
-        log.debug("Generating validation checks for %d pending rules", pendingRuleCount)
-        validationChecks = cls.__generate_checks__([cl.rule_ref for cl in checklist.values() if cl.status == ChecklistObjectStatus.PENDING])
-        checks.extend(validationChecks)
+            out[rid] = self._explain_check_sql(check)
 
-        generationTime = time.time() - startTime
-        log.info("DuckDB validation generation completed in %.3f seconds", generationTime)
-        log.info("  Generated checks: %d", len(checks))
-        log.info("  Pending rules: %d", pendingRuleCount)
-        log.info("  Composite rules: %d", len(compositeRuleIds))
-        log.info("  Dynamic rules (skipped): %d", dynamicRuleCount)
-        log.info("  Invalid rules: %d", invalidRuleCount)
+        return out
+    
+    def explain(self) -> dict:
+        return self.emit_sql_map()
 
-        return checks, checklist, compositeRuleIds
+    def _explain_check_sql(self, check) -> dict:
+        """
+        Produce a pure-data explanation for a single built check object, without executing it.
+        """
+        rid = getattr(check, "rule_id", None)
+        ctype = getattr(check, "checkType", None) or getattr(check, "check_type", None)
+        meta = getattr(check, "meta", {}) or {}
 
-    @staticmethod
-    def executeDuckDBValidation(
-        connection: duckdb.DuckDBPyConnection,
-        tableName: str,
-        checks: List[DuckDBColumnCheck],
-        checklist: Dict[str, ChecklistObject],
-        compositeRuleIds: Optional[List[str]] = None,
-        dependency_results: Optional[Dict[str, bool]] = None
-    ) -> Dict[str, ChecklistObject]:
-        log = logging.getLogger(f"{__name__}.FocusToDuckDBSchemaConverter")
-        log.info("Executing DuckDB validation with %d checks on table: %s", len(checks), tableName)
+        # Skipped / dynamic
+        if getattr(check, "checkType", "") == "skipped_check" or hasattr(check, "is_skip") and check.is_skip:
+            return {
+                "rule_id": rid,
+                "type": "skipped",
+                "check_type": ctype,
+                "reason": getattr(check, "reason", None) or "dynamic rule",
+                "sql": None,
+                "row_condition_sql": None,
+                "generator": meta.get("generator"),
+            }
 
-        startTime = time.time()
-        executedCount = 0
-        passedCount = 0
-        failedCount = 0
-        errorCount = 0
+        # Composite (AND / OR)
+        nested = getattr(check, "nestedChecks", None) or []
+        handler = getattr(check, "nestedCheckHandler", None)
+        if nested and handler:
+            agg = "all" if handler is all else ("any" if handler is any else getattr(handler, "__name__", "aggregate"))
+            children = [self._explain_check_sql(ch) for ch in nested]
+            return {
+                "rule_id": rid,
+                "type": "composite",
+                "aggregate": agg,         # "all" (AND) or "any" (OR)
+                "check_type": ctype,
+                "generator": meta.get("generator"),
+                "row_condition_sql": meta.get("row_condition_sql"),
+                "children": children,
+                # Many composite generators return "SELECT 0 AS violations"—not meaningful alone
+                "sql": None,
+            }
 
-        # Create lookup dictionary for O(1) access: maps (column_name, check_id) to checklist item
-        checklistLookup = {}
-        for check_id, item in checklist.items():
-            if hasattr(item.rule_ref, 'check'):
-                checklistLookup[(item.column_id, check_id)] = item
+        # Conformance reference / special executor (no SQL)
+        special = getattr(check, "special_executor", None)
+        if callable(special):
+            return {
+                "rule_id": rid,
+                "type": "reference",
+                "check_type": ctype,
+                "generator": meta.get("generator"),
+                "row_condition_sql": meta.get("row_condition_sql"),
+                "referenced": getattr(check, "referenced_rule_id", None),
+                "sql": None,  # executed by reference, not SQL
+                "note": "mirrors referenced rule outcome (no SQL)",
+            }
 
-        # Execute DuckDB validation checks
-        for check in checks:
-            executedCount += 1
-            log.debug("Executing check %d/%d: %s on column %s", executedCount, len(checks), check.checkType, check.columnName)
-            try:
-                # Replace table name placeholder in SQL
-                sql = check.checkSql.replace('{table_name}', tableName)
-                log.debug("Executing SQL: %s", sql[:100] + "..." if len(sql) > 100 else sql)
+        # Leaf with SQL
+        sql = getattr(check, "checkSql", None) or getattr(check, "check_sql", None)
+        return {
+            "rule_id": rid,
+            "type": "leaf",
+            "check_type": ctype,
+            "generator": meta.get("generator"),
+            "row_condition_sql": meta.get("row_condition_sql"),
+            "sql": self._subst_table(sql) if sql else None,
+            "message": getattr(check, "errorMessage", None),
+        }
 
-                checkStartTime = time.time()
-                result = connection.execute(sql).fetchone()
-                checkDuration = time.time() - checkStartTime
+    def _subst_table(self, sql: str) -> str:
+        if not hasattr(self, "table_name") or not self.table_name:
+            return sql
+        return sql.replace("{{table_name}}", self.table_name).replace("{table_name}", self.table_name)
 
-                # Extract check_id from error message (format: "check_id: friendly_name")
-                check_id = check.errorMessage.split(':')[0].strip() if ':' in check.errorMessage else None
-
-                # O(1) lookup using check_id and column name
-                checklistItem = None
-                if check_id:
-                    checklistItem = checklistLookup.get((check.columnName, check_id))
-
-                if checklistItem:
-                    if result and result[0]:  # check_failed is True
-                        checklistItem.status = ChecklistObjectStatus.FAILED
-                        checklistItem.error = check.errorMessage
-                        failedCount += 1
-                        log.debug("Check FAILED (%.3fs): %s on %s", checkDuration, check.checkType, check.columnName)
-                    else:
-                        checklistItem.status = ChecklistObjectStatus.PASSED
-                        passedCount += 1
-                        log.debug("Check PASSED (%.3fs): %s on %s", checkDuration, check.checkType, check.columnName)
-                else:
-                    log.warning("Could not find matching checklist item for check: %s on %s", check.checkType, check.columnName)
-
-            except Exception as e:
-                log.error("DuckDB check failed: %s on column %s - %s", check.checkType, check.columnName, str(e))
-                errorCount += 1
-
-                # Extract check_id and lookup checklist item
-                check_id = check.errorMessage.split(':')[0].strip() if ':' in check.errorMessage else None
-                if check_id:
-                    errorItem = checklistLookup.get((check.columnName, check_id))
-                    if errorItem:
-                        errorItem.status = ChecklistObjectStatus.FAILED
-                        errorItem.error = f"DuckDB validation error: {str(e)}"
-
-            # Progress logging
-            if executedCount % 100 == 0:
-                log.debug("Progress: %d/%d checks executed", executedCount, len(checks))
-
-        # Handle composite rules after basic validation
-        if compositeRuleIds:
-            log.debug("Executing %d composite rules...", len(compositeRuleIds))
-            FocusToDuckDBSchemaConverter._executeCompositeRules(checklist, compositeRuleIds, dependency_results or {})
-
-        executionTime = time.time() - startTime
-        log.info("DuckDB validation execution completed in %.3f seconds", executionTime)
-        log.info("Execution summary:")
-        log.info("  Total checks executed: %d", executedCount)
-        log.info("  Passed: %d", passedCount)
-        log.info("  Failed: %d", failedCount)
-        log.info("  Errors: %d", errorCount)
-        log.info("  Success rate: %.1f%%", (passedCount / executedCount * 100) if executedCount > 0 else 0)
-
-        return checklist
-
-    @staticmethod
-    def _executeCompositeRules(checklist: Dict[str, ChecklistObject], compositeRuleIds: List[str], dependency_results: Dict[str, bool]):
-        """Execute composite rule validation based on dependency results."""
-        for check_id in compositeRuleIds:
-            item = checklist.get(check_id)
-            if not item or not hasattr(item.rule_ref, 'check'):
-                continue
-
-            composite_check = item.rule_ref.check
-            if not isinstance(composite_check, CompositeCheck):
-                continue
-
-            logic_operator = composite_check.logic_operator
-            dependency_rule_ids = composite_check.dependency_rule_ids
-
-            try:
-                if logic_operator == "AND":
-                    assessment_func = all
-                elif logic_operator == "OR":
-                    assessment_func = any
-                else:
-                    raise FocusNotImplementedError(f"Unsupported logic operator: {logic_operator}")
-
-                # All dependencies must pass for composite to pass (SKIPPED counts as PASSED)
-                all_passed = assessment_func(
-                    dep_id in checklist and checklist[dep_id].status in [ChecklistObjectStatus.PASSED, ChecklistObjectStatus.SKIPPED]
-                    for dep_id in dependency_rule_ids
-                )
-                item.status = ChecklistObjectStatus.PASSED if all_passed else ChecklistObjectStatus.FAILED
-
-                if item.status == ChecklistObjectStatus.FAILED:
-                    item.error = f"Composite rule {logic_operator} logic failed for dependencies: {dependency_rule_ids}"
-
-            except Exception as e:
-                item.status = ChecklistObjectStatus.ERRORED
-                item.error = f"Error evaluating composite rule: {str(e)}"
+    def print_sql_map(self, sql_map: dict):
+        for rid, info in sql_map.items():
+            t = info.get("type")
+            print(f"\n=== {rid} [{t}] ===")
+            rc = info.get("row_condition_sql")
+            if rc:
+                print(f"Condition: {rc}")
+            if t == "leaf" and info.get("sql"):
+                print(info["sql"])
+            elif t == "composite":
+                print(f"Composite: {info.get('aggregate')} with {len(info.get('children', []))} items")
+            elif t == "reference":
+                print(f"Reference to: {info.get('referenced')}")
+            elif t == "skipped":
+                print(f"Skipped: {info.get('reason')}")

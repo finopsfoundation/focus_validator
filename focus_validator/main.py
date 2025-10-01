@@ -7,8 +7,10 @@ import os
 import sys
 import time
 import yaml
+import subprocess
 from focus_validator.validator import DEFAULT_VERSION_SETS_PATH, Validator
 from importlib import resources as ir
+from .outputter.outputter_validation_graph import build_validation_graph
 
 
 def setup_logging(config_path: str | None = None) -> None:
@@ -204,26 +206,10 @@ def main() -> None:
     else:
         log.info("Starting validation process...")
         startTime = time.time()
-
         try:
-            results = validator.validate()
+            sql_map, plan, results = validator.validate()
             duration = time.time() - startTime
-
-            # Log validation summary
-            if hasattr(results, 'checklist') and results.checklist:
-                totalRules = len(results.checklist)
-                passedRules = sum(1 for check in results.checklist.values()
-                                if hasattr(check, 'status') and check.status.name == 'PASS')
-                failedRules = totalRules - passedRules
-
-                log.info("=== Validation Completed ===")
-                log.info("Duration: %.3f seconds", duration)
-                log.info("Total rules checked: %d", totalRules)
-                log.info("Passed: %d", passedRules)
-                log.info("Failed: %d", failedRules)
-                log.info("Success rate: %.1f%%", (passedRules / totalRules * 100) if totalRules > 0 else 0)
-            else:
-                log.info("Validation completed in %.3f seconds", duration)
+            log.info("Validation completed in %.3f seconds", duration)
 
         except Exception as e:
             duration = time.time() - startTime
@@ -231,29 +217,20 @@ def main() -> None:
             raise
 
         if args.visualize:
-            import os
-            import subprocess
-            from validation_results_visualizer import visualizeValidationResults
-
-            filename = "visualize.svg"
-
+            filename = "visualize"
             log.info("Generating visualization: %s", filename)
             try:
-                visualizeValidationResults(
-                    validationResult=results,
-                    svgFilename=filename,
-                    showPassed=True,
-                    spec_rules_path=validator.get_spec_rules_path(),
-                )
-
+                g = build_validation_graph(plan=plan, results=results, sql_map=sql_map)
+                g.render(filename, cleanup=True)
+                
                 log.info("Visualization generated successfully: %s", filename)
 
                 # Open visualization
                 if os.name == 'nt':  # Windows
                     log.debug("Opening visualization with Windows default handler")
-                    os.startfile(filename)
+                    os.startfile(f"{filename}.svg")
                 elif os.name == 'posix':  # macOS and Linux
-                    openCmd = ['open', filename] if sys.platform == 'darwin' else ['xdg-open', filename]
+                    openCmd = ['open', f"{filename}.svg"] if sys.platform == 'darwin' else ['xdg-open', f"{filename}.svg"]
                     log.debug("Opening visualization with command: %s", openCmd)
                     subprocess.run(openCmd)
 

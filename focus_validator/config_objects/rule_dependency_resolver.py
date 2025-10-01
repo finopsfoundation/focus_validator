@@ -1,6 +1,9 @@
 import logging
 from typing import Dict, List, Set, Any, Optional, Iterable, Tuple
 from collections import defaultdict, deque
+from .rule import ConformanceRule
+from .plan_builder import PlanBuilder, compile_validation_plan, default_key_fn, ValidationPlan
+
 
 log = logging.getLogger(__name__)
 
@@ -192,26 +195,24 @@ class RuleDependencyResolver:
     def __init__(self, dataset_rules: Dict[str, Any], raw_rules_data: Dict[str, Any]):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.dataset_rules = dataset_rules
-        self.raw_rules_data = raw_rules_data
-        self.rules_data = self.collectDatasetRules()
+        self.rules = self.collectDatasetRules(raw_rules_data)
         self.dependency_graph = defaultdict(set)  # rule_id -> {dependent_rule_ids}
         self.reverse_graph = defaultdict(list)  # rule_id -> [rules_that_depend_on_this]
         self.in_degree = defaultdict(int)  # rule_id -> number of dependencies
 
-    def collectDatasetRules(self) -> Dict[str, Any]:
+    def collectDatasetRules(self, raw_rules_data: Dict[str, Any]) -> Dict[str, Any]:
         """Collect rules relevant to the specified dataset."""
         if not self.dataset_rules:
             raise ValueError("No dataset rules provided to collectDatasetRules.")
 
         relevant_rules = {}
         dependencies = deque()
-        raw_rules = self.raw_rules_data
 
         for rule_id in self.dataset_rules:
-            rule_data = raw_rules.get(rule_id)
+            rule_data = raw_rules_data.get(rule_id)
             if rule_data is not None:
-                relevant_rules[rule_id] = rule_data
-                rule_dependencies = self._extractRuleDependencies(rule_data)
+                relevant_rules[rule_id] = ConformanceRule.model_validate(rule_data).with_rule_id(rule_id)
+                rule_dependencies = relevant_rules[rule_id].validation_criteria.dependencies
                 for rule_dep in rule_dependencies:
                     if rule_dep not in relevant_rules:
                         dependencies.append(rule_dep)
@@ -225,15 +226,18 @@ class RuleDependencyResolver:
                 continue
             processed_deps.add(dep_id)
 
-            dep_rule_data = raw_rules.get(dep_id)
+            dep_rule_data = raw_rules_data.get(dep_id)
             if dep_rule_data is not None and dep_id not in relevant_rules:
-                relevant_rules[dep_id] = dep_rule_data
-                rule_dependencies = self._extractRuleDependencies(dep_rule_data)
+                relevant_rules[dep_id] = ConformanceRule.model_validate(dep_rule_data).with_rule_id(dep_id)
+                rule_dependencies = relevant_rules[dep_id].validation_criteria.dependencies
                 for rule_dep in rule_dependencies:
                     if rule_dep not in relevant_rules and rule_dep not in processed_deps:
                         dependencies.append(rule_dep)
             elif dep_rule_data is None:
                 self.log.warning("Dependency Rule ID %s not found in raw rules data", dep_id)
+        
+        # Propagate composite conditions into each referenced rule's private attr
+        self._propagate_composite_conditions(relevant_rules)
 
         return relevant_rules
 
@@ -244,13 +248,12 @@ class RuleDependencyResolver:
         Otherwise, processes rules that start with target_rule_prefix and their dependencies.
         """
         # Filter rules by prefix first (or use all rules if prefix is None)
-        if target_rule_prefix is None:
-            filtered_rules = self.rules_data
-        else:
+        filtered_rules = self.rules
+        if target_rule_prefix is not None:
             # Start with rules matching the prefix
             initial_rules = {
-                rule_id: rule_data
-                for rule_id, rule_data in self.rules_data.items()
+                rule_id: rule
+                for rule_id, rule in self.rules.items()
                 if rule_id.startswith(target_rule_prefix)
             }
 
@@ -258,8 +261,8 @@ class RuleDependencyResolver:
             filtered_rules = self._collectAllDependencies(initial_rules)
 
         # Build graph for filtered rules
-        for rule_id, rule_data in filtered_rules.items():
-            dependencies = self._extractRuleDependencies(rule_data)
+        for rule_id, rule in filtered_rules.items():
+            dependencies = rule.validation_criteria.dependencies
 
             # Only add dependencies that are also in our filtered set
             filtered_dependencies = {
@@ -291,33 +294,19 @@ class RuleDependencyResolver:
             processed.add(current_rule_id)
 
             # Get rule data - check if it exists in our source data
-            if current_rule_id not in self.rules_data:
+            if current_rule_id not in self.rules:
                 continue
 
-            rule_data = self.rules_data[current_rule_id]
-            dependencies = self._extractRuleDependencies(rule_data)
+            rule = self.rules[current_rule_id]
+            dependencies = rule.validation_criteria.dependencies
 
             # Add dependencies to our collection and queue them for processing
             for dep_id in dependencies:
-                if dep_id in self.rules_data and dep_id not in all_rules:
-                    all_rules[dep_id] = self.rules_data[dep_id]
+                if dep_id in self.rules and dep_id not in all_rules:
+                    all_rules[dep_id] = self.rules[dep_id]
                     to_process.append(dep_id)
 
         return all_rules
-
-    def _extractRuleDependencies(self, rule_data: Dict[str, Any]) -> List[str]:
-        """
-        Extract ConformanceRule dependencies from ValidationCriteria.
-        Prioritizes explicit Dependencies field, then falls back to parsing Requirements/Conditions.
-        """
-        validation_criteria = rule_data.get("ValidationCriteria", {})
-
-        # Check explicit Dependencies field first - this is the preferred method
-        explicit_deps = validation_criteria.get("Dependencies", [])
-        if explicit_deps:
-            return list(set(explicit_deps))
-
-        return []
 
     def getTopologicalOrder(self) -> List[str]:
         """
@@ -364,30 +353,88 @@ class RuleDependencyResolver:
         """Get direct dependencies for a specific rule."""
         return list(self.dependency_graph.get(rule_id, set()))
 
-    def getDependents(self, rule_id: str) -> List[str]:
-        """Get rules that depend on the specified rule."""
-        return self.reverse_graph.get(rule_id, [])
-
     def isCompositeRule(self, rule_id: str) -> bool:
         """
         Check if a rule is composite by examining its Function type
         and whether it has CheckConformanceRule dependencies.
         """
-        rule_data = self.rules_data.get(rule_id, {})
-        function_type = rule_data.get("Function")
-        has_dependencies = len(self.getDependencies(rule_id)) > 0
-
-        return function_type == "Composite" and has_dependencies
+        rule = self.rules.get(rule_id, {})
+        has_dependencies = len(rule.validation_criteria.dependencies) > 0
+        return rule.function == "Composite" and has_dependencies
 
     def getCompositeRuleLogic(self, rule_id: str) -> Optional[str]:
         """
         Extract the logic (AND/OR) for a composite rule.
         """
+        if rule_id not in self.rules:
+            raise ValueError(f"Rule ID '{rule_id}' not found in rules.")
+
         if not self.isCompositeRule(rule_id):
             return None
 
-        rule_data = self.rules_data.get(rule_id, {})
-        validation_criteria = rule_data.get("ValidationCriteria", {})
-        requirement = validation_criteria.get("Requirement", {})
+        rule = self.rules.get(rule_id)
+        return rule.validation_criteria.requirement.get("CheckFunction")
 
-        return requirement.get("CheckFunction")  # Should be "AND" or "OR"
+    def _propagate_composite_conditions(
+        self,
+        rules: Dict[str, "ConformanceRule"],
+    ) -> None:
+        """
+        For every Composite rule with a non-empty ValidationCriteria.condition,
+        set that condition as the runtime inherited_precondition on each
+        directly referenced rule via CheckConformanceRule.
+        """
+        for rule in rules.values():
+            if rule.function == "Composite" and rule.validation_criteria.condition:
+                condition = rule.validation_criteria.condition
+
+                for item in rule.validation_criteria.requirement.get("Items", []):
+                    if item.get('CheckFunction', None) == "CheckConformanceRule":
+                        dep_rule_id = item.get("ConformanceRuleId", None)
+                        if dep_rule_id in rules:
+                            rules[dep_rule_id].validation_criteria.precondition = condition
+                        else:
+                            self.log.warning("Referenced rule ID %s not found for condition propagation", dep_rule_id)
+
+    def getRelevantRules(self) -> Dict[str, "ConformanceRule"]:
+        """Return the filtered set of rules relevant to the target prefix and dependencies."""
+        return self.rules
+
+    def build_plan_and_schedule(
+        self,
+        entry_rule_ids: Optional[List[str]] = None,
+        *,
+        exec_ctx: Optional[dict] = None,
+        rules_dict: Optional[Dict[str, any]] = None,
+        checkfunctions_dict: Optional[Dict[str, any]] = None,
+    ) -> ValidationPlan:
+        """
+        Build a parent-preserving PlanGraph via recursive expansion, then compile to a
+        ValidationPlan (index-based, layered) for fast execution.
+
+        - entry_rule_ids: explicit roots; if None, uses all relevant rules.
+        - exec_ctx: optional runtime context for future edge gating.
+        - rules_dict/checkfunctions_dict: pass-through of your raw JSON maps so the plan can
+          carry everything the executor might need, without extra plumbing.
+        """
+        relevant_rules = self.getRelevantRules()  # already computed after buildDependencyGraph()
+
+        # Choose roots
+        roots = entry_rule_ids if entry_rule_ids else list(relevant_rules.keys())
+
+        # Build plan graph
+        builder = PlanBuilder(relevant_rules)
+        plan_graph = builder.build_forest(roots)
+
+        # Compile to execution-ready plan
+        val_plan = compile_validation_plan(
+            plan_graph=plan_graph,
+            rules_dict=rules_dict or self.raw_rules_data,         # fall back to what you already hold
+            checkfunctions=checkfunctions_dict or {},             # pass through if available
+            key_fn=default_key_fn(plan_graph),
+            exec_ctx=exec_ctx,
+        )
+
+        # Keep for introspection/diagnostics if useful
+        self._last_validation_plan = val_plan
+        return val_plan
