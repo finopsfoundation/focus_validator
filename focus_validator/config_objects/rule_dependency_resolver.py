@@ -192,13 +192,16 @@ def _dump_blockers(graph: Dict[str, Set[str]], remaining: Iterable[str]) -> None
 class RuleDependencyResolver:
     # Build a DAG and do Topological sort to get dependencies
 
-    def __init__(self, dataset_rules: Dict[str, Any], raw_rules_data: Dict[str, Any]):
+    def __init__(self, dataset_rules: Dict[str, Any], raw_rules_data: Dict[str, Any], validated_applicability_criteria: Optional[List[str]] = None):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.dataset_rules = dataset_rules
+        self.validated_applicability_criteria = validated_applicability_criteria or []
         self.rules = self.collectDatasetRules(raw_rules_data)
         self.dependency_graph = defaultdict(set)  # rule_id -> {dependent_rule_ids}
         self.reverse_graph = defaultdict(list)  # rule_id -> [rules_that_depend_on_this]
         self.in_degree = defaultdict(int)  # rule_id -> number of dependencies
+
+
 
     def collectDatasetRules(self, raw_rules_data: Dict[str, Any]) -> Dict[str, Any]:
         """Collect rules relevant to the specified dataset."""
@@ -211,7 +214,9 @@ class RuleDependencyResolver:
         for rule_id in self.dataset_rules:
             rule_data = raw_rules_data.get(rule_id)
             if rule_data is not None:
-                relevant_rules[rule_id] = ConformanceRule.model_validate(rule_data).with_rule_id(rule_id)
+                rule = ConformanceRule.model_validate(rule_data).with_rule_id(rule_id)
+                # Always include the rule - let the converter handle applicability filtering with SkippedNonApplicableCheck
+                relevant_rules[rule_id] = rule
                 rule_dependencies = relevant_rules[rule_id].validation_criteria.dependencies
                 for rule_dep in rule_dependencies:
                     if rule_dep not in relevant_rules:
@@ -228,7 +233,9 @@ class RuleDependencyResolver:
 
             dep_rule_data = raw_rules_data.get(dep_id)
             if dep_rule_data is not None and dep_id not in relevant_rules:
-                relevant_rules[dep_id] = ConformanceRule.model_validate(dep_rule_data).with_rule_id(dep_id)
+                dep_rule = ConformanceRule.model_validate(dep_rule_data).with_rule_id(dep_id)
+                # Always include the dependency rule - let the converter handle applicability filtering with SkippedNonApplicableCheck
+                relevant_rules[dep_id] = dep_rule
                 rule_dependencies = relevant_rules[dep_id].validation_criteria.dependencies
                 for rule_dep in rule_dependencies:
                     if rule_dep not in relevant_rules and rule_dep not in processed_deps:
