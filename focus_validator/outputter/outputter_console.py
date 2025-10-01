@@ -1,12 +1,5 @@
 import logging
-import math
-from dataclasses import dataclass
 from typing import Any, Dict
-
-import pandas as pd
-
-from focus_validator.config_objects import ConformanceRule
-from focus_validator.rules.spec_rules import ValidationResults
 
 # from focus_validator.rules.spec_rules import ValidationResults  # wherever it lives
 

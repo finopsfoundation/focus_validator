@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Union
 
 import sqlglot
 from pydantic import BaseModel, field_validator

@@ -1,6 +1,6 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Edge helpers (as provided)
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from graphviz import Digraph  # type: ignore
 
