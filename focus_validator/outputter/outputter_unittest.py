@@ -117,8 +117,12 @@ class UnittestOutputter:
         def _get_status_from_entry(entry):
             """Convert entry to status string."""
             # Handle ChecklistObject format (from tests)
-            if hasattr(entry, 'status'):
-                status_value = entry.status.value if hasattr(entry.status, 'value') else str(entry.status)
+            if hasattr(entry, "status"):
+                status_value = (
+                    entry.status.value
+                    if hasattr(entry.status, "value")
+                    else str(entry.status)
+                )
                 if status_value == "skipped":
                     return "skipped"
                 elif status_value == "passed":
@@ -127,7 +131,7 @@ class UnittestOutputter:
                     return "errored"
                 else:
                     return "failed"
-            
+
             # Handle ValidationResults format
             details = entry.get("details", {})
             if details.get("skipped"):
@@ -139,58 +143,90 @@ class UnittestOutputter:
                 return "errored"
             else:
                 return "failed"
-        
+
         def _convert_entry_to_row(rule_id, entry):
             """Convert entry to the format expected by formatter."""
             status = _get_status_from_entry(entry)
-            
+
             # Handle ChecklistObject format (from tests)
-            if hasattr(entry, 'check_name'):
+            if hasattr(entry, "check_name"):
                 return {
-                    "check_name": getattr(entry, 'check_name', rule_id),
-                    "status": type('MockStatus', (), {'value': status})(),  # Mock status object
-                    "column_id": getattr(entry, 'column_id', 'Unknown'),
-                    "friendly_name": getattr(entry, 'friendly_name', rule_id),
-                    "error": getattr(entry, 'error', None) if status in ["failed", "errored"] else None,
-                    "rule_ref": {"check_type_friendly_name": getattr(entry.rule_ref, 'check_type_friendly_name', 'Unknown') if hasattr(entry, 'rule_ref') else 'Unknown'}
+                    "check_name": getattr(entry, "check_name", rule_id),
+                    "status": type(
+                        "MockStatus", (), {"value": status}
+                    )(),  # Mock status object
+                    "column_id": getattr(entry, "column_id", "Unknown"),
+                    "friendly_name": getattr(entry, "friendly_name", rule_id),
+                    "error": getattr(entry, "error", None)
+                    if status in ["failed", "errored"]
+                    else None,
+                    "rule_ref": {
+                        "check_type_friendly_name": getattr(
+                            entry.rule_ref, "check_type_friendly_name", "Unknown"
+                        )
+                        if hasattr(entry, "rule_ref")
+                        else "Unknown"
+                    },
                 }
-            
+
             # Handle ValidationResults format
-            if hasattr(result_set, 'rules') and result_set.rules:
+            if hasattr(result_set, "rules") and result_set.rules:
                 rule = result_set.rules.get(rule_id)
             else:
                 rule = None
-            
+
             details = entry.get("details", {})
-            
+
             return {
                 "check_name": rule_id,
-                "status": type('MockStatus', (), {'value': status})(),  # Mock status object
-                "column_id": getattr(rule, 'column_id', 'Unknown') if rule else 'Unknown',
-                "friendly_name": getattr(rule, 'friendly_name', rule_id) if rule else rule_id,
+                "status": type(
+                    "MockStatus", (), {"value": status}
+                )(),  # Mock status object
+                "column_id": getattr(rule, "column_id", "Unknown")
+                if rule
+                else "Unknown",
+                "friendly_name": getattr(rule, "friendly_name", rule_id)
+                if rule
+                else rule_id,
                 "error": details.get("message") if status == "failed" else None,
-                "rule_ref": {"check_type_friendly_name": getattr(rule, 'check_type_friendly_name', 'Unknown') if rule else 'Unknown'}
+                "rule_ref": {
+                    "check_type_friendly_name": getattr(
+                        rule, "check_type_friendly_name", "Unknown"
+                    )
+                    if rule
+                    else "Unknown"
+                },
             }
 
         # Handle both ValidationResults format and legacy mock format
-        if hasattr(result_set, 'by_rule_id') and isinstance(result_set.by_rule_id, dict):
+        if hasattr(result_set, "by_rule_id") and isinstance(
+            result_set.by_rule_id, dict
+        ):
             # New ValidationResults format
             entries = result_set.by_rule_id
-        elif hasattr(result_set, 'checklist') and isinstance(result_set.checklist, dict):
+        elif hasattr(result_set, "checklist") and isinstance(
+            result_set.checklist, dict
+        ):
             # Legacy mock format for tests
             entries = result_set.checklist
         else:
             entries = {}
-        
+
         # First generate the summary
         result_statuses = {}
         for status in ["passed", "failed", "skipped", "errored"]:
             result_statuses[status] = sum(
-                [1 for entry in entries.values() if _get_status_from_entry(entry) == status]
+                [
+                    1
+                    for entry in entries.values()
+                    if _get_status_from_entry(entry) == status
+                ]
             )
 
         # format the results for processing
-        rows = [_convert_entry_to_row(rule_id, entry) for rule_id, entry in entries.items()]
+        rows = [
+            _convert_entry_to_row(rule_id, entry) for rule_id, entry in entries.items()
+        ]
 
         # Setup a Formatter and initiate with result totals
         formatter = UnittestFormatter(

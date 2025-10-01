@@ -1,30 +1,52 @@
-import os
-import requests
 import logging
-import duckdb  # type: ignore[import-untyped]
+import os
 from dataclasses import dataclass
-from typing import Dict, Any, Callable, Tuple, Optional, List
-from focus_validator.config_objects import JsonLoader, ConformanceRule
-from focus_validator.config_objects.plan_builder import ValidationPlan, ExecNode
-from focus_validator.config_objects.focus_to_duckdb_converter import FocusToDuckDBSchemaConverter
-from focus_validator.exceptions import UnsupportedVersion, FailedDownloadError, InvalidRuleException
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+import duckdb  # type: ignore[import-untyped]
+import requests
+
+from focus_validator.config_objects import ConformanceRule, JsonLoader
+from focus_validator.config_objects.focus_to_duckdb_converter import (
+    FocusToDuckDBSchemaConverter,
+)
+from focus_validator.config_objects.plan_builder import ExecNode, ValidationPlan
+from focus_validator.exceptions import (
+    FailedDownloadError,
+    InvalidRuleException,
+    UnsupportedVersion,
+)
 
 log = logging.getLogger(__name__)
 BuildCheck = Callable[[Any, Dict[int, Dict[str, Any]], Tuple[Any, ...]], Any]
 RunCheck = Callable[[Any], Tuple[bool, Dict[str, Any]]]
 
+
 @dataclass
 class ValidationResults:
     """Holds validation outputs in both index-keyed and rule_id-keyed forms."""
+
     by_idx: Dict[int, Dict[str, Any]]
     by_rule_id: Dict[str, Dict[str, Any]]
-    rules: Dict[str, ConformanceRule]  # rule_id -> full rule object for outputter access
+    rules: Dict[
+        str, ConformanceRule
+    ]  # rule_id -> full rule object for outputter access
 
 
 class SpecRules:
-    
     def __init__(
-        self, rule_set_path, rules_file_prefix, rules_version, rules_file_suffix, focus_dataset, filter_rules, rules_force_remote_download, allow_draft_releases, allow_prerelease_releases, column_namespace, applicability_criteria_list=None,
+        self,
+        rule_set_path,
+        rules_file_prefix,
+        rules_version,
+        rules_file_suffix,
+        focus_dataset,
+        filter_rules,
+        rules_force_remote_download,
+        allow_draft_releases,
+        allow_prerelease_releases,
+        column_namespace,
+        applicability_criteria_list=None,
     ):
         self.rule_set_path = rule_set_path
         self.rules_file_prefix = rules_file_prefix
@@ -34,34 +56,57 @@ class SpecRules:
         self.filter_rules = filter_rules
         self.applicability_criteria_list = applicability_criteria_list or []
         self.json_rule_file = os.path.join(
-            self.rule_set_path, f"{self.rules_file_prefix}{self.rules_version}{self.rules_file_suffix}"
+            self.rule_set_path,
+            f"{self.rules_file_prefix}{self.rules_version}{self.rules_file_suffix}",
         )
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.rules_force_remote_download = rules_force_remote_download
         self.allow_draft_releases = allow_draft_releases
         self.allow_prerelease_releases = allow_prerelease_releases
         self.local_supported_versions = self.supported_local_versions()
-        self.log.info("Found %d local supported versions: %s", len(self.local_supported_versions), self.local_supported_versions)
+        self.log.info(
+            "Found %d local supported versions: %s",
+            len(self.local_supported_versions),
+            self.local_supported_versions,
+        )
         self.remote_versions = {}
-        if self.rules_force_remote_download or self.rules_version not in self.local_supported_versions:
-            self.log.info("Remote rule download needed (force: %s, version available locally: %s)",
-                         self.rules_force_remote_download, self.rules_version in self.local_supported_versions)
+        if (
+            self.rules_force_remote_download
+            or self.rules_version not in self.local_supported_versions
+        ):
+            self.log.info(
+                "Remote rule download needed (force: %s, version available locally: %s)",
+                self.rules_force_remote_download,
+                self.rules_version in self.local_supported_versions,
+            )
 
             self.log.debug("Fetching remote supported versions...")
             self.remote_supported_versions = self.supported_remote_versions()
-            self.log.info("Found %d remote supported versions: %s", len(self.remote_supported_versions), self.remote_supported_versions)
+            self.log.info(
+                "Found %d remote supported versions: %s",
+                len(self.remote_supported_versions),
+                self.remote_supported_versions,
+            )
 
             if self.rules_version not in self.remote_supported_versions:
-                self.log.error("Version %s not found in remote versions", self.rules_version)
+                self.log.error(
+                    "Version %s not found in remote versions", self.rules_version
+                )
                 raise UnsupportedVersion(
                     f"FOCUS version {self.rules_version} not supported. Supported versions: local {self.local_supported_versions} remote {self.remote_supported_versions}"
                 )
             else:
-                self.log.info("Downloading remote rules for version %s...", self.rules_version)
-                download_url = self.remote_versions[self.rules_version]["asset_browser_download_url"]
+                self.log.info(
+                    "Downloading remote rules for version %s...", self.rules_version
+                )
+                download_url = self.remote_versions[self.rules_version][
+                    "asset_browser_download_url"
+                ]
                 self.log.debug("Download URL: %s", download_url)
 
-                if not self.download_remote_version(remote_url=download_url, save_path=self.json_rule_file):
+                if not self.download_remote_version(
+                    remote_url=download_url, save_path=self.json_rule_file
+                ):
                     self.log.error("Failed to download remote rules file")
                     raise FailedDownloadError(
                         f"Failed to download remote rules file for version {self.rules_version}"
@@ -77,9 +122,13 @@ class SpecRules:
         """Return list of versions from files in rule_set_path."""
         versions = []
         for filename in os.listdir(self.rule_set_path):
-            if filename.startswith(self.rules_file_prefix) and filename.endswith(self.rules_file_suffix):
+            if filename.startswith(self.rules_file_prefix) and filename.endswith(
+                self.rules_file_suffix
+            ):
                 # extract the part between prefix and suffix
-                version = filename[len(self.rules_file_prefix):-len(self.rules_file_suffix)]
+                version = filename[
+                    len(self.rules_file_prefix) : -len(self.rules_file_suffix)
+                ]
                 versions.append(version)
         return versions
 
@@ -107,7 +156,7 @@ class SpecRules:
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
             # Optional but helps with routing
-            "User-Agent": "focus-validator/asset-scan"
+            "User-Agent": "focus-validator/asset-scan",
         }
 
         results: Dict[str, Dict[str, Any]] = {}
@@ -131,18 +180,22 @@ class SpecRules:
 
             for rel in releases:
                 # Filter by draft/prerelease flags
-                if (not self.allow_draft_releases and rel.get("draft")):
+                if not self.allow_draft_releases and rel.get("draft"):
                     continue
-                if (not self.allow_prerelease_releases and rel.get("prerelease")):
+                if not self.allow_prerelease_releases and rel.get("prerelease"):
                     continue
 
                 assets = rel.get("assets", []) or []
                 for asset in assets:
                     name = asset.get("name", "")
-                    if name.startswith(self.rules_file_prefix) and name.endswith(self.rules_file_suffix):
-                       results[rel.get("tag_name", "").removeprefix("v")] = {
+                    if name.startswith(self.rules_file_prefix) and name.endswith(
+                        self.rules_file_suffix
+                    ):
+                        results[rel.get("tag_name", "").removeprefix("v")] = {
                             "release_tag": rel.get("tag_name"),
-                            "asset_browser_download_url": asset.get("browser_download_url"),
+                            "asset_browser_download_url": asset.get(
+                                "browser_download_url"
+                            ),
                         }
             page += 1
 
@@ -156,12 +209,12 @@ class SpecRules:
 
     def download_remote_version(self, remote_url: str, save_path: str) -> bool:
         """Download the file from remote_url and save it to save_path.
-         Returns True if download was successful, False otherwise.
-         """
+        Returns True if download was successful, False otherwise.
+        """
         try:
             response = requests.get(remote_url)
             response.raise_for_status()  # Raise an error for bad status codes
-            with open(save_path, 'wb') as file:
+            with open(save_path, "wb") as file:
                 file.write(response.content)
             return True
         except requests.RequestException as e:
@@ -213,7 +266,10 @@ class SpecRules:
 
         plan = self.plan
         results_by_idx: Dict[int, Dict[str, Any]] = {}
-        converter = FocusToDuckDBSchemaConverter(focus_data=focus_data, validated_applicability_criteria=self.applicability_criteria_list)
+        converter = FocusToDuckDBSchemaConverter(
+            focus_data=focus_data,
+            validated_applicability_criteria=self.applicability_criteria_list,
+        )
         # 1) Let the converter prepare schemas, UDFs, temp views, etc.
         if connection is None:
             connection = duckdb.connect(":memory:")
@@ -224,9 +280,18 @@ class SpecRules:
             for layer in plan.layers:
                 for idx in layer:
                     node: ExecNode = plan.nodes[idx]
-                    setattr(node.rule, "_plan_parents_", {plan.nodes[p].rule_id: results_by_idx[p] for p in node.parent_idxs})
+                    setattr(
+                        node.rule,
+                        "_plan_parents_",
+                        {
+                            plan.nodes[p].rule_id: results_by_idx[p]
+                            for p in node.parent_idxs
+                        },
+                    )
                     # Collect parents' outputs by index (already executed)
-                    parent_results = {pidx: results_by_idx[pidx] for pidx in node.parent_idxs}
+                    parent_results = {
+                        pidx: results_by_idx[pidx] for pidx in node.parent_idxs
+                    }
 
                     # 3) Ask converter to build the runnable check for this rule
                     try:
@@ -239,19 +304,32 @@ class SpecRules:
                         )
                     except InvalidRuleException as e:
                         # Make sure the exception mentions this node explicitly
-                        raise InvalidRuleException(f"[{node.rule_id} @ idx={idx}] {e}") from e
+                        raise InvalidRuleException(
+                            f"[{node.rule_id} @ idx={idx}] {e}"
+                        ) from e
 
                     # 4) Execute it via converter (runs SQL/relations inside DuckDB)
                     ok, details = converter.run_check(check)
 
                     # 5) Stash result (index-keyed for speed; include rule_id for convenience)
-                    results_by_idx[idx] = {"ok": ok, "details": details, "rule_id": node.rule_id}
+                    results_by_idx[idx] = {
+                        "ok": ok,
+                        "details": details,
+                        "rule_id": node.rule_id,
+                    }
 
                     if stop_on_first_error and not ok:
                         # Allow converter to cleanup if it needs to
                         converter.finalize(success=False, results_by_idx=results_by_idx)
-                        rules_dict = {self.plan.nodes[i].rule_id: self.plan.nodes[i].rule for i in results_by_idx.keys()}
-                        return ValidationResults(results_by_idx, self._results_by_rule_id(results_by_idx), rules_dict)
+                        rules_dict = {
+                            self.plan.nodes[i].rule_id: self.plan.nodes[i].rule
+                            for i in results_by_idx.keys()
+                        }
+                        return ValidationResults(
+                            results_by_idx,
+                            self._results_by_rule_id(results_by_idx),
+                            rules_dict,
+                        )
 
             # 6) Normal finalization (e.g., drop temps, flush logs)
             converter.finalize(success=True, results_by_idx=results_by_idx)
@@ -262,12 +340,18 @@ class SpecRules:
                 converter.finalize(success=False, results_by_idx=results_by_idx)
             finally:
                 raise
-        sql_map = converter.emit_sql_map()
-        rules_dict = {self.plan.nodes[i].rule_id: self.plan.nodes[i].rule for i in results_by_idx.keys()}
-        return ValidationResults(results_by_idx, self._results_by_rule_id(results_by_idx), rules_dict)
+        rules_dict = {
+            self.plan.nodes[i].rule_id: self.plan.nodes[i].rule
+            for i in results_by_idx.keys()
+        }
+        return ValidationResults(
+            results_by_idx, self._results_by_rule_id(results_by_idx), rules_dict
+        )
 
     # Optional helper(s)
-    def _results_by_rule_id(self, by_idx: Dict[int, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    def _results_by_rule_id(
+        self, by_idx: Dict[int, Dict[str, Any]]
+    ) -> Dict[str, Dict[str, Any]]:
         if self.plan is None:
             return {}
         return {self.plan.nodes[i].rule_id: res for i, res in by_idx.items()}

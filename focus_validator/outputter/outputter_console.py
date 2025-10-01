@@ -1,12 +1,12 @@
+import logging
 import math
+from dataclasses import dataclass
+from typing import Any, Dict
 
 import pandas as pd
-import logging
 
 from focus_validator.config_objects import ConformanceRule
 from focus_validator.rules.spec_rules import ValidationResults
-from typing import Dict, Any
-from dataclasses import dataclass
 
 # from focus_validator.rules.spec_rules import ValidationResults  # wherever it lives
 
@@ -14,12 +14,14 @@ STATUS_PASS = "PASS"
 STATUS_FAIL = "FAIL"
 STATUS_SKIP = "SKIPPED"
 
+
 def _status_from_result(entry: Dict[str, Any]) -> str:
     # entry = {"ok": bool, "details": {...}, "rule_id": "..."}
     details = entry.get("details") or {}
     if details.get("skipped"):
         return STATUS_SKIP
     return STATUS_PASS if entry.get("ok") else STATUS_FAIL
+
 
 def _line_for_rule(rule_id: str, entry: Dict[str, Any]) -> str:
     status = _status_from_result(entry)
@@ -40,12 +42,12 @@ def _line_for_rule(rule_id: str, entry: Dict[str, Any]) -> str:
     icon = "✅" if status == STATUS_PASS else ("⏭️" if status == STATUS_SKIP else "❌")
     return f"{icon} {rule_id}: {status}{tail}"
 
+
 class ConsoleOutputter:
     def __init__(self, output_destination):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.output_destination = output_destination
         self.result_set = None
-
 
     def write(self, results) -> None:
         """
@@ -53,7 +55,9 @@ class ConsoleOutputter:
         """
         # Expect the new API; fail loudly if the old one is passed
         if not hasattr(results, "by_rule_id"):
-            raise TypeError("ConsoleOutputter.write expected ValidationResults with by_rule_id")
+            raise TypeError(
+                "ConsoleOutputter.write expected ValidationResults with by_rule_id"
+            )
 
         # Summary counts
         passed = failed = skipped = 0
@@ -74,8 +78,10 @@ class ConsoleOutputter:
 
         # Print
         print("\n=== Validation Results ===")
-        print(f"Total: {passed + failed + skipped} | "
-              f"Pass: {passed} | Fail: {failed} | Skipped: {skipped}")
+        print(
+            f"Total: {passed + failed + skipped} | "
+            f"Pass: {passed} | Fail: {failed} | Skipped: {skipped}"
+        )
         for line in lines:
             print(line)
 
@@ -88,10 +94,10 @@ class ConsoleOutputter:
                 d = entry.get("details") or {}
                 msg = d.get("message") or d.get("reason") or f"{rule_id} failed"
                 vio = d.get("violations", "?")
-                
+
                 # Access MustSatisfy from the rule object
                 rule = results.rules.get(rule_id)
                 must_satisfy = rule.validation_criteria.must_satisfy if rule else "N/A"
-                
+
                 print(f"- {rule_id}: violations={vio}; {msg}")
                 print(f"  MustSatisfy: {must_satisfy}")

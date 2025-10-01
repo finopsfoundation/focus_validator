@@ -1,7 +1,5 @@
-import json
-import os
 from enum import Enum
-from typing import Dict, List, Literal, Union
+from typing import List, Literal, Optional, Union
 
 import sqlglot
 from pydantic import BaseModel, field_validator
@@ -33,13 +31,17 @@ class SQLQueryCheck(BaseModel):
 
 class ValueComparisonCheck(BaseModel):
     # Handles CheckNotValue, CheckValue, CheckGreaterOrEqualThanValue, CheckSameValue, CheckNotSameValue
-    operator: Literal["equals", "not_equals", "greater_equal", "not_equals_column", "equals_column"]
+    operator: Literal[
+        "equals", "not_equals", "greater_equal", "not_equals_column", "equals_column"
+    ]
     value: Union[str, float, int, None]
 
 
 class FormatCheck(BaseModel):
     # Handles FormatNumeric, FormatDateTime, FormatBillingCurrencyCode, etc
-    format_type: Literal["numeric", "datetime", "currency_code", "string", "key_value", "unit"]
+    format_type: Literal[
+        "numeric", "datetime", "currency_code", "string", "key_value", "unit"
+    ]
 
 
 class DistinctCountCheck(BaseModel):

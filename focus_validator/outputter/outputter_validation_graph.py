@@ -1,7 +1,9 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Edge helpers (as provided)
-from typing import Any, Dict, Iterable, Tuple, Optional
+from typing import Any, Dict, Iterable, Optional, Tuple
+
 from graphviz import Digraph  # type: ignore
+
 
 def _idx2rid_map(plan) -> Dict[int, str]:
     m = {}
@@ -10,6 +12,7 @@ def _idx2rid_map(plan) -> Dict[int, str]:
         if isinstance(rid, str):
             m[i] = rid
     return m
+
 
 def _rid2idx_map(plan) -> Dict[str, int]:
     m = getattr(plan, "id2idx", None)
@@ -22,21 +25,32 @@ def _rid2idx_map(plan) -> Dict[str, int]:
             m[rid] = i
     return m
 
+
 def _edge_endpoints_from_edgectx(e: Any) -> Optional[Tuple[Any, Any]]:
     # Try indices first
-    u = getattr(e, "parent_idx", None) or getattr(e, "src_idx", None) or getattr(e, "u", None)
-    v = getattr(e, "child_idx",  None) or getattr(e, "dst_idx", None) or getattr(e, "v", None)
+    u = (
+        getattr(e, "parent_idx", None)
+        or getattr(e, "src_idx", None)
+        or getattr(e, "u", None)
+    )
+    v = (
+        getattr(e, "child_idx", None)
+        or getattr(e, "dst_idx", None)
+        or getattr(e, "v", None)
+    )
     if u is not None and v is not None:
         return (u, v)
     # Then rule_ids
-    ur = (getattr(e, "parent_rule_id", None)
-          or getattr(e, "src_rule_id", None)
-          or getattr(e, "rule_id", None))
-    vr = (getattr(e, "child_rule_id", None)
-          or getattr(e, "dst_rule_id", None))
+    ur = (
+        getattr(e, "parent_rule_id", None)
+        or getattr(e, "src_rule_id", None)
+        or getattr(e, "rule_id", None)
+    )
+    vr = getattr(e, "child_rule_id", None) or getattr(e, "dst_rule_id", None)
     if ur is not None and vr is not None:
         return (ur, vr)
     return None
+
 
 def add_plan_edges(g: Digraph, plan, *, use_rule_ids: bool = True) -> None:
     """Add edges to Graphviz, handling EdgeCtx, tuples, dict adjacency, or networkx graphs."""
@@ -63,13 +77,15 @@ def add_plan_edges(g: Digraph, plan, *, use_rule_ids: bool = True) -> None:
         if callable(edges_attr):
             edges_result = edges_attr()
             # Handle case where edges_attr() returns a single EdgeCtx instead of an iterable
-            if hasattr(edges_result, '__iter__') and not isinstance(edges_result, (str, bytes)):
+            if hasattr(edges_result, "__iter__") and not isinstance(
+                edges_result, (str, bytes)
+            ):
                 edge_iter = edges_result
             else:
                 # If it's a single EdgeCtx object, wrap it in a list
                 edge_iter = [edges_result] if edges_result is not None else []
-                
-            for e in edge_iter:          # e might be tuple OR EdgeCtx
+
+            for e in edge_iter:  # e might be tuple OR EdgeCtx
                 if isinstance(e, (tuple, list)) and len(e) == 2:
                     u, v = e
                 else:
@@ -97,12 +113,12 @@ def add_plan_edges(g: Digraph, plan, *, use_rule_ids: bool = True) -> None:
                 # Standard dict adjacency: {u: [v1, v2, ...]}
                 for u, vs in edges_attr.items():
                     # Handle case where vs is a single EdgeCtx instead of an iterable
-                    if hasattr(vs, '__iter__') and not isinstance(vs, (str, bytes)):
+                    if hasattr(vs, "__iter__") and not isinstance(vs, (str, bytes)):
                         v_iter = vs
                     else:
                         # If it's a single EdgeCtx object, wrap it in a list
                         v_iter = [vs]
-                        
+
                     for v in v_iter:
                         nu, nv = _name(u), _name(v)
                         if nu is not None and nv is not None:
@@ -112,12 +128,14 @@ def add_plan_edges(g: Digraph, plan, *, use_rule_ids: bool = True) -> None:
         # iterable of EdgeCtx / tuples
         if edges_attr is not None:
             # Handle case where edges_attr is a single EdgeCtx instead of an iterable
-            if hasattr(edges_attr, '__iter__') and not isinstance(edges_attr, (str, bytes)):
+            if hasattr(edges_attr, "__iter__") and not isinstance(
+                edges_attr, (str, bytes)
+            ):
                 edge_iter = edges_attr
             else:
                 # If it's a single EdgeCtx object, wrap it in a list
                 edge_iter = [edges_attr]
-                
+
             for e in edge_iter:
                 if isinstance(e, (tuple, list)) and len(e) == 2:
                     u, v = e
@@ -135,12 +153,12 @@ def add_plan_edges(g: Digraph, plan, *, use_rule_ids: bool = True) -> None:
     pedges = getattr(plan, "edges", None)
     if pedges:
         # Handle case where pedges is a single EdgeCtx instead of an iterable
-        if hasattr(pedges, '__iter__') and not isinstance(pedges, (str, bytes)):
+        if hasattr(pedges, "__iter__") and not isinstance(pedges, (str, bytes)):
             edge_iter = pedges
         else:
             # If it's a single EdgeCtx object, wrap it in a list
             edge_iter = [pedges]
-            
+
         for e in edge_iter:
             if isinstance(e, (tuple, list)) and len(e) == 2:
                 u, v = e
@@ -174,26 +192,29 @@ def add_plan_edges(g: Digraph, plan, *, use_rule_ids: bool = True) -> None:
                 if nu is not None and nv is not None:
                     g.edge(nu, nv)
 
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Status / shape helpers
 
 COLOR_MAP = {
-    "PASSED":  "lightgreen",
-    "FAILED":  "lightcoral",
+    "PASSED": "lightgreen",
+    "FAILED": "lightcoral",
     "SKIPPED": "lightgray",
     "PENDING": "lightyellow",
 }
 DEFAULT_COLOR = "white"
+
 
 def _status_from_entry(entry: Dict[str, Any]) -> str:
     ok = bool(entry.get("ok", False))
     d = entry.get("details", {}) or {}
     if d.get("skipped"):
         return "SKIPPED"
-    
+
     # All non-skipped validations are either PASSED or FAILED
     # No more ERRORED states - everything is either a business validation pass/fail
     return "PASSED" if ok else "FAILED"
+
 
 def _pick_shape(rule: Any, sql_map: Optional[Dict[str, Any]], rid: str) -> str:
     # prefer generator name from sql_map
@@ -213,8 +234,14 @@ def _pick_shape(rule: Any, sql_map: Optional[Dict[str, Any]], rid: str) -> str:
             return "ellipse"
 
     # fallback: try requirement.CheckFunction
-    vc = getattr(rule, "validation_criteria", None) or getattr(rule, "ValidationCriteria", None)
-    requirement = vc.get("Requirement") if isinstance(vc, dict) else getattr(vc, "Requirement", None)
+    vc = getattr(rule, "validation_criteria", None) or getattr(
+        rule, "ValidationCriteria", None
+    )
+    requirement = (
+        vc.get("Requirement")
+        if isinstance(vc, dict)
+        else getattr(vc, "Requirement", None)
+    )
     if isinstance(requirement, dict):
         fn = (requirement.get("CheckFunction") or "").lower()
         if "column" in fn and "present" in fn:
@@ -224,14 +251,20 @@ def _pick_shape(rule: Any, sql_map: Optional[Dict[str, Any]], rid: str) -> str:
 
     # condition-only nodes (rare)
     has_req = bool(requirement)
-    has_cond = bool((vc or {}).get("Condition") if isinstance(vc, dict) else getattr(vc, "Condition", None))
+    has_cond = bool(
+        (vc or {}).get("Condition")
+        if isinstance(vc, dict)
+        else getattr(vc, "Condition", None)
+    )
     if has_cond and not has_req:
         return "hexagon"
 
     return "ellipse"
 
+
 # ──────────────────────────────────────────────────────────────────────────────
 # The function you asked for
+
 
 def build_validation_graph(
     plan,
@@ -251,28 +284,42 @@ def build_validation_graph(
     g = Digraph("focus_validation", format="svg")
 
     # defaults
-    g.graph_attr.update({"rankdir": "LR", "fontsize": "10", "labelloc": "t", "label": "FOCUS Validation Plan"})
+    g.graph_attr.update(
+        {
+            "rankdir": "LR",
+            "fontsize": "10",
+            "labelloc": "t",
+            "label": "FOCUS Validation Plan",
+        }
+    )
     g.node_attr.update({"style": "filled", "fontsize": "9", "fontname": "Helvetica"})
     g.edge_attr.update({"arrowsize": "0.7"})
-    if graph_attr: g.graph_attr.update(graph_attr)
-    if node_attr:  g.node_attr.update(node_attr)
-    if edge_attr:  g.edge_attr.update(edge_attr)
+    if graph_attr:
+        g.graph_attr.update(graph_attr)
+    if node_attr:
+        g.node_attr.update(node_attr)
+    if edge_attr:
+        g.edge_attr.update(edge_attr)
 
     nodes = getattr(plan, "nodes", []) or []
 
     # Draw nodes
     for idx, node in enumerate(nodes):
-        rid  = getattr(node, "rule_id", None) or getattr(node, "id", None) or f"rule_{idx}"
+        rid = (
+            getattr(node, "rule_id", None) or getattr(node, "id", None) or f"rule_{idx}"
+        )
         rule = getattr(node, "rule", None)
 
-        entry = (results.by_rule_id.get(rid) if use_rule_ids else results.by_idx.get(idx)) or {}
+        entry = (
+            results.by_rule_id.get(rid) if use_rule_ids else results.by_idx.get(idx)
+        ) or {}
         d = entry.get("details", {}) or {}
         status = _status_from_entry(entry)
-        color  = COLOR_MAP.get(status, DEFAULT_COLOR)
-        shape  = _pick_shape(rule, sql_map, rid)
+        color = COLOR_MAP.get(status, DEFAULT_COLOR)
+        shape = _pick_shape(rule, sql_map, rid)
 
         v = d.get("violations")
-        msg = (d.get("message") or d.get("reason") or "")
+        msg = d.get("message") or d.get("reason") or ""
         if msg and len(msg) > 120:
             msg = msg[:117] + "…"
         label = f"{rid}\n{status}" + (f"\nviolations={v}" if v is not None else "")
