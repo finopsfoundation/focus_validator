@@ -5,7 +5,7 @@ import os
 from typing import Any, Callable, Dict, Optional
 
 try:
-    import psutil
+    import psutil  # type: ignore[import-untyped]
     HAS_PSUTIL = True
 except ImportError:
     HAS_PSUTIL = False
