@@ -113,15 +113,41 @@ class UnittestOutputter:
         self.output_destination = output_destination
 
     def write(self, result_set):
+        # Convert ValidationResults format to expected format
+        def _get_status_from_entry(entry):
+            """Convert entry to status string."""
+            details = entry.get("details", {})
+            if details.get("skipped"):
+                return "skipped"
+            elif entry.get("ok"):
+                return "passed"
+            else:
+                return "failed"
+        
+        def _convert_entry_to_row(rule_id, entry):
+            """Convert entry to the format expected by formatter."""
+            rule = result_set.rules.get(rule_id)
+            status = _get_status_from_entry(entry)
+            details = entry.get("details", {})
+            
+            return {
+                "check_name": rule_id,
+                "status": type('MockStatus', (), {'value': status})(),  # Mock status object
+                "column_id": getattr(rule, 'column_id', 'Unknown') if rule else 'Unknown',
+                "friendly_name": getattr(rule, 'friendly_name', rule_id) if rule else rule_id,
+                "error": details.get("message") if status == "failed" else None,
+                "rule_ref": {"check_type_friendly_name": getattr(rule, 'check_type_friendly_name', 'Unknown') if rule else 'Unknown'}
+            }
+
         # First generate the summary
         result_statuses = {}
         for status in ["passed", "failed", "skipped", "errored"]:
             result_statuses[status] = sum(
-                [1 for r in result_set.checklist.values() if r.status.value == status]
+                [1 for entry in result_set.by_rule_id.values() if _get_status_from_entry(entry) == status]
             )
 
         # format the results for processing
-        rows = [v.model_dump() for v in result_set.checklist.values()]
+        rows = [_convert_entry_to_row(rule_id, entry) for rule_id, entry in result_set.by_rule_id.items()]
 
         # Setup a Formatter and initiate with result totals
         formatter = UnittestFormatter(

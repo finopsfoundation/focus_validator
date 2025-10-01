@@ -215,6 +215,8 @@ class SpecRules:
         results_by_idx: Dict[int, Dict[str, Any]] = {}
         converter = FocusToDuckDBSchemaConverter(focus_data=focus_data, validated_applicability_criteria=self.applicability_criteria_list)
         # 1) Let the converter prepare schemas, UDFs, temp views, etc.
+        if connection is None:
+            connection = duckdb.connect(":memory:")
         converter.prepare(conn=connection, plan=plan)
 
         try:
@@ -262,7 +264,7 @@ class SpecRules:
                 raise
         sql_map = converter.emit_sql_map()
         rules_dict = {self.plan.nodes[i].rule_id: self.plan.nodes[i].rule for i in results_by_idx.keys()}
-        return sql_map, self.plan, ValidationResults(results_by_idx, self._results_by_rule_id(results_by_idx), rules_dict)
+        return ValidationResults(results_by_idx, self._results_by_rule_id(results_by_idx), rules_dict)
 
     # Optional helper(s)
     def _results_by_rule_id(self, by_idx: Dict[int, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:

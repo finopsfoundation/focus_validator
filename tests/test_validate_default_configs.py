@@ -32,7 +32,7 @@ class TestValidateDefaultConfigs(TestCase):
             'ChargeType': ['Usage'],
             'BilledCost': [10.50]
         })
-        sql_map, plan, result = spec_rules.validate(focus_data=test_data)
+        result = spec_rules.validate(focus_data=test_data)
         # Check that no rules errored during setup/loading
         for rule_id, rule_result in result.by_rule_id.items():
             details = rule_result.get("details", {})
