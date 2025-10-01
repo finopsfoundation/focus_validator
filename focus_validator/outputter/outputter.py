@@ -2,7 +2,7 @@ import logging
 from focus_validator.exceptions import FocusNotImplementedError
 from focus_validator.outputter.outputter_console import ConsoleOutputter
 from focus_validator.outputter.outputter_unittest import UnittestOutputter
-from focus_validator.rules.spec_rules import ValidationResult
+from focus_validator.rules.spec_rules import ValidationResults
 
 
 class Outputter:
@@ -15,5 +15,5 @@ class Outputter:
         else:
             raise FocusNotImplementedError("Output type not supported")
 
-    def write(self, result_set: ValidationResult):
+    def write(self, result_set: ValidationResults):
         self.outputter.write(result_set)
