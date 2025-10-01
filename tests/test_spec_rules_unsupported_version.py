@@ -8,9 +8,15 @@ class TestSpecRulesUnsupportedVersion(TestCase):
     def test_load_unsupported_version(self):
         with self.assertRaises(UnsupportedVersion) as cm:
             SpecRules(
-                column_namespace=None,
-                rule_set_path="focus_validator/rules/version_sets",
+                rule_set_path="focus_validator/rules",
+                rules_file_prefix="cr-",
                 rules_version="0.1",
-                override_filename=None,
+                rules_file_suffix=".json",
+                focus_dataset="CostAndUsage",
+                filter_rules=None,
+                rules_force_remote_download=False,
+                allow_draft_releases=False,
+                allow_prerelease_releases=False,
+                column_namespace=None,
             )
-        self.assertEqual("FOCUS version 0.1 not supported.", str(cm.exception))
+        self.assertIn("FOCUS version 0.1 not supported.", str(cm.exception))

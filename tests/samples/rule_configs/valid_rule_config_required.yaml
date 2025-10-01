@@ -1,5 +1,0 @@
-check_id: FV-D001-0001
-column_id: ChargeType
-check_friendly_name: "ChargeType is a required column"
-check:
-  column_required

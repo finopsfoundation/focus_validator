@@ -61,3 +61,37 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 focus-validator = "focus_validator.main:main"
+
+[tool.coverage.run]
+source = ["focus_validator"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/venv/*",
+    "*/.venv/*",
+    "*/build/*",
+    "*/dist/*"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self\\.debug",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "@(abc\\.)?abstractmethod"
+]
+precision = 1
+show_missing = true
+skip_covered = false
+
+[tool.coverage.html]
+directory = "htmlcov"
+title = "Focus Validator Coverage Report"
+
+[tool.coverage.xml]
+output = "coverage.xml"
