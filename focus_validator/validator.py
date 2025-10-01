@@ -137,14 +137,14 @@ class Validator:
 
         # Validate
         self.log.debug("Executing rule validation...")
-        sql_map, plan, results = self.spec_rules.validate(self.focus_data)
+        results = self.spec_rules.validate(self.focus_data)
 
         # Output results
         self.log.debug("Writing validation results...")
         self.outputter = self.outputter.write(results)
         
         self.log.info("Validation process completed")
-        return sql_map, plan, results
+        return results
 
     def get_supported_versions(self) -> Tuple[List[str], List[str]]:
         self.log.debug("Retrieving supported versions...")

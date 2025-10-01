@@ -4,13 +4,13 @@ import re
 import textwrap
 import json
 from abc import ABC, abstractmethod
-from typing import Callable, ClassVar, Dict, List, Optional, Any, Tuple
+from typing import Callable, ClassVar, Dict, List, Optional, Any, Tuple, Union
 from types import SimpleNamespace, MappingProxyType
 import duckdb
 
 from .plan_builder import ValidationPlan, EdgeCtx
 from .rule import ConformanceRule
-from focus_validator.config_objects import InvalidRule, ConformanceRule
+from focus_validator.config_objects import ConformanceRule
 from focus_validator.exceptions import InvalidRuleException
 from focus_validator.utils.download_currency_codes import get_currency_codes
 
@@ -55,9 +55,10 @@ class DuckDBCheckGenerator(ABC):
     def __init__(self, rule, rule_id: str, **kwargs: Any) -> None:
         self.rule                  = rule
         self.rule_id               = rule_id
-        self.errorMessage          = None
-        self.nestedChecks          = []
-        self.nestedCheckHandler    = None
+        self.errorMessage: Optional[str] = None
+        self.nestedChecks: List[Any] = []
+        self.nestedCheckHandler: Optional[Callable] = None
+        self.row_condition_sql: Optional[str] = None
         self.compile_condition     = kwargs.pop("compile_condition", None)
         self.child_builder         = kwargs.pop("child_builder", None)
         self.breadcrumb            = kwargs.pop("breadcrumb", rule_id)
@@ -113,10 +114,10 @@ class DuckDBCheckGenerator(ABC):
                 child_checks.append(
                     DuckDBColumnCheck(
                         rule_id=getattr(chk, "rule_id", getattr(self, "rule_id", "")),
-                        rule=getattr(chk, "rule", getattr(self, "rule", None)),
+                        rule=getattr(chk, "rule", getattr(self, "rule", None)) or ConformanceRule(),  # type: ignore
                         check_type=getattr(chk, "checkType", getattr(chk, "check_type", "unknown")),
-                        check_sql=getattr(chk, "checkSql", getattr(chk, "check_sql", None)),
-                        error_message=getattr(chk, "errorMessage", None),
+                        check_sql=getattr(chk, "checkSql", getattr(chk, "check_sql", None)) or "",
+                        error_message=getattr(chk, "errorMessage", None) or "No error message",
                         nested_checks=getattr(chk, "nestedChecks", None),
                         nested_check_handler=getattr(chk, "nestedCheckHandler", None),
                         meta=getattr(chk, "meta", None),
@@ -139,7 +140,7 @@ class DuckDBCheckGenerator(ABC):
             rule=self.rule,
             check_type=self.getCheckType(),
             check_sql=sql,
-            error_message=getattr(self, "errorMessage", None),
+            error_message=getattr(self, "errorMessage", None) or "No error message",
             nested_checks=child_checks or None,
             nested_check_handler=getattr(self, "nestedCheckHandler", None),
             meta=meta,
@@ -149,6 +150,16 @@ class DuckDBCheckGenerator(ABC):
         )
 
         return chk
+
+    def _apply_condition(self, violation_pred_sql: str) -> str:
+        """
+        Given a boolean predicate that defines 'row is a violation',
+        AND it with the effective row_condition_sql if present.
+        """
+        cond = (self.row_condition_sql or "").strip()
+        if not cond:
+            return violation_pred_sql
+        return f"(({violation_pred_sql})) AND ({cond})"
 
     def _lit(self, v) -> str:
         if v is None:
@@ -895,12 +906,12 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
 
         items = self.p.get("Items")
         if not isinstance(items, list) or not items:
-            raise InvalidRule(f"{self.rule_id} @ {self.breadcrumb}: {self.COMPOSITE_NAME} needs non-empty 'Items'")
+            raise InvalidRuleException(f"{self.rule_id} @ {self.breadcrumb}: {self.COMPOSITE_NAME} needs non-empty 'Items'")
 
         children = []
         for i, child_req in enumerate(items):
             if not isinstance(child_req, dict) or "CheckFunction" not in child_req:
-                raise InvalidRule(
+                raise InvalidRuleException(
                     f"{self.rule_id} @ {self.breadcrumb}: Item[{i}] must be a requirement dict with 'CheckFunction'"
                 )
             child_bc = f"{self.breadcrumb} > {self.COMPOSITE_NAME}[{i}]"
@@ -1017,7 +1028,7 @@ class CompositeORRuleGenerator(CompositeBaseRuleGenerator):
 
 class FocusToDuckDBSchemaConverter:
     # Central registry for all check types with both generators and check object factories
-    CHECK_GENERATORS: dict[str, type[DuckDBCheckGenerator]] = {
+    CHECK_GENERATORS: dict[str, Dict[str, Any]] = {
         "ColumnPresent": {
             "generator": ColumnPresentCheckGenerator,
             "factory": lambda args: "ColumnName"
@@ -1141,7 +1152,10 @@ class FocusToDuckDBSchemaConverter:
                                  getattr(parent_rule, 'rule_id', '<unknown>'))
                     return False
                 # Recursively check parent's parents if available
-                parent_node = self._node_by_rule_id(getattr(parent_rule, 'rule_id', None))
+                parent_rule_id = getattr(parent_rule, 'rule_id', None)
+                if parent_rule_id is None:
+                    continue
+                parent_node = self._node_by_rule_id(parent_rule_id)
                 if parent_node and hasattr(parent_node, 'parent_edges'):
                     if not self._should_include_rule(parent_rule, parent_node.parent_edges):
                         return False
@@ -1284,9 +1298,9 @@ class FocusToDuckDBSchemaConverter:
             if upstream:
                 reason = upstream.get("reason", "upstream dependency failure")
                 failed_deps = upstream.get("failed_dependencies", [])
-                child_details: List[Dict[str, Any]] = []
+                upstream_child_details: List[Dict[str, Any]] = []
                 for child in nested:
-                    child_details.append({
+                    upstream_child_details.append({
                         "rule_id": getattr(child, "rule_id", None),
                         "ok": False,
                         "violations": 1,
@@ -1294,7 +1308,7 @@ class FocusToDuckDBSchemaConverter:
                         "reason": reason,
                     })
                 details = {
-                    "children": child_details,
+                    "children": upstream_child_details,
                     "aggregated": handler.__name__,
                     "message": _msg_for(check, f"{getattr(check,'rule_id','<rule>')}: {reason}"),
                     "reason": reason,
@@ -1306,17 +1320,17 @@ class FocusToDuckDBSchemaConverter:
 
             # Normal composite: run children and aggregate
             oks: List[bool] = []
-            child_details: List[Dict[str, Any]] = []
+            normal_child_details: List[Dict[str, Any]] = []
             for child in nested:
                 ok_i, det_i = self.run_check(child)
                 oks.append(ok_i)
                 det_i.setdefault("violations", 0 if ok_i else 1)
                 det_i.setdefault("message", _msg_for(child, f"{getattr(child,'rule_id','<child>')}: check failed"))
-                child_details.append({"rule_id": getattr(child, "rule_id", None), **det_i})
+                normal_child_details.append({"rule_id": getattr(child, "rule_id", None), **det_i})
 
             agg_ok = bool(handler(oks))
-            details = {
-                "children": child_details,
+            normal_details = {
+                "children": normal_child_details,
                 "aggregated": handler.__name__,
                 "message": _msg_for_outcome(
                     check,
@@ -1327,7 +1341,7 @@ class FocusToDuckDBSchemaConverter:
                 "violations": 0 if agg_ok else 1,
                 "check_type": getattr(check, "checkType", None) or getattr(check, "check_type", None),
             }
-            return agg_ok, details
+            return agg_ok, normal_details
         
         # ---- leaf ---------------------------------------------------------------
         # Special executor path (e.g., conformance rule reference)
@@ -1341,7 +1355,7 @@ class FocusToDuckDBSchemaConverter:
             return ok, details
         sql = getattr(check, "checkSql", None)
         if not sql:
-            raise InvalidRule(f"Leaf check has no SQL to execute (rule_id={getattr(check, 'rule_id', None)})")
+            raise InvalidRuleException(f"Leaf check has no SQL to execute (rule_id={getattr(check, 'rule_id', None)})")
         sql_final = _sub_table(sql)
 
         t0 = time.perf_counter()
@@ -1388,7 +1402,7 @@ class FocusToDuckDBSchemaConverter:
             )
 
         ok = (violations == 0)
-        details: Dict[str, Any] = {
+        leaf_details: Dict[str, Any] = {
             "violations": violations,
             "message": _msg_for_outcome(
                 check,
@@ -1406,11 +1420,11 @@ class FocusToDuckDBSchemaConverter:
         if (not ok) and sample_sql:
             try:
                 sql_sample = _sub_table(sample_sql) + f" LIMIT {int(sample_limit)}"
-                details["failure_cases"] = self.conn.execute(sql_sample).fetchdf()
+                leaf_details["failure_cases"] = self.conn.execute(sql_sample).fetchdf()
             except Exception as e:
-                details["sample_error"] = str(e)
+                leaf_details["sample_error"] = str(e)
 
-        return ok, details
+        return ok, leaf_details
 
     def __requirement_for_rule__(self, rule: Any) -> dict:
         """
@@ -1421,17 +1435,17 @@ class FocusToDuckDBSchemaConverter:
         """
         vc = getattr(rule, "validation_criteria", None)
         if not vc:
-            raise InvalidRule(f"{getattr(rule, 'rule_id', '<unknown>')} has no validation_criteria")
+            raise InvalidRuleException(f"{getattr(rule, 'rule_id', '<unknown>')} has no validation_criteria")
         req = getattr(vc, "requirement", None)
         if not isinstance(req, dict):
-            raise InvalidRule(f"{getattr(rule, 'rule_id', '<unknown>')} requirement must be a dict")
+            raise InvalidRuleException(f"{getattr(rule, 'rule_id', '<unknown>')} requirement must be a dict")
         return req
 
     def __make_generator__(self, rule: Any, rule_id: str, requirement: dict, 
-                           breadcrumb: str, parent_results_by_idx: dict = None, 
-                           parent_edges: dict = None, row_condition_sql=None) -> DuckDBCheckGenerator:
+                           breadcrumb: str, parent_results_by_idx: Optional[dict] = None, 
+                           parent_edges: Optional[dict] = None, row_condition_sql=None) -> DuckDBCheckGenerator:
         if not isinstance(requirement, dict):
-            raise InvalidRule(
+            raise InvalidRuleException(
                 f"{rule_id} @ {breadcrumb}: expected requirement dict, got {type(requirement).__name__}"
             )
         check_fn = requirement.get("CheckFunction")
@@ -1512,14 +1526,14 @@ class FocusToDuckDBSchemaConverter:
         )
 
     def __generate_duckdb_check__(self, rule: Any, rule_id: str, requirement: dict, breadcrumb: str,
-                                  parent_results_by_idx, parent_edges) -> "DuckDBColumnCheck":
+                                  parent_results_by_idx, parent_edges) -> Union["DuckDBColumnCheck", SkippedCheck]:
         """
         Build a DuckDBColumnCheck for this requirement.
         For composites (AND/OR), the Composite* generators will recursively call back here
         to build child checks and set `nestedChecks` + `nestedCheckHandler`.
         """
         if not isinstance(requirement, dict):
-            raise InvalidRule(
+            raise InvalidRuleException(
                 f"{rule_id} @ {breadcrumb}: expected requirement dict, got {type(requirement).__name__}"
             )
         eff_cond = self._build_effective_condition(rule, parent_edges)
@@ -1534,16 +1548,6 @@ class FocusToDuckDBSchemaConverter:
         if isinstance(gen, SkippedCheck):
             return gen
         return gen.generateCheck()
-    
-    def _apply_condition(self, violation_pred_sql: str) -> str:
-        """
-        Given a boolean predicate that defines 'row is a violation',
-        AND it with the effective row_condition_sql if present.
-        """
-        cond = (self.row_condition_sql or "").strip()
-        if not cond:
-            return violation_pred_sql
-        return f"(({violation_pred_sql})) AND ({cond})"
 
     # --- condition helpers -------------------------------------------------------
     def _extract_condition_sql_from_rule(self, rule) -> str | None:
@@ -1780,6 +1784,8 @@ class FocusToDuckDBSchemaConverter:
 
         out = {}
         # however you iterate in validate(): use plan.schedule (list of node indices), or plan.nodes
+        if self.plan is None:
+            raise RuntimeError("emit_sql_map() requires an attached plan")
         schedule = getattr(self.plan, "schedule", None) or range(len(self.plan.nodes))
 
         for idx in schedule:

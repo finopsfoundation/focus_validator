@@ -237,7 +237,7 @@ def main() -> None:
         log.info("Starting validation process...")
         startTime = time.time()
         try:
-            sql_map, plan, results = validator.validate()
+            results = validator.validate()
             duration = time.time() - startTime
             log.info("Validation completed in %.3f seconds", duration)
 
@@ -250,6 +250,10 @@ def main() -> None:
             filename = "visualize"
             log.info("Generating visualization: %s", filename)
             try:
+                # Get plan and sql_map from validator
+                plan = validator.spec_rules.plan
+                # For now, pass empty sql_map since we removed it from the return
+                sql_map = {}
                 g = build_validation_graph(plan=plan, results=results, sql_map=sql_map)
                 g.render(filename, cleanup=True)
                 
@@ -258,7 +262,7 @@ def main() -> None:
                 # Open visualization
                 if os.name == 'nt':  # Windows
                     log.debug("Opening visualization with Windows default handler")
-                    os.startfile(f"{filename}.svg")
+                    os.startfile(f"{filename}.svg")  # type: ignore
                 elif os.name == 'posix':  # macOS and Linux
                     openCmd = ['open', f"{filename}.svg"] if sys.platform == 'darwin' else ['xdg-open', f"{filename}.svg"]
                     log.debug("Opening visualization with command: %s", openCmd)

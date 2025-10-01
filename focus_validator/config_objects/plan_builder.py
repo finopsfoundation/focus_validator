@@ -260,15 +260,15 @@ def compile_validation_plan(
         # Ensure parents sorted by idx (usually already true due to topo, but make explicit)
         paired = sorted(zip(parent_idxs, parent_edges), key=lambda t: t[0])
         if paired:
-            parent_idxs, parent_edges = map(tuple, zip(*paired))
+            parent_idxs_tuple, parent_edges_tuple = map(tuple, zip(*paired))
         else:
-            parent_idxs, parent_edges = tuple(), tuple()
+            parent_idxs_tuple, parent_edges_tuple = tuple(), tuple()
 
         nodes[idx] = ExecNode(
             rule_id=rid,
             idx=idx,
-            parent_idxs=parent_idxs,
-            parent_edges=parent_edges,
+            parent_idxs=parent_idxs_tuple,
+            parent_edges=parent_edges_tuple,
             rule=pg_node.rule,
         )
 
