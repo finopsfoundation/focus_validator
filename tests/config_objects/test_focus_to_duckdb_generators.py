@@ -368,8 +368,33 @@ class TestComparisonGenerators(unittest.TestCase):
         
         sql = generator.generateSql()
         
-        self.assertIn("Status = 'Invalid'", sql)
+        # Fixed: CheckNotValue should find violations where Status IS NOT NULL AND Status = 'Invalid'
+        self.assertIn("Status IS NOT NULL AND Status = 'Invalid'", sql)
         self.assertIn("Status MUST NOT be ''Invalid''", sql)
+        
+    def test_check_not_value_generator_with_null_handling(self):
+        """Test CheckNotValue handles NULL values correctly (ChargeClass != 'Correction' scenario)."""
+        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule.rule_id = "CHECK-NOT-VALUE-002"
+        
+        # Test the ChargeClass != 'Correction' scenario that was failing
+        generator = CheckNotValueGenerator(
+            rule=mock_rule,
+            rule_id="CHECK-NOT-VALUE-002",
+            ColumnName="ChargeClass",
+            Value="Correction"
+        )
+        
+        sql = generator.generateSql()
+        
+        # Should only find violations where ChargeClass is NOT NULL and equals 'Correction'
+        # This will exclude NULL values (which should not be violations)
+        self.assertIn("ChargeClass IS NOT NULL AND ChargeClass = 'Correction'", sql)
+        self.assertIn("ChargeClass MUST NOT be ''Correction''", sql)
+        
+        # Verify SQL structure is valid
+        self.assertIn("WITH invalid AS", sql)
+        self.assertIn("COUNT(*) AS violations", sql)
         
     def test_column_comparison_generator(self):
         """Test ColumnByColumnEqualsColumnValue generator."""
