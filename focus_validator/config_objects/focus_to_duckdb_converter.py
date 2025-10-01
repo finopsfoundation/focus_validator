@@ -743,7 +743,7 @@ class ColumnByColumnEqualsColumnValueGenerator(DuckDBCheckGenerator):
         """
 
     def getCheckType(self) -> str:
-        return f"column_by_column_equals_column_value"
+        return "column_by_column_equals_column_value"
 
     def generatePredicate(self) -> str | None:
         """
@@ -1348,7 +1348,7 @@ class FocusToDuckDBSchemaConverter:
             details.setdefault("violations", 0)
             details.setdefault(
                 "message",
-                _msg_for(check, f"{getattr(check,'rule_id','<rule>')}: skipped"),
+                _msg_for(check, f"{getattr(check, 'rule_id', '<rule>')}: skipped"),
             )
             return ok, details
 
@@ -1376,7 +1376,7 @@ class FocusToDuckDBSchemaConverter:
                     "children": upstream_child_details,
                     "aggregated": handler.__name__,
                     "message": _msg_for(
-                        check, f"{getattr(check,'rule_id','<rule>')}: {reason}"
+                        check, f"{getattr(check, 'rule_id', '<rule>')}: {reason}"
                     ),
                     "reason": reason,
                     "failed_dependencies": failed_deps,
@@ -1396,7 +1396,7 @@ class FocusToDuckDBSchemaConverter:
                 det_i.setdefault(
                     "message",
                     _msg_for(
-                        child, f"{getattr(child,'rule_id','<child>')}: check failed"
+                        child, f"{getattr(child, 'rule_id', '<child>')}: check failed"
                     ),
                 )
                 normal_child_details.append(
@@ -1410,7 +1410,7 @@ class FocusToDuckDBSchemaConverter:
                 "message": _msg_for_outcome(
                     check,
                     agg_ok,
-                    fallback_fail=f"{getattr(check,'rule_id','<rule>')}: composite failed",
+                    fallback_fail=f"{getattr(check, 'rule_id', '<rule>')}: composite failed",
                     fallback_ok=None,  # or f"{getattr(check,'rule_id','<rule>')}: OK"
                 ),
                 "violations": 0 if agg_ok else 1,
@@ -1428,7 +1428,7 @@ class FocusToDuckDBSchemaConverter:
             details.setdefault(
                 "message",
                 getattr(check, "errorMessage", None)
-                or f"{getattr(check,'rule_id','<rule>')}: reference evaluation",
+                or f"{getattr(check, 'rule_id', '<rule>')}: reference evaluation",
             )
             details.setdefault(
                 "check_type",
@@ -1461,7 +1461,7 @@ class FocusToDuckDBSchemaConverter:
             details = {
                 "violations": 1,
                 "message": _msg_for(
-                    check, f"{getattr(check,'rule_id','<rule>')}: {reason}"
+                    check, f"{getattr(check, 'rule_id', '<rule>')}: {reason}"
                 ),
                 "error": msg,
                 "missing_columns": missing or None,
@@ -1475,7 +1475,7 @@ class FocusToDuckDBSchemaConverter:
 
         if df.empty:
             raise RuntimeError(
-                f"Validation query returned no rows for {getattr(check,'rule_id','<rule>')}.\nSQL:\n{sql_final}"
+                f"Validation query returned no rows for {getattr(check, 'rule_id', '<rule>')}.\nSQL:\n{sql_final}"
             )
 
         # Prefer explicit 'violations' column; fall back to first cell if needed.
@@ -1486,14 +1486,14 @@ class FocusToDuckDBSchemaConverter:
 
         if raw is None:
             raise RuntimeError(
-                f"'violations' returned NULL for {getattr(check,'rule_id','<rule>')}.\nSQL:\n{sql_final}"
+                f"'violations' returned NULL for {getattr(check, 'rule_id', '<rule>')}.\nSQL:\n{sql_final}"
             )
 
         try:
             violations = int(raw)
         except Exception:
             raise RuntimeError(
-                f"'violations' is not an integer for {getattr(check,'rule_id','<rule>')} (got {type(raw).__name__}: {raw!r}).\nSQL:\n{sql_final}"
+                f"'violations' is not an integer for {getattr(check, 'rule_id', '<rule>')} (got {type(raw).__name__}: {raw!r}).\nSQL:\n{sql_final}"
             )
 
         ok = violations == 0
@@ -1502,7 +1502,7 @@ class FocusToDuckDBSchemaConverter:
             "message": _msg_for_outcome(
                 check,
                 ok,
-                fallback_fail=f"{getattr(check,'rule_id','<rule>')}: check failed",
+                fallback_fail=f"{getattr(check, 'rule_id', '<rule>')}: check failed",
                 fallback_ok=None,  # or f"{getattr(check,'rule_id','<rule>')}: OK"
             ),
             "timing_ms": elapsed_ms,

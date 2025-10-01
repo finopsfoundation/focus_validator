@@ -1,8 +1,7 @@
 import importlib.resources
 import logging
 import os
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from focus_validator.data_loaders import data_loader
 from focus_validator.outputter.outputter import Outputter
