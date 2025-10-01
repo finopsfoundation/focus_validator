@@ -1,12 +1,13 @@
 # plan_builder.py
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Dict, List, Set, Optional, Callable, Tuple, Iterable, Any
-from collections import defaultdict
+
 import heapq
 import re
-from focus_validator.config_objects import ConformanceRule
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
+from .rule import ConformanceRule
 
 Predicate = Callable[[dict], bool]
 
@@ -14,26 +15,36 @@ Predicate = Callable[[dict], bool]
 # Graph construction (recursive plan builder → topo schedule)
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class EdgeCtx:
     """Why this dependency exists and (optionally) when it’s active."""
+
     kind: str  # "structural" | "data_dep" | "applicability" | "ordering"
     note: Optional[str] = None
-    predicate: Optional[Predicate] = None  # if provided, edge only counts when predicate(ctx) is True
+    predicate: Optional[
+        Predicate
+    ] = None  # if provided, edge only counts when predicate(ctx) is True
+
 
 @dataclass
 class PlanNode:
     rule_id: str
     rule: ConformanceRule
-    parents: List["PlanNode"] = field(default_factory=list)             # inbound parent nodes
-    parent_edges: Dict[str, EdgeCtx] = field(default_factory=dict)      # parent_id -> EdgeCtx
+    parents: List["PlanNode"] = field(default_factory=list)  # inbound parent nodes
+    parent_edges: Dict[str, EdgeCtx] = field(
+        default_factory=dict
+    )  # parent_id -> EdgeCtx
+
 
 @dataclass
 class PlanGraph:
     nodes: Dict[str, PlanNode] = field(default_factory=dict)
     children: Dict[str, Set[str]] = field(default_factory=lambda: defaultdict(set))
     parents: Dict[str, Set[str]] = field(default_factory=lambda: defaultdict(set))
-    edges: Dict[Tuple[str, str], EdgeCtx] = field(default_factory=dict)  # (parent, child) -> ctx
+    edges: Dict[Tuple[str, str], EdgeCtx] = field(
+        default_factory=dict
+    )  # (parent, child) -> ctx
 
     def add_edge(self, parent: str, child: str, ctx: EdgeCtx) -> None:
         if parent == child:
@@ -100,6 +111,7 @@ class PlanBuilder:
       - explicit cross-graph deps (validation_criteria.dependencies)
       - optional applicability gating (`condition`) as edge predicates
     """
+
     def __init__(self, rules: Dict[str, ConformanceRule]) -> None:
         self.rules = rules
         self.graph = PlanGraph()
@@ -123,7 +135,7 @@ class PlanBuilder:
 
     def _link(self, parent_id: str, child_id: str, ctx: EdgeCtx) -> None:
         parent = self._get_or_create(parent_id)
-        child  = self._get_or_create(child_id)
+        child = self._get_or_create(child_id)
         self.graph.add_edge(parent_id, child_id, ctx)
         child.parents.append(parent)
         child.parent_edges[parent_id] = ctx
@@ -149,7 +161,9 @@ class PlanBuilder:
                         self._link(
                             parent_id=dep_id,
                             child_id=rid,
-                            ctx=EdgeCtx(kind="structural", note=f"{rid} references {dep_id}")
+                            ctx=EdgeCtx(
+                                kind="structural", note=f"{rid} references {dep_id}"
+                            ),
                         )
 
         # (2) Cross-graph explicit deps
@@ -161,20 +175,26 @@ class PlanBuilder:
                 self._link(
                     parent_id=dep_id,
                     child_id=rid,
-                    ctx=EdgeCtx(kind="data_dep", note=f"{rid} depends on {dep_id}")
+                    ctx=EdgeCtx(kind="data_dep", note=f"{rid} depends on {dep_id}"),
                 )
 
         # (3) Optional applicability gating at the child side
         condition = getattr(vc, "condition", None) if vc is not None else None
         if condition:
+
             def _gate(ctx: dict, _cond=condition) -> bool:
                 # TODO: replace with your real evaluator.
                 # For now treat truthy condition as active.
                 return bool(_cond)
+
             for p in list(self.graph.parents.get(rid, [])):
                 k = (p, rid)
                 ectx = self.graph.edges[k]
-                gated = EdgeCtx(kind=ectx.kind, note=f"{ectx.note}; gated by condition on {rid}", predicate=_gate)
+                gated = EdgeCtx(
+                    kind=ectx.kind,
+                    note=f"{ectx.note}; gated by condition on {rid}",
+                    predicate=_gate,
+                )
                 self.graph.edges[k] = gated
                 node.parent_edges[p] = gated
 
@@ -189,6 +209,7 @@ def default_key_fn(plan: PlanGraph) -> Callable[[str], Tuple]:
       3) EntityType: Column (by numeric ID)
       4) Lexicographic RuleId
     """
+
     def key(rule_id: str):
         r = plan.nodes[rule_id].rule
         m = re.search(r"-([0-9]{3})-", rule_id)
@@ -197,31 +218,37 @@ def default_key_fn(plan: PlanGraph) -> Callable[[str], Tuple]:
         et_ord = {"Dataset": 0, "Column": 1}.get(etype, 2)
         zero_boost = 0 if num == 0 else 1
         return (zero_boost, et_ord, num, rule_id)
+
     return key
+
 
 # ---------------------------------------------------------------------------
 # Execution-ready compilation (index-based plan for a tight validation loop)
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class ExecNode:
     rule_id: str
     idx: int
-    parent_idxs: Tuple[int, ...]           # indices into ValidationPlan.nodes
-    parent_edges: Tuple[EdgeCtx, ...]      # aligned with parent_idxs
-    rule: Any                              # keep full rule for generators
+    parent_idxs: Tuple[int, ...]  # indices into ValidationPlan.nodes
+    parent_edges: Tuple[EdgeCtx, ...]  # aligned with parent_idxs
+    rule: Any  # keep full rule for generators
+
 
 @dataclass
 class ValidationPlan:
     """
     Everything the executor needs, precomputed and cache-friendly.
     """
-    nodes: List[ExecNode]                  # index-addressable nodes in topo order
-    id2idx: Dict[str, int]                 # rule_id -> idx
-    layers: List[List[int]]                # batches of indices (parallelizable)
-    plan_graph: PlanGraph                  # full graph for diagnostics
-    rules_dict: Dict[str, Any]             # original rules JSON (if needed)
-    checkfunctions: Dict[str, Any]         # original check functions map
+
+    nodes: List[ExecNode]  # index-addressable nodes in topo order
+    id2idx: Dict[str, int]  # rule_id -> idx
+    layers: List[List[int]]  # batches of indices (parallelizable)
+    plan_graph: PlanGraph  # full graph for diagnostics
+    rules_dict: Dict[str, Any]  # original rules JSON (if needed)
+    checkfunctions: Dict[str, Any]  # original check functions map
+
 
 def compile_validation_plan(
     *,
@@ -273,7 +300,9 @@ def compile_validation_plan(
         )
 
     # Convert layer rule_ids into layer indices
-    index_layers: List[List[int]] = [[id2idx[rid] for rid in layer] for layer in layer_rule_ids]
+    index_layers: List[List[int]] = [
+        [id2idx[rid] for rid in layer] for layer in layer_rule_ids
+    ]
 
     return ValidationPlan(
         nodes=nodes,

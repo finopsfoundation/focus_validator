@@ -1,4 +1,5 @@
 import logging
+
 from focus_validator.exceptions import FocusNotImplementedError
 from focus_validator.outputter.outputter_console import ConsoleOutputter
 from focus_validator.outputter.outputter_unittest import UnittestOutputter

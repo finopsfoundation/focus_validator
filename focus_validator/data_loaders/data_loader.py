@@ -1,8 +1,10 @@
 import logging
 import os
 import time
-from typing import Optional, Union, Any, Type
+from typing import Any, Optional, Type, Union
+
 import pandas as pd
+
 from focus_validator.data_loaders.csv_data_loader import CSVDataLoader
 from focus_validator.data_loaders.parquet_data_loader import ParquetDataLoader
 from focus_validator.exceptions import FocusNotImplementedError
@@ -20,7 +22,9 @@ class DataLoader:
             file_size = os.path.getsize(data_filename)
             self.log.info("File size: %.2f MB", file_size / 1024 / 1024)
         else:
-            self.log.warning("Data file does not exist or path is None: %s", data_filename)
+            self.log.warning(
+                "Data file does not exist or path is None: %s", data_filename
+            )
 
         self.data_loader_class = self.find_data_loader()
         self.data_loader = self.data_loader_class(self.data_filename)
@@ -50,10 +54,16 @@ class DataLoader:
         if result is not None:
             try:
                 row_count = len(result)
-                col_count = len(result.columns) if hasattr(result, 'columns') else 'unknown'
-                self.log.info("Data loaded successfully: %d rows, %s columns", row_count, col_count)
+                col_count = (
+                    len(result.columns) if hasattr(result, "columns") else "unknown"
+                )
+                self.log.info(
+                    "Data loaded successfully: %d rows, %s columns",
+                    row_count,
+                    col_count,
+                )
 
-                if hasattr(result, 'columns'):
+                if hasattr(result, "columns"):
                     self.log.debug("Columns: %s", list(result.columns))
             except Exception as e:
                 self.log.warning("Could not determine data dimensions: %s", e)

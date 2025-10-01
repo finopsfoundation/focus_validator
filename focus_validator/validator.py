@@ -1,8 +1,9 @@
 import importlib.resources
 import logging
-import time
 import os
-from typing import Optional, Tuple, List, Any, Dict
+import time
+from typing import Any, Dict, List, Optional, Tuple
+
 from focus_validator.data_loaders import data_loader
 from focus_validator.outputter.outputter import Outputter
 from focus_validator.rules.spec_rules import SpecRules, ValidationResults
@@ -16,9 +17,7 @@ except AttributeError:
     # for compatibility with python 3.8, which does not support files api in importlib
     from pkg_resources import resource_filename
 
-    DEFAULT_VERSION_SETS_PATH = resource_filename(
-        "focus_validator", "rules"
-    )
+    DEFAULT_VERSION_SETS_PATH = resource_filename("focus_validator", "rules")
 
 
 class Validator:
@@ -30,9 +29,9 @@ class Validator:
         rule_set_path: str = DEFAULT_VERSION_SETS_PATH,
         focus_dataset: Optional[str] = None,
         filter_rules: Optional[str] = None,
-        rules_file_prefix: str = 'cr-',
+        rules_file_prefix: str = "cr-",
         rules_version: Optional[str] = None,
-        rules_file_suffix: str = '.json',
+        rules_file_suffix: str = ".json",
         rules_force_remote_download: bool = False,
         allow_draft_releases: bool = False,
         allow_prerelease_releases: bool = False,
@@ -49,7 +48,9 @@ class Validator:
         self.log.debug("Rule set path: %s", rule_set_path)
         self.log.debug("Rules version: %s", rules_version)
         self.log.debug("Focus dataset: %s", focus_dataset)
-        self.log.debug("Output type: %s, destination: %s", output_type, output_destination)
+        self.log.debug(
+            "Output type: %s, destination: %s", output_type, output_destination
+        )
 
         if filter_rules:
             self.log.info("Rule filtering enabled: %s", filter_rules)
@@ -79,21 +80,37 @@ class Validator:
 
         # Process applicability criteria after SpecRules is created
         if self._original_applicability_criteria:
-            if self._original_applicability_criteria.strip().upper() == 'ALL':
+            if self._original_applicability_criteria.strip().upper() == "ALL":
                 # Load all available criteria from the JSON file
                 try:
                     all_criteria = self.get_applicability_criteria()
                     self.applicability_criteria_list = list(all_criteria.keys())
-                    self.log.info("Using ALL applicability criteria (%d total): %s", len(self.applicability_criteria_list), self.applicability_criteria_list)
+                    self.log.info(
+                        "Using ALL applicability criteria (%d total): %s",
+                        len(self.applicability_criteria_list),
+                        self.applicability_criteria_list,
+                    )
                 except Exception as e:
-                    self.log.warning("Failed to load all applicability criteria: %s. Proceeding with empty list.", str(e))
+                    self.log.warning(
+                        "Failed to load all applicability criteria: %s. Proceeding with empty list.",
+                        str(e),
+                    )
                     self.applicability_criteria_list = []
             else:
-                self.applicability_criteria_list = [criteria.strip() for criteria in self._original_applicability_criteria.split(',') if criteria.strip()]
-                self.log.info("Applicability criteria filter: %s", self.applicability_criteria_list)
+                self.applicability_criteria_list = [
+                    criteria.strip()
+                    for criteria in self._original_applicability_criteria.split(",")
+                    if criteria.strip()
+                ]
+                self.log.info(
+                    "Applicability criteria filter: %s",
+                    self.applicability_criteria_list,
+                )
 
             # Update the SpecRules with the processed criteria
-            self.spec_rules.applicability_criteria_list = self.applicability_criteria_list
+            self.spec_rules.applicability_criteria_list = (
+                self.applicability_criteria_list
+            )
         self.outputter = Outputter(
             output_type=output_type, output_destination=output_destination
         )
@@ -119,9 +136,22 @@ class Validator:
         if self.focus_data is not None:
             try:
                 row_count = len(self.focus_data)
-                col_count = len(self.focus_data.columns) if hasattr(self.focus_data, 'columns') else 'unknown'
-                self.log.info("Data loaded successfully: %s rows, %s columns", row_count, col_count)
-                self.log.debug("Column names: %s", list(self.focus_data.columns) if hasattr(self.focus_data, 'columns') else 'N/A')
+                col_count = (
+                    len(self.focus_data.columns)
+                    if hasattr(self.focus_data, "columns")
+                    else "unknown"
+                )
+                self.log.info(
+                    "Data loaded successfully: %s rows, %s columns",
+                    row_count,
+                    col_count,
+                )
+                self.log.debug(
+                    "Column names: %s",
+                    list(self.focus_data.columns)
+                    if hasattr(self.focus_data, "columns")
+                    else "N/A",
+                )
             except Exception as e:
                 self.log.warning("Could not determine data dimensions: %s", e)
 
@@ -142,7 +172,7 @@ class Validator:
         # Output results
         self.log.debug("Writing validation results...")
         self.outputter = self.outputter.write(results)
-        
+
         self.log.info("Validation process completed")
         return results
 
@@ -150,29 +180,38 @@ class Validator:
         self.log.debug("Retrieving supported versions...")
         local_versions = self.spec_rules.supported_local_versions()
         remote_versions = self.spec_rules.supported_remote_versions()
-        self.log.debug("Found %d local versions, %d remote versions", len(local_versions), len(remote_versions))
+        self.log.debug(
+            "Found %d local versions, %d remote versions",
+            len(local_versions),
+            len(remote_versions),
+        )
         return local_versions, remote_versions
 
     def get_applicability_criteria(self) -> Dict[str, str]:
         """Get available applicability criteria for the configured FOCUS version.
-        
+
         Returns:
             Dict mapping criteria ID to description
         """
-        self.log.debug("Retrieving applicability criteria for version %s...", self.rules_version)
-        
+        self.log.debug(
+            "Retrieving applicability criteria for version %s...", self.rules_version
+        )
+
         # Get the JSON file path
         json_file_path = self.spec_rules.get_spec_rules_path()
-        
+
         # Load the JSON data directly
         from focus_validator.config_objects.json_loader import JsonLoader
+
         cr_data = JsonLoader.load_json_rules(json_file_path)
-        
+
         # Extract applicability criteria
         applicability_criteria = cr_data.get("ApplicabilityCriteria", {})
-        
+
         if not applicability_criteria:
-            raise ValueError(f"No applicability criteria found in FOCUS version {self.rules_version}")
-        
+            raise ValueError(
+                f"No applicability criteria found in FOCUS version {self.rules_version}"
+            )
+
         self.log.debug("Found %d applicability criteria", len(applicability_criteria))
         return dict(applicability_criteria)

@@ -1,6 +1,6 @@
 from .common import ChecklistObjectStatus
-from .rule import ChecklistObject, InvalidRule, ConformanceRule
 from .json_loader import JsonLoader
+from .rule import ChecklistObject, ConformanceRule, InvalidRule
 
 __all__ = [
     "ChecklistObject",
