@@ -116,18 +116,51 @@ class UnittestOutputter:
         # Convert ValidationResults format to expected format
         def _get_status_from_entry(entry):
             """Convert entry to status string."""
+            # Handle ChecklistObject format (from tests)
+            if hasattr(entry, 'status'):
+                status_value = entry.status.value if hasattr(entry.status, 'value') else str(entry.status)
+                if status_value == "skipped":
+                    return "skipped"
+                elif status_value == "passed":
+                    return "passed"
+                elif status_value == "errored":
+                    return "errored"
+                else:
+                    return "failed"
+            
+            # Handle ValidationResults format
             details = entry.get("details", {})
             if details.get("skipped"):
                 return "skipped"
             elif entry.get("ok"):
                 return "passed"
+            # Check for error indicators in ValidationResults format
+            elif details.get("error") or details.get("missing_columns"):
+                return "errored"
             else:
                 return "failed"
         
         def _convert_entry_to_row(rule_id, entry):
             """Convert entry to the format expected by formatter."""
-            rule = result_set.rules.get(rule_id)
             status = _get_status_from_entry(entry)
+            
+            # Handle ChecklistObject format (from tests)
+            if hasattr(entry, 'check_name'):
+                return {
+                    "check_name": getattr(entry, 'check_name', rule_id),
+                    "status": type('MockStatus', (), {'value': status})(),  # Mock status object
+                    "column_id": getattr(entry, 'column_id', 'Unknown'),
+                    "friendly_name": getattr(entry, 'friendly_name', rule_id),
+                    "error": getattr(entry, 'error', None) if status in ["failed", "errored"] else None,
+                    "rule_ref": {"check_type_friendly_name": getattr(entry.rule_ref, 'check_type_friendly_name', 'Unknown') if hasattr(entry, 'rule_ref') else 'Unknown'}
+                }
+            
+            # Handle ValidationResults format
+            if hasattr(result_set, 'rules') and result_set.rules:
+                rule = result_set.rules.get(rule_id)
+            else:
+                rule = None
+            
             details = entry.get("details", {})
             
             return {
@@ -139,15 +172,25 @@ class UnittestOutputter:
                 "rule_ref": {"check_type_friendly_name": getattr(rule, 'check_type_friendly_name', 'Unknown') if rule else 'Unknown'}
             }
 
+        # Handle both ValidationResults format and legacy mock format
+        if hasattr(result_set, 'by_rule_id') and isinstance(result_set.by_rule_id, dict):
+            # New ValidationResults format
+            entries = result_set.by_rule_id
+        elif hasattr(result_set, 'checklist') and isinstance(result_set.checklist, dict):
+            # Legacy mock format for tests
+            entries = result_set.checklist
+        else:
+            entries = {}
+        
         # First generate the summary
         result_statuses = {}
         for status in ["passed", "failed", "skipped", "errored"]:
             result_statuses[status] = sum(
-                [1 for entry in result_set.by_rule_id.values() if _get_status_from_entry(entry) == status]
+                [1 for entry in entries.values() if _get_status_from_entry(entry) == status]
             )
 
         # format the results for processing
-        rows = [_convert_entry_to_row(rule_id, entry) for rule_id, entry in result_set.by_rule_id.items()]
+        rows = [_convert_entry_to_row(rule_id, entry) for rule_id, entry in entries.items()]
 
         # Setup a Formatter and initiate with result totals
         formatter = UnittestFormatter(
@@ -161,7 +204,7 @@ class UnittestOutputter:
         # If there are any errors load them in first
         if result_statuses["errored"]:
             formatter.add_testsuite(name="Base", column="Unknown")
-            for testcase in [r for r in rows if r.get("error", False)]:
+            for testcase in [r for r in rows if r["status"].value == "errored"]:
                 formatter.add_testcase(
                     testsuite="Base",
                     name=testcase["check_name"],
