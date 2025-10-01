@@ -8,6 +8,7 @@ import sys
 import time
 import yaml
 import subprocess
+from typing import Dict, Any
 from focus_validator.validator import DEFAULT_VERSION_SETS_PATH, Validator
 from importlib import resources as ir
 from .outputter.outputter_validation_graph import build_validation_graph
@@ -253,7 +254,7 @@ def main() -> None:
                 # Get plan and sql_map from validator
                 plan = validator.spec_rules.plan
                 # For now, pass empty sql_map since we removed it from the return
-                sql_map = {}
+                sql_map: Dict[str, Any] = {}
                 g = build_validation_graph(plan=plan, results=results, sql_map=sql_map)
                 g.render(filename, cleanup=True)
                 

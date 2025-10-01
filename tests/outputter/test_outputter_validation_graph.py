@@ -151,12 +151,12 @@ class TestGraphHelpers(unittest.TestCase):
     def test_status_from_entry_errored_with_error(self):
         """Test status detection for errored entries with error details."""
         entry = {"ok": False, "details": {"error": "Something went wrong"}}
-        self.assertEqual(_status_from_entry(entry), "ERRORED")
+        self.assertEqual(_status_from_entry(entry), "FAILED")
 
     def test_status_from_entry_errored_with_missing_columns(self):
         """Test status detection for errored entries with missing columns."""
         entry = {"ok": False, "details": {"missing_columns": ["Column1"]}}
-        self.assertEqual(_status_from_entry(entry), "ERRORED")
+        self.assertEqual(_status_from_entry(entry), "FAILED")
 
     def test_status_from_entry_column_presence_check_failed(self):
         """Test status detection for failed column presence checks."""
@@ -391,11 +391,9 @@ class TestBuildValidationGraph(unittest.TestCase):
         # Verify color map constants exist
         self.assertIn("PASSED", COLOR_MAP)
         self.assertIn("FAILED", COLOR_MAP)
-        self.assertIn("ERRORED", COLOR_MAP)
         self.assertIn("SKIPPED", COLOR_MAP)
         self.assertEqual(COLOR_MAP["PASSED"], "lightgreen")
         self.assertEqual(COLOR_MAP["FAILED"], "lightcoral")
-        self.assertEqual(COLOR_MAP["ERRORED"], "orange")
         self.assertEqual(COLOR_MAP["SKIPPED"], "lightgray")
 
     def test_build_validation_graph_default_color(self):
