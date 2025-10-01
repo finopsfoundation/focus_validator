@@ -86,7 +86,7 @@ def main() -> None:
     parser.add_argument(
         "--data-file",
         help="Path to the data file (CSV)",
-        required="--supported-versions" not in sys.argv,
+        required="--supported-versions" not in sys.argv and "--show-applicability-criteria" not in sys.argv,
     )
     parser.add_argument(
         "--column-namespace",
@@ -160,6 +160,17 @@ def main() -> None:
         default=False,
         help="Allow downloading prerelease versions of the FOCUS spec JSON from GitHub",
     )
+    parser.add_argument(
+        "--applicability-criteria",
+        default=None,
+        help="Comma-separated list of applicability criteria to apply during validation (e.g., 'AVAILABILITY_ZONE_SUPPORTED,MULTIPLE_SUB_ACCOUNT_TYPES_SUPPORTED'). Use 'ALL' to include all available criteria.",
+    )
+    parser.add_argument(
+        "--show-applicability-criteria",
+        action="store_true",
+        default=False,
+        help="Show available applicability criteria for the specified FOCUS version and exit",
+    )
 
     args = parser.parse_args()
 
@@ -177,6 +188,8 @@ def main() -> None:
         log.info("  Filter rules: %s", args.filter_rules)
     if args.column_namespace:
         log.info("  Column namespace: %s", args.column_namespace)
+    if args.applicability_criteria:
+        log.info("  Applicability criteria: %s", args.applicability_criteria)
 
     if args.output_type != "console" and args.output_destination is None:
         log.error("Output destination required for output type: %s", args.output_type)
@@ -195,6 +208,7 @@ def main() -> None:
         rules_force_remote_download=args.force_download,
         allow_draft_releases=args.allow_draft_releases,
         allow_prerelease_releases=args.allow_prerelease_releases,
+        applicability_criteria=args.applicability_criteria,
     )
     if args.supported_versions:
         log.info("Retrieving supported versions...")
@@ -203,6 +217,22 @@ def main() -> None:
         log.info("Remote versions: %s", remote)
         print("Supported local versions:", local)
         print("Supported remote versions:", remote)
+    elif args.show_applicability_criteria:
+        log.info("Retrieving applicability criteria for version %s...", args.validate_version)
+        try:
+            criteria = validator.get_applicability_criteria()
+            print("Available applicability criteria for FOCUS version {}:".format(args.validate_version))
+            print("ApplicabilityCriteriaId\tDescription")
+            for criteria_id, criteria_data in criteria.items():
+                if isinstance(criteria_data, dict) and 'Description' in criteria_data:
+                    description = criteria_data['Description']
+                else:
+                    description = str(criteria_data)
+                print(f"{criteria_id}\t{description}")
+        except Exception as e:
+            log.error("Failed to retrieve applicability criteria: %s", str(e))
+            print(f"Error: {e}")
+            sys.exit(1)
     else:
         log.info("Starting validation process...")
         startTime = time.time()

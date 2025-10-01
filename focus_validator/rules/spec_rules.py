@@ -24,7 +24,7 @@ class ValidationResults:
 class SpecRules:
     
     def __init__(
-        self, rule_set_path, rules_file_prefix, rules_version, rules_file_suffix, focus_dataset, filter_rules, rules_force_remote_download, allow_draft_releases, allow_prerelease_releases, column_namespace,
+        self, rule_set_path, rules_file_prefix, rules_version, rules_file_suffix, focus_dataset, filter_rules, rules_force_remote_download, allow_draft_releases, allow_prerelease_releases, column_namespace, applicability_criteria_list=None,
     ):
         self.rule_set_path = rule_set_path
         self.rules_file_prefix = rules_file_prefix
@@ -32,6 +32,7 @@ class SpecRules:
         self.rules_file_suffix = rules_file_suffix
         self.focus_dataset = focus_dataset
         self.filter_rules = filter_rules
+        self.applicability_criteria_list = applicability_criteria_list or []
         self.json_rule_file = os.path.join(
             self.rule_set_path, f"{self.rules_file_prefix}{self.rules_version}{self.rules_file_suffix}"
         )
@@ -178,6 +179,7 @@ class SpecRules:
             json_rule_file=self.json_rule_file,
             focus_dataset=self.focus_dataset,
             filter_rules=self.filter_rules,
+            applicability_criteria_list=self.applicability_criteria_list,
         )
         self.plan = val_plan
         self._meta = {
@@ -211,7 +213,7 @@ class SpecRules:
 
         plan = self.plan
         results_by_idx: Dict[int, Dict[str, Any]] = {}
-        converter = FocusToDuckDBSchemaConverter(focus_data=focus_data)
+        converter = FocusToDuckDBSchemaConverter(focus_data=focus_data, validated_applicability_criteria=self.applicability_criteria_list)
         # 1) Let the converter prepare schemas, UDFs, temp views, etc.
         converter.prepare(conn=connection, plan=plan)
 

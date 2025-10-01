@@ -2,7 +2,7 @@ import importlib.resources
 import logging
 import time
 import os
-from typing import Optional, Tuple, List, Any
+from typing import Optional, Tuple, List, Any, Dict
 from focus_validator.data_loaders import data_loader
 from focus_validator.outputter.outputter import Outputter
 from focus_validator.rules.spec_rules import SpecRules, ValidationResults
@@ -37,6 +37,7 @@ class Validator:
         allow_draft_releases: bool = False,
         allow_prerelease_releases: bool = False,
         column_namespace: Optional[str] = None,
+        applicability_criteria: Optional[str] = None,
     ) -> None:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.data_filename = data_filename
@@ -57,6 +58,10 @@ class Validator:
         if rules_force_remote_download:
             self.log.info("Force remote download enabled")
 
+        # Store original criteria string for processing after SpecRules creation
+        self._original_applicability_criteria = applicability_criteria
+        self.applicability_criteria_list = None
+
         self.rules_version = rules_version
         self.spec_rules = SpecRules(
             rule_set_path=rule_set_path,
@@ -69,7 +74,26 @@ class Validator:
             allow_draft_releases=allow_draft_releases,
             allow_prerelease_releases=allow_prerelease_releases,
             column_namespace=column_namespace,
+            applicability_criteria_list=None,  # Will be set later
         )
+
+        # Process applicability criteria after SpecRules is created
+        if self._original_applicability_criteria:
+            if self._original_applicability_criteria.strip().upper() == 'ALL':
+                # Load all available criteria from the JSON file
+                try:
+                    all_criteria = self.get_applicability_criteria()
+                    self.applicability_criteria_list = list(all_criteria.keys())
+                    self.log.info("Using ALL applicability criteria (%d total): %s", len(self.applicability_criteria_list), self.applicability_criteria_list)
+                except Exception as e:
+                    self.log.warning("Failed to load all applicability criteria: %s. Proceeding with empty list.", str(e))
+                    self.applicability_criteria_list = []
+            else:
+                self.applicability_criteria_list = [criteria.strip() for criteria in self._original_applicability_criteria.split(',') if criteria.strip()]
+                self.log.info("Applicability criteria filter: %s", self.applicability_criteria_list)
+
+            # Update the SpecRules with the processed criteria
+            self.spec_rules.applicability_criteria_list = self.applicability_criteria_list
         self.outputter = Outputter(
             output_type=output_type, output_destination=output_destination
         )
@@ -128,3 +152,27 @@ class Validator:
         remote_versions = self.spec_rules.supported_remote_versions()
         self.log.debug("Found %d local versions, %d remote versions", len(local_versions), len(remote_versions))
         return local_versions, remote_versions
+
+    def get_applicability_criteria(self) -> Dict[str, str]:
+        """Get available applicability criteria for the configured FOCUS version.
+        
+        Returns:
+            Dict mapping criteria ID to description
+        """
+        self.log.debug("Retrieving applicability criteria for version %s...", self.rules_version)
+        
+        # Get the JSON file path
+        json_file_path = self.spec_rules.get_spec_rules_path()
+        
+        # Load the JSON data directly
+        from focus_validator.config_objects.json_loader import JsonLoader
+        cr_data = JsonLoader.load_json_rules(json_file_path)
+        
+        # Extract applicability criteria
+        applicability_criteria = cr_data.get("ApplicabilityCriteria", {})
+        
+        if not applicability_criteria:
+            raise ValueError(f"No applicability criteria found in FOCUS version {self.rules_version}")
+        
+        self.log.debug("Found %d applicability criteria", len(applicability_criteria))
+        return dict(applicability_criteria)
