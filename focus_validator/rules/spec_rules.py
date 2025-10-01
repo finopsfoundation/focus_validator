@@ -1,115 +1,23 @@
 import os
 import requests
-import time
-from typing import Dict, Any, Optional, List
 import logging
-
-import pandas as pd
 import duckdb
-
-from focus_validator.config_objects import (
-    ChecklistObject,
-    ChecklistObjectStatus,
-    Rule,
-    JsonLoader,
-)
-from focus_validator.config_objects.rule import InvalidRule
-from focus_validator.config_objects.focus_to_duckdb_converter import (
-    FocusToDuckDBSchemaConverter,
-)
-from focus_validator.exceptions import UnsupportedVersion, FailedDownloadError
+from dataclasses import dataclass
+from typing import Dict, Any, Callable, Tuple, Optional, List
+from focus_validator.config_objects import JsonLoader
+from focus_validator.config_objects.plan_builder import ValidationPlan, ExecNode
+from focus_validator.config_objects.focus_to_duckdb_converter import FocusToDuckDBSchemaConverter
+from focus_validator.exceptions import UnsupportedVersion, FailedDownloadError, InvalidRuleException
 
 log = logging.getLogger(__name__)
+BuildCheck = Callable[[Any, Dict[int, Dict[str, Any]], Tuple[Any, ...]], Any]
+RunCheck = Callable[[Any], Tuple[bool, Dict[str, Any]]]
 
-def convert_column_errors(df, checklist, condition_fn, match_fn):
-    def process_row(row):
-        if condition_fn(row):
-            for check_name, check_obj in checklist.items():
-                if match_fn(row, check_obj):
-                    row["check"] = f"{check_name}:::{check_obj.friendly_name}"
-                    row["column"] = check_obj.column_id
-                    row["failure_case"] = None
-                    return row
-        return row
-
-    return df.apply(process_row, axis=1)
-
-
-def convert_missing_column_errors(df, checklist):
-    return convert_column_errors(
-        df,
-        checklist,
-        condition_fn=lambda row: (
-            row["schema_context"] == "DataFrameSchema"
-            and row["check"] == "column_in_dataframe"
-        ),
-        match_fn=lambda row, check_obj: (
-            row["failure_case"] == check_obj.column_id
-            and check_obj.rule_ref.check == "column_required"
-        )
-    )
-
-
-def convert_dtype_column_errors(df, checklist):
-    return convert_column_errors(
-        df,
-        checklist,
-        condition_fn=lambda row: (
-            row["schema_context"] == "Column"
-            and row["check"].startswith("dtype")
-        ),
-        match_fn=lambda row, check_obj: row["column"] == check_obj.column_id
-    )
-
-
-def restructure_failure_cases_df(failure_cases: pd.DataFrame, checklist):
-    failure_cases = convert_missing_column_errors(failure_cases, checklist)
-    failure_cases = convert_dtype_column_errors(failure_cases, checklist)
-    failure_cases = failure_cases.rename(
-        columns={"column": "Column", "index": "Row #", "failure_case": "Values"}
-    )
-
-    failure_cases[["Check Name", "Description"]] = failure_cases["check"].str.split(
-        ":::", expand=True
-    )
-    failure_cases = failure_cases.drop("check", axis=1)
-    failure_cases = failure_cases.drop("check_number", axis=1)
-    failure_cases = failure_cases.drop("schema_context", axis=1)
-
-    failure_cases = failure_cases.rename_axis("#")
-    failure_cases.index = failure_cases.index + 1
-
-    failure_cases["Row #"] = failure_cases["Row #"] + 1
-    failure_cases = failure_cases[
-        ["Column", "Check Name", "Description", "Values", "Row #"]
-    ]
-
-    return failure_cases
-
-
-class ValidationResult:
-    log = logging.getLogger(__name__ + "." + __qualname__)
-    checklist: Dict[str, ChecklistObject]
-    failure_cases: Optional[pd.DataFrame]
-
-    def __init__(
-        self,
-        checklist: Dict[str, ChecklistObject],
-        failure_cases: Optional[pd.DataFrame] = None,
-    ):
-        self.__failure_cases__ = failure_cases
-        self.__checklist__ = checklist
-
-    def process_result(self):
-        # For DuckDB validation, status is already set in the DuckDB converter
-        # Just ensure any remaining pending items are marked as passed
-        checklist = self.__checklist__
-        self.failure_cases = self.__failure_cases__
-
-        for check_list_object in checklist.values():
-            if check_list_object.status == ChecklistObjectStatus.PENDING:
-                check_list_object.status = ChecklistObjectStatus.PASSED
-        self.checklist = checklist
+@dataclass
+class ValidationResults:
+    """Holds validation outputs in both index-keyed and rule_id-keyed forms."""
+    by_idx: Dict[int, Dict[str, Any]]
+    by_rule_id: Dict[str, Dict[str, Any]]
 
 
 class SpecRules:
@@ -127,13 +35,6 @@ class SpecRules:
             self.rule_set_path, f"{self.rules_file_prefix}{self.rules_version}{self.rules_file_suffix}"
         )
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
-
-        self.log.info("Initializing SpecRules for version %s", rules_version)
-        self.log.debug("Rule set path: %s", rule_set_path)
-        self.log.debug("Focus dataset: %s", focus_dataset)
-        self.log.debug("Rule file pattern: %s*%s", rules_file_prefix, rules_file_suffix)
-        self.log.debug("Target rule file: %s", self.json_rule_file)
-
         self.rules_force_remote_download = rules_force_remote_download
         self.allow_draft_releases = allow_draft_releases
         self.allow_prerelease_releases = allow_prerelease_releases
@@ -165,7 +66,7 @@ class SpecRules:
                     )
                 else:
                     self.log.info("Remote rules downloaded successfully")
-        self.rules = []
+        self.rules = {}
         self.column_namespace = column_namespace
         self.json_rules = {}
         self.json_checkfunctions = {}
@@ -271,133 +172,102 @@ class SpecRules:
     def load(self) -> None:
         self.load_rules()
 
-    def load_rules(self) -> None:
-        # Load rules from JSON with dependency resolution
-        self.log.info("Loading rules from file: %s", self.json_rule_file)
-        self.log.debug("Focus dataset: %s", self.focus_dataset)
-        if self.filter_rules:
-            self.log.info("Rule filtering active: %s", self.filter_rules)
-
-        self.log.debug("Loading rules with dependency resolution...")
-        startTime = time.time()
-
-        self.json_rules, self.json_checkfunctions, rule_order = JsonLoader.load_json_rules_with_dependencies(
-            json_rule_file=self.json_rule_file, focus_dataset=self.focus_dataset, filter_rules=self.filter_rules
+    def load_rules(self) -> ValidationPlan:
+        val_plan = JsonLoader.load_json_rules_with_dependencies(
+            json_rule_file=self.json_rule_file,
+            focus_dataset=self.focus_dataset,
+            filter_rules=self.filter_rules,
         )
+        self.plan = val_plan
+        self._meta = {
+            "json_rule_file": self.json_rule_file,
+            "focus_dataset": self.focus_dataset,
+            "filter_rules": self.filter_rules,
+        }
+        return val_plan
 
-        loadDuration = time.time() - startTime
-        self.log.info("Rules loaded in %.3f seconds", loadDuration)
-        self.log.info("Total raw rules: %d", len(self.json_rules))
-        self.log.info("Check functions: %d", len(self.json_checkfunctions))
-        self.log.info("Rule processing order determined: %d rules", len(rule_order))
+    def validate(
+        self,
+        focus_data: Any,
+        *,
+        connection: Optional[duckdb.DuckDBPyConnection] = None,
+        stop_on_first_error: bool = False,
+    ) -> ValidationResults:
+        """
+        Execute the loaded ValidationPlan using DuckDB.
+        The converter encapsulates all SQL construction and execution details.
 
-        # Process rules in dependency order (topologically sorted)
-        processedCount = 0
-        dynamicRulesCount = 0
-        invalidRulesCount = 0
+        Args:
+          connection: an open duckdb connection
+          converter: an instance configured to work with this plan + connection
+          stop_on_first_error: abort early when a check fails
 
-        self.log.debug("Processing %d rules in dependency order...", len(rule_order))
+        Returns:
+          ValidationResults keyed by index and by rule_id.
+        """
+        if self.plan is None:
+            raise RuntimeError("SpecRules.validate() called before load_rules().")
 
-        for rule_id in rule_order:
-            ruleDescription = self.json_rules[rule_id]
+        plan = self.plan
+        results_by_idx: Dict[int, Dict[str, Any]] = {}
+        converter = FocusToDuckDBSchemaConverter(focus_data=focus_data)
+        # 1) Let the converter prepare schemas, UDFs, temp views, etc.
+        converter.prepare(conn=connection, plan=plan)
 
-            # Check if this is a Dynamic rule - handle specially
-            if ruleDescription.get("Type", "").lower() == "dynamic":
-                self.log.debug("Processing dynamic rule: %s", rule_id)
-                # Create a minimal rule object for Dynamic rules that will be skipped
-                dynamic_rule = Rule(
-                    check_id=rule_id,
-                    column_id=ruleDescription.get("Reference", ""),
-                    check="column_required",  # Placeholder check type - will be skipped anyway
-                    check_friendly_name=ruleDescription.get("ValidationCriteria", {}).get("MustSatisfy", "Dynamic rule")
-                )
-                dynamic_rule._rule_type = "Dynamic"
-                self.rules.append(dynamic_rule)
-                dynamicRulesCount += 1
-            else:
-                self.log.debug("Processing static rule: %s", rule_id)
-                # Use the new method that creates sub-rules for conditions
-                rule_objects = Rule.load_json_with_subchecks(ruleDescription, rule_id=rule_id, column_namespace=self.column_namespace)
+        try:
+            # 2) Walk layers (easy to parallelize later)
+            for layer in plan.layers:
+                for idx in layer:
+                    node: ExecNode = plan.nodes[idx]
+                    setattr(node.rule, "_plan_parents_", {plan.nodes[p].rule_id: results_by_idx[p] for p in node.parent_idxs})
+                    # Collect parents' outputs by index (already executed)
+                    parent_results = {pidx: results_by_idx[pidx] for pidx in node.parent_idxs}
 
-                for ruleObj in rule_objects:
-                    if isinstance(ruleObj, InvalidRule):
-                        self.log.warning("Skipping invalid rule: %s", rule_id)
-                        invalidRulesCount += 1
-                        continue  # Skip invalid rules
+                    # 3) Ask converter to build the runnable check for this rule
+                    try:
+                        check = converter.build_check(
+                            rule=node.rule,
+                            parent_results_by_idx=parent_results,
+                            parent_edges=node.parent_edges,
+                            rule_id=node.rule_id,
+                            node_idx=idx,
+                        )
+                    except InvalidRuleException as e:
+                        # Make sure the exception mentions this node explicitly
+                        raise InvalidRuleException(f"[{node.rule_id} @ idx={idx}] {e}") from e
 
-                    # Mark rule type for all rules
-                    if hasattr(ruleObj, '__dict__'):
-                        ruleObj.__dict__['_rule_type'] = ruleDescription.get("Type", "Static")
+                    # 4) Execute it via converter (runs SQL/relations inside DuckDB)
+                    ok, details = converter.run_check(check)
 
-                    self.rules.append(ruleObj)
+                    # 5) Stash result (index-keyed for speed; include rule_id for convenience)
+                    results_by_idx[idx] = {"ok": ok, "details": details, "rule_id": node.rule_id}
 
-            processedCount += 1
-            if processedCount % 50 == 0:
-                self.log.debug("Processed %d/%d rules", processedCount, len(rule_order))
+                    if stop_on_first_error and not ok:
+                        # Allow converter to cleanup if it needs to
+                        converter.finalize(success=False, results_by_idx=results_by_idx)
+                        return ValidationResults(results_by_idx, self._results_by_rule_id(results_by_idx))
 
-        self.log.info("Rule processing completed:")
-        self.log.info("  Processed: %d rules", processedCount)
-        self.log.info("  Valid rules created: %d", len(self.rules))
-        self.log.info("  Dynamic rules: %d", dynamicRulesCount)
-        self.log.info("  Invalid rules skipped: %d", invalidRulesCount)
+            # 6) Normal finalization (e.g., drop temps, flush logs)
+            converter.finalize(success=True, results_by_idx=results_by_idx)
 
-    def validate(self, focus_data, connection: Optional[duckdb.DuckDBPyConnection] = None, table_name: Optional[str] = "focus_data") -> ValidationResult:
-        self.log.info("Starting rule validation...")
-        self.log.debug("Table name: %s", table_name)
-        self.log.debug("Using external connection: %s", connection is not None)
+        except Exception:
+            # Ensure cleanup on error, then re-raise
+            try:
+                converter.finalize(success=False, results_by_idx=results_by_idx)
+            finally:
+                raise
+        sql_map = converter.emit_sql_map()
+        return sql_map, self.plan, ValidationResults(results_by_idx, self._results_by_rule_id(results_by_idx))
 
-        # Generate DuckDB validation checks and checklist
-        self.log.debug("Generating DuckDB validation checks...")
-        startTime = time.time()
+    # Optional helper(s)
+    def _results_by_rule_id(self, by_idx: Dict[int, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        if self.plan is None:
+            return {}
+        return {self.plan.nodes[i].rule_id: res for i, res in by_idx.items()}
 
-        (
-            duckdb_checks,
-            checklist,
-            compositeRuleIds,
-        ) = FocusToDuckDBSchemaConverter.generateDuckDBValidation(
-            rules=self.rules
-        )
-
-        generationTime = time.time() - startTime
-        self.log.info("Generated %d validation checks in %.3f seconds", len(duckdb_checks), generationTime)
-        self.log.debug("Checklist contains %d items", len(checklist))
-
-        if connection is None:
-            self.log.debug("Creating in-memory DuckDB connection")
-            connection = duckdb.connect(":memory:")
-            connection.register(table_name, focus_data)
-        else:
-            self.log.debug("Using provided DuckDB connection")
-
-        # Execute DuckDB validation
-        self.log.info("Executing DuckDB validation...")
-        executionStartTime = time.time()
-
-        updated_checklist = FocusToDuckDBSchemaConverter.executeDuckDBValidation(
-            connection=connection,
-            tableName=table_name,
-            checks=duckdb_checks,
-            checklist=checklist,
-            compositeRuleIds=compositeRuleIds
-        )
-
-        executionTime = time.time() - executionStartTime
-        self.log.info("Validation execution completed in %.3f seconds", executionTime)
-
-        # Process validation results
-        self.log.debug("Processing validation results...")
-        validation_result = ValidationResult(
-            checklist=updated_checklist, failure_cases=None
-        )
-        validation_result.process_result()
-
-        # Log validation summary
-        if updated_checklist:
-            passedCount = sum(1 for check in updated_checklist.values()
-                            if hasattr(check, 'status') and check.status.name == 'PASS')
-            failedCount = len(updated_checklist) - passedCount
-            self.log.info("Validation summary: %d passed, %d failed (%.1f%% success rate)",
-                         passedCount, failedCount,
-                         (passedCount / len(updated_checklist) * 100) if updated_checklist else 0)
-
-        return validation_result
+    def results_as_markdown(self, results: ValidationResults) -> str:
+        lines = ["# Validation Results", ""]
+        for rid, res in results.by_rule_id.items():
+            status = "✅ PASS" if res.get("ok") else "❌ FAIL"
+            lines.append(f"- `{rid}` — {status}")
+        return "\n".join(lines)

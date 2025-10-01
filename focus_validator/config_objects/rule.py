@@ -1,10 +1,11 @@
 import os
 import logging
-from typing import Annotated, Optional, Union, List, Literal
+from typing import Dict, Any, Annotated, Optional, Union, List, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, PrivateAttr
 from pydantic_core.core_schema import ValidationInfo
+
 
 from focus_validator.config_objects.common import (
     SIMPLE_CHECKS,
@@ -32,236 +33,90 @@ class InvalidRule(BaseModel):
     error_type: str
 
 
-class Rule(BaseModel):
+class ValidationCriteria(BaseModel):
+    # Required by schema
+    must_satisfy: str = Field(..., alias="MustSatisfy")
+    keyword: str = Field(..., alias="Keyword")
+    requirement: Dict[str, Any] = Field(..., alias="Requirement")
+    condition: Dict[str, Any] = Field(..., alias="Condition")
+    dependencies: List[str] = Field(..., alias="Dependencies")
+
+    # ---- runtime-only, private storage  ------------
+    _precondition: Optional[Dict[str, Any]] = PrivateAttr(default=None)
+
+    @property
+    def precondition(self) -> Optional[Dict[str, Any]]:
+        """Get the inherited precondition dict (or None if unset)."""
+        return self._precondition
+    
+    @precondition.setter
+    def precondition(self, value: Optional[Dict[str, Any]]) -> None:
+        """Set the inherited precondition; must be None or a dict."""
+        if value is not None and not isinstance(value, dict):
+            raise TypeError("inherited_precondition must be a dict or None")
+        if self._precondition is not None:
+            raise ValueError("inherited_precondition is already set and cannot be modified")
+        self._precondition = value
+    # ---- runtime-only, private storage  ------------
+    # allow population by field name OR alias
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ConformanceRule(BaseModel):
     """
-    Base rule class that loads spec configs and generate
+    Base rule class that loads spec configs and generates
     a pandera rule that can be validated.
     """
 
-    check_id: str
-    column_id: str
-    check: Union[
-        SIMPLE_CHECKS, AllowNullsCheck, ValueInCheck, DataTypeCheck, SQLQueryCheck, ValueComparisonCheck, FormatCheck, CompositeCheck
-    ]
-    description: Optional[str] = None  # human-readable description from Notes or MustSatisfy
+    # Top-level REQUIRED by schema
+    function: str = Field(..., alias="Function")
+    reference: str = Field(..., alias="Reference")
+    entity_type: str = Field(..., alias="EntityType")
+    cr_version_introduced: str = Field(..., alias="CRVersionIntroduced")
+    status: str = Field(..., alias="Status")
+    applicability_criteria: List[str] = Field(..., alias="ApplicabilityCriteria")
+    type: str = Field(..., alias="Type")
+    validation_criteria: ValidationCriteria = Field(..., alias="ValidationCriteria")
+    # ---- runtime-only, private storage  ------------
+    _rule_id: str | None = PrivateAttr(default=None)
 
-    check_friendly_name: Annotated[
-        Optional[str], Field(validate_default=True)
-    ] = None  # auto generated or else can be overwritten
-    check_type_friendly_name: Annotated[
-        Optional[str], Field(validate_default=True)
-    ] = None
+    def with_rule_id(self, rid: str) -> "ConformanceRule":
+        self.rule_id = rid
+        return self
 
-    model_config = ConfigDict(
-        extra="forbid",  # prevents config from containing any undesirable keys
-        frozen=True,  # prevents any modification to any attribute onces loaded from config
-    )
+    @property
+    def rule_id(self) -> Optional[str]:
+        return self._rule_id
 
-    @field_validator("check_friendly_name")
-    def validate_or_generate_check_friendly_name(
-        cls, check_friendly_name, validation_info: ValidationInfo
-    ):
-        values = validation_info.data
-        if (
-            check_friendly_name is None
-            and values.get("check") is not None
-            and values.get("column_id") is not None
-        ):
-            check_friendly_name = generate_check_friendly_name(
-                check=values["check"],
-                column_id=values["column_id"],
-                description=values.get("description")
-            )
-        return check_friendly_name
+    @rule_id.setter
+    def rule_id(self, value: str) -> None:
+        if not isinstance(value, str):
+            raise TypeError("rule_id must be a string")
+        if self._rule_id is not None:
+            raise ValueError("rule_id is already set and cannot be modified")
+        self._rule_id = value
+    # -----------------------------------------------------------------------------
+    
+    def is_active(self) -> bool:
+        return self.status == "Active"
+    
+    def is_dynamic(self) -> bool:
+        return self.type == "Dynamic"
+    
+    def is_composite(self) -> bool:
+        return self.function == 'Composite'
 
-    @field_validator("check_type_friendly_name")
-    def validate_or_generate_check_type_friendly_name(
-        cls, check_type_friendly_name, validation_info: ValidationInfo
-    ):
-        values = validation_info.data
-        if values.get("check") is not None and values.get("column_id") is not None:
-            check = values.get("check")
-            if isinstance(check, str):
-                check_type_friendly_name = "".join(
-                    [word.title() for word in check.split("_")]
-                )
-            else:
-                check_type_friendly_name = check.__class__.__name__
-        return check_type_friendly_name
+    # Optional metadata
+    notes: Optional[str] = Field(None, alias="Notes")
 
-    @staticmethod
-    def load_yaml(
-        rule_path, column_namespace: Optional[str] = None
-    ) -> Union["Rule", InvalidRule]:
-        rule_path_basename = os.path.splitext(os.path.basename(rule_path))[0]
-
-        try:
-            with open(rule_path, "r") as f:
-                rule_obj = yaml.safe_load(f)
-
-            if (
-                isinstance(rule_obj, dict)
-                and rule_obj.get("column")
-                and column_namespace
-            ):
-                rule_obj["column"] = f"{column_namespace}:{rule_obj['column']}"
-
-            if isinstance(rule_obj, dict) and "check_id" not in rule_obj:
-                rule_obj["check_id"] = rule_path_basename
-
-            return Rule.model_validate(rule_obj)
-        except Exception as e:
-            return InvalidRule(
-                rule_path=rule_path_basename,
-                error=str(e),
-                error_type=e.__class__.__name__,
-            )
-
-    @staticmethod
-    def _get_check_function_mappings():
-        # Import here to avoid circular dependency
-        from focus_validator.config_objects.focus_to_duckdb_converter import FocusToDuckDBSchemaConverter
-        return FocusToDuckDBSchemaConverter.getCheckFunctionMappings()
-
-
-    @staticmethod
-    def load_json(
-        rule_data: dict, rule_id: str = None, column_namespace: Optional[str] = None
-    ) -> Union["Rule", InvalidRule]:
-        try:
-            check_id = rule_id or "unknown"
-            validation_criteria = rule_data.get("ValidationCriteria", {})
-            requirement = validation_criteria.get("Requirement", {})
-
-            check_function = requirement.get("CheckFunction")
-            column_name = requirement.get("ColumnName", "")
-
-            # Handle composite rules (AND/OR) that have no ColumnName
-            if not column_name and check_function in ["AND", "OR"]:
-                column_id = "__COMPOSITE__"
-            elif column_name and column_namespace:
-                column_id = f"{column_namespace}:{column_name}"
-            else:
-                column_id = column_name
-
-            # Get dynamic mappings and create check object
-            mappings = Rule._get_check_function_mappings()
-
-            if check_function in mappings:
-                check = mappings[check_function](requirement)
-            else:
-                # Fallback for unmapped functions
-                check = check_function.lower() if check_function else "unknown_check"
-
-            # Extract human-readable description from Notes or MustSatisfy
-            description = rule_data.get("Notes", "")
-            if not description or description == "":
-                description = validation_criteria.get("MustSatisfy", "")
-
-            rule_obj = {
-                "check_id": check_id,
-                "column_id": column_id,
-                "check": check,
-                "description": description
-            }
-
-            return Rule.model_validate(rule_obj)
-
-        except Exception as e:
-            return InvalidRule(
-                rule_path=rule_id or "unknown",
-                error=str(e),
-                error_type=e.__class__.__name__,
-            )
-
-    @staticmethod
-    def load_json_with_subchecks(
-        rule_data: dict, rule_id: str = None, column_namespace: Optional[str] = None
-    ) -> List[Union["Rule", InvalidRule]]:
-        """
-        Load a JSON rule and also create separate rules for any Condition checks.
-        Returns a list of rules: main rule + condition rules + dependency rules.
-        """
-        rules = []
-
-        # First, create the main rule using the existing method
-        main_rule = Rule.load_json(rule_data, rule_id, column_namespace)
-        rules.append(main_rule)
-
-        # If main rule creation failed, return early
-        if isinstance(main_rule, InvalidRule):
-            return rules
-
-        try:
-            validation_criteria = rule_data.get("ValidationCriteria", {})
-            condition = validation_criteria.get("Condition", {})
-
-            # If there's a condition, create a separate rule for it
-            if condition and condition.get("CheckFunction"):
-                condition_rule_id = f"{rule_id}_condition"
-                condition_check_function = condition.get("CheckFunction")
-                condition_column_name = condition.get("ColumnName") or condition.get("ColumnAName", "")
-                condition_column_b_name = condition.get("ColumnBName", "")
-
-                # Build column_id for the condition
-                if condition_column_name and column_namespace:
-                    condition_column_id = f"{column_namespace}:{condition_column_name}"
-                else:
-                    condition_column_id = condition_column_name
-
-                # Get dynamic mappings and create condition check object
-                mappings = Rule._get_check_function_mappings()
-
-                # Handle special case for CheckNotSameValue and CheckSameValue
-                if condition_check_function in ["CheckNotSameValue", "CheckSameValue"]:
-                    # Create a custom check object for column comparison
-                    if condition_check_function == "CheckNotSameValue":
-                        condition_check = ValueComparisonCheck(
-                            operator="not_equals_column",
-                            value=condition_column_b_name
-                        )
-                    else:
-                        condition_check = ValueComparisonCheck(
-                            operator="equals_column",
-                            value=condition_column_b_name
-                        )
-                elif condition_check_function in mappings:
-                    condition_check = mappings[condition_check_function](condition)
-                else:
-                    condition_check = condition_check_function.lower()
-
-                # Create condition rule
-                condition_rule_obj = {
-                    "check_id": condition_rule_id,
-                    "column_id": condition_column_id,
-                    "check": condition_check,
-                    "description": f"Condition check: {condition_check_function}"
-                }
-
-                condition_rule = Rule.model_validate(condition_rule_obj)
-                # Mark this as a condition rule
-                if hasattr(condition_rule, '__dict__'):
-                    condition_rule.__dict__['_is_condition'] = True
-                    condition_rule.__dict__['_parent_rule_id'] = rule_id
-
-                rules.append(condition_rule)
-
-        except Exception as e:
-            # If condition processing fails, create an invalid rule to track the error
-            rules.append(InvalidRule(
-                rule_path=f"{rule_id}_condition",
-                error=f"Failed to process condition: {str(e)}",
-                error_type=e.__class__.__name__,
-            ))
-
-        return rules
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChecklistObject(BaseModel):
     check_name: str
-    column_id: str
+    rule_id: str
     friendly_name: Optional[str] = None
     error: Optional[str] = None
     status: ChecklistObjectStatus
-    rule_ref: Union[InvalidRule, Rule]
+    rule_ref: Union[InvalidRule, ConformanceRule]
     reason: Optional[str] = None

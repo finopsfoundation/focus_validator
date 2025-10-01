@@ -5,7 +5,7 @@ import os
 from typing import Optional, Tuple, List, Any
 from focus_validator.data_loaders import data_loader
 from focus_validator.outputter.outputter import Outputter
-from focus_validator.rules.spec_rules import SpecRules, ValidationResult
+from focus_validator.rules.spec_rules import SpecRules, ValidationResults
 from focus_validator.utils.performance_logging import logPerformance
 
 try:
@@ -107,20 +107,20 @@ class Validator:
         self.log.info("Data and rules loading completed")
 
     @logPerformance("validator.validate", includeArgs=True)
-    def validate(self) -> ValidationResult:
+    def validate(self) -> ValidationResults:
         self.log.info("Starting validation process...")
         self.load()
 
         # Validate
         self.log.debug("Executing rule validation...")
-        results = self.spec_rules.validate(self.focus_data)
+        sql_map, plan, results = self.spec_rules.validate(self.focus_data)
 
         # Output results
         self.log.debug("Writing validation results...")
         self.outputter = self.outputter.write(results)
-
+        
         self.log.info("Validation process completed")
-        return results
+        return sql_map, plan, results
 
     def get_supported_versions(self) -> Tuple[List[str], List[str]]:
         self.log.debug("Retrieving supported versions...")
