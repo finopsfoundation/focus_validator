@@ -6,7 +6,7 @@ import json
 from abc import ABC, abstractmethod
 from typing import Callable, ClassVar, Dict, List, Optional, Any, Tuple, Union
 from types import SimpleNamespace, MappingProxyType
-import duckdb
+import duckdb  # type: ignore[import-untyped]
 
 from .plan_builder import ValidationPlan, EdgeCtx
 from .rule import ConformanceRule
