@@ -318,6 +318,9 @@ class SpecRules:
                         "rule_id": node.rule_id,
                     }
 
+                    # Update converter's global results for dependency propagation
+                    converter.update_global_results(idx, ok, details)
+
                     if stop_on_first_error and not ok:
                         # Allow converter to cleanup if it needs to
                         converter.finalize(success=False, results_by_idx=results_by_idx)
