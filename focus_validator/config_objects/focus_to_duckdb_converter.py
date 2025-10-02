@@ -49,7 +49,7 @@ class DuckDBColumnCheck:
         self.checkSql = check_sql
         self.errorMessage = error_message
         self.nestedChecks = nested_checks or []
-        self.nestedCheckHandler = None
+        self.nestedCheckHandler = nested_check_handler
         self.meta = meta or {}  # generator name, row_condition_sql, exec_mode, etc.
         self.special_executor = special_executor
         self.exec_mode = (
@@ -167,6 +167,10 @@ class DuckDBCheckGenerator(ABC):
             exec_mode=getattr(self, "exec_mode", None),
             referenced_rule_id=getattr(self, "referenced_rule_id", None),
         )
+
+        # 5) Transfer generator-specific attributes to the check object
+        if hasattr(self, "force_fail_due_to_upstream"):
+            chk.force_fail_due_to_upstream = self.force_fail_due_to_upstream
 
         return chk
 
@@ -373,12 +377,11 @@ class FormatNumericGenerator(DuckDBCheckGenerator):
 class FormatStringGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
 
-    # Generate string format validation check for Pascal case, alphanumeric, and length requirements
+    # Generate string format validation check for ASCII characters
     def generateSql(self) -> str:
         message = (
             self.errorMessage
-            or f"{self.params.ColumnName} MUST be in PascalCase or start with 'x_' "
-            f"and contain only alphanumeric characters, with a maximum length of 50."
+            or f"{self.params.ColumnName} MUST contain only ASCII characters."
         )
         msg_sql = message.replace("'", "''")
         col = f"{self.params.ColumnName}"
@@ -388,13 +391,7 @@ class FormatStringGenerator(DuckDBCheckGenerator):
             SELECT {col}::TEXT AS value
             FROM {{table_name}}
             WHERE {col} IS NOT NULL
-              AND (
-                    NOT (
-                        {col}::TEXT ~ '^[A-Z][a-zA-Z0-9]*$'      -- PascalCase
-                        OR {col}::TEXT ~ '^x_[A-Z][a-zA-Z0-9]*$' -- x_PascalCase
-                    )
-                    OR LENGTH({col}::TEXT) > 50                  -- Length restriction
-              )
+              AND NOT ({col}::TEXT ~ '^[\\x00-\\x7F]*$')  -- Only ASCII characters (0-127)
         )
         SELECT
             COUNT(*) AS violations,
@@ -548,6 +545,9 @@ class CheckValueGenerator(DuckDBCheckGenerator):
             )
             condition = f"{self.params.ColumnName} != '{val}'"
 
+        # Apply conditional logic if present
+        condition = self._apply_condition(condition)
+
         msg_sql = message.replace("'", "''")
 
         return f"""
@@ -611,6 +611,9 @@ class CheckNotValueGenerator(DuckDBCheckGenerator):
             # Fix: Use <> (not equals) and handle NULLs properly for CheckNotValue
             condition = f"({self.params.ColumnName} IS NOT NULL AND {self.params.ColumnName} = '{val}')"
 
+        # Apply conditional logic if present
+        condition = self._apply_condition(condition)
+
         msg_sql = message.replace("'", "''")
 
         return f"""
@@ -653,13 +656,17 @@ class CheckSameValueGenerator(DuckDBCheckGenerator):
         col_a = f"{self.params.ColumnAName}"
         col_b = f"{self.params.ColumnBName}"
 
+        condition = (
+            f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} <> {col_b}"
+        )
+        # Apply conditional logic if present
+        condition = self._apply_condition(condition)
+
         return f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
-            WHERE {col_a} IS NOT NULL
-              AND {col_b} IS NOT NULL
-              AND {col_a} <> {col_b}
+            WHERE {condition}
         )
         SELECT
             COUNT(*) AS violations,
@@ -694,13 +701,15 @@ class CheckNotSameValueGenerator(DuckDBCheckGenerator):
         col_a = f"{self.params.ColumnAName}"
         col_b = f"{self.params.ColumnBName}"
 
+        condition = f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} = {col_b}"
+        # Apply conditional logic if present
+        condition = self._apply_condition(condition)
+
         return f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
-            WHERE {col_a} IS NOT NULL
-              AND {col_b} IS NOT NULL
-              AND {col_a} = {col_b}
+            WHERE {condition}
         )
         SELECT
             COUNT(*) AS violations,
@@ -731,13 +740,15 @@ class ColumnByColumnEqualsColumnValueGenerator(DuckDBCheckGenerator):
         b = self.params.ColumnBName
         r = self.params.ResultColumnName
         self.errorMessage = f"Expected {r} = {a} * {b}"
+
+        condition = f"{a} IS NOT NULL AND {b} IS NOT NULL AND {r} IS NOT NULL AND ({a} * {b}) <> {r}"
+        # Apply conditional logic if present
+        condition = self._apply_condition(condition)
+
         return f"""
         SELECT
           COUNT(*) FILTER (
-            WHERE {a} IS NOT NULL
-              AND {b} IS NOT NULL
-              AND {r} IS NOT NULL
-              AND ({a} * {b}) <> {r}
+            WHERE {condition}
           ) AS violations
         FROM {{table_name}}
         """
@@ -772,12 +783,15 @@ class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
         col = f"{self.params.ColumnName}"
         val = self.params.Value
 
+        condition = f"{col} IS NOT NULL AND {col} < {val}"
+        # Apply conditional logic if present
+        condition = self._apply_condition(condition)
+
         return f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
-            WHERE {col} IS NOT NULL
-              AND {col} < {val}
+            WHERE {condition}
         )
         SELECT
             COUNT(*) AS violations,
@@ -878,13 +892,38 @@ class CheckConformanceRuleGenerator(DuckDBCheckGenerator):
             # Try to find the referenced rule’s result among parents
             res = id2res.get(target_id)
             if res is None:
-                # Not a direct parent? Fall back to a clear failure.
-                details = {
-                    "violations": 1,
-                    "message": f"Referenced rule '{target_id}' not found upstream",
-                    "referenced_rule_id": target_id,
-                }
-                return False, details
+                # Not a direct parent? Try to find in global results registry
+                converter = None
+                if (
+                    hasattr(self, "child_builder")
+                    and callable(self.child_builder)
+                    and hasattr(self.child_builder, "__closure__")
+                    and self.child_builder.__closure__
+                ):
+                    # Access the converter instance from the child_builder lambda's closure
+                    for cell in self.child_builder.__closure__:
+                        if hasattr(cell.cell_contents, "_global_results_by_idx"):
+                            converter = cell.cell_contents
+                            break
+
+                if converter and hasattr(converter, "_global_results_by_idx") and plan:
+                    # Look for the target_id in global results by scanning plan nodes
+                    for node_idx, result in converter._global_results_by_idx.items():
+                        if (
+                            node_idx < len(plan.nodes)
+                            and plan.nodes[node_idx].rule_id == target_id
+                        ):
+                            res = result
+                            break
+
+                if res is None:
+                    # Still not found? Fall back to a clear failure.
+                    details = {
+                        "violations": 1,
+                        "message": f"Referenced rule '{target_id}' not found upstream",
+                        "referenced_rule_id": target_id,
+                    }
+                    return False, details
 
             ok = bool(res.get("ok", False))
             det = dict(res.get("details") or {})
@@ -939,12 +978,35 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
             children.append(child_check)
 
         # --- identify upstream failed deps (excluding Items) ------------------------
-        # 1) collect failed parent rule_ids
+        # 1) collect failed parent rule_ids from immediate parents
         failed_parent_rule_ids = set()
         if self.plan:
             for pidx, pres in self.parent_results_by_idx.items():
                 if not pres.get("ok", True):
                     failed_parent_rule_ids.add(self.plan.nodes[pidx].rule_id)
+
+            # ENHANCED: Also check ALL previously executed rules for failures
+            # This ensures that indirect dependencies (like column presence checks)
+            # properly propagate failures to dependent composite rules
+            converter = None
+            if (
+                callable(self.child_builder)
+                and hasattr(self.child_builder, "__closure__")
+                and self.child_builder.__closure__
+            ):
+                # Access the converter instance from the child_builder lambda's closure
+                for cell in self.child_builder.__closure__:
+                    if hasattr(cell.cell_contents, "_global_results_by_idx"):
+                        converter = cell.cell_contents
+                        break
+
+            if converter and hasattr(converter, "_global_results_by_idx"):
+                for node_idx, result in converter._global_results_by_idx.items():
+                    if not result.get("ok", True):
+                        if node_idx < len(self.plan.nodes):
+                            failed_parent_rule_ids.add(
+                                self.plan.nodes[node_idx].rule_id
+                            )
 
         # 2) dependencies declared on this rule
         deps = []
@@ -956,32 +1018,165 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
 
         # 3) rule_ids that appear inside Items (if Items are references with RuleId)
         item_rule_ids = set()
+        conformance_rule_refs = set()  # Track CheckConformanceRule references
         for item in items:
             if isinstance(item, dict):
                 rid = item.get("RuleId") or item.get("rule_id")
                 if rid:
                     item_rule_ids.add(rid)
+                # Check for CheckConformanceRule references
+                if item.get("CheckFunction") == "CheckConformanceRule":
+                    conf_rule_id = item.get("ConformanceRuleId")
+                    if conf_rule_id:
+                        conformance_rule_refs.add(conf_rule_id)
 
-        # 4) external deps = declared deps minus item rule_ids
+        # 4) Check if any CheckConformanceRule references have failed
+        failed_conformance_refs = []
+        if conformance_rule_refs and self.plan:
+            converter = None
+            if (
+                callable(self.child_builder)
+                and hasattr(self.child_builder, "__closure__")
+                and self.child_builder.__closure__
+            ):
+                for cell in self.child_builder.__closure__:
+                    if hasattr(cell.cell_contents, "_global_results_by_idx"):
+                        converter = cell.cell_contents
+                        break
+
+            if converter and hasattr(converter, "_global_results_by_idx"):
+                for node_idx, result in converter._global_results_by_idx.items():
+                    if node_idx < len(self.plan.nodes):
+                        rule_id = self.plan.nodes[node_idx].rule_id
+                        if rule_id in conformance_rule_refs:
+                            is_ok = result.get("ok", True)
+                            if not is_ok:
+                                # Check if the failed conformance rule is a Dataset entity type
+                                failed_rule_entity_type = getattr(
+                                    self.plan.nodes[node_idx].rule, "entity_type", None
+                                )
+                                # Only cascade the failure if it's not a Dataset entity type
+                                if failed_rule_entity_type != "Dataset":
+                                    failed_conformance_refs.append(rule_id)
+
+        # 5) Check for failed base rules operating on the same column (semantic dependencies)
+        # Only apply semantic dependency propagation to Attribute and Column entity types, not Dataset
+        failed_same_column_rules = []
+        rule_entity_type = (
+            getattr(self.rule, "entity_type", None) if hasattr(self, "rule") else None
+        )
+
+        if self.plan and rule_entity_type in ["Attribute", "Column"]:
+            # Extract the column name from this rule's rule_id (e.g., "CapacityReservationId" from "CapacityReservationId-C-007-C")
+            current_rule_column = (
+                self.rule_id.split("-")[0] if "-" in self.rule_id else None
+            )
+
+            if (
+                current_rule_column
+                and converter
+                and hasattr(converter, "_global_results_by_idx")
+            ):
+                for node_idx, result in converter._global_results_by_idx.items():
+                    if not result.get("ok", True) and node_idx < len(self.plan.nodes):
+                        failed_rule_id = self.plan.nodes[node_idx].rule_id
+                        # Check if this failed rule operates on the same column
+                        # Extract column name from failed rule - handle both direct rules and CostAndUsage-D-* presence checks
+                        if (
+                            failed_rule_id.startswith("CostAndUsage-D-")
+                            and current_rule_column
+                        ):
+                            # For column presence checks, check if the failure message mentions this column
+                            failure_message = str(
+                                result.get("details", {}).get("message", "")
+                            )
+                            failed_rule_column = (
+                                current_rule_column
+                                if f"Column '{current_rule_column}'" in failure_message
+                                else None
+                            )
+                        else:
+                            failed_rule_column = (
+                                failed_rule_id.split("-")[0]
+                                if "-" in failed_rule_id
+                                else None
+                            )
+
+                        if (
+                            failed_rule_column == current_rule_column
+                            and failed_rule_id != self.rule_id
+                            and ("-C-000-" in failed_rule_id or "-D-" in failed_rule_id)
+                        ):  # Column presence or base validation
+                            failed_same_column_rules.append(failed_rule_id)
+
+        # 6) external deps = declared deps minus item rule_ids
         external_deps = set(deps) - item_rule_ids
 
-        # 5) which external deps actually failed upstream?
-        external_failed = sorted(external_deps & failed_parent_rule_ids)
+        # 7) which external deps actually failed upstream?
+        external_failed_candidates = sorted(external_deps & failed_parent_rule_ids)
 
-        if external_failed:
+        # Filter out Dataset entity type failures - they should not cascade to child rules
+        external_failed = []
+        for failed_rule_id in external_failed_candidates:
+            # Find the failed rule in the plan to check its entity type
+            failed_rule_entity_type = None
+            if self.plan:
+                for node in self.plan.nodes:
+                    if node.rule_id == failed_rule_id:
+                        failed_rule_entity_type = getattr(
+                            node.rule, "entity_type", None
+                        )
+                        break
+
+            # Only include the failure if the parent rule is NOT a Dataset entity type
+            if failed_rule_entity_type != "Dataset":
+                external_failed.append(failed_rule_id)
+
+        # 8) Add failed conformance rule references and same-column failures to external failures
+        # Only apply dependency propagation to Attribute and Column entity types, not Dataset
+        if rule_entity_type in ["Attribute", "Column"]:
+            all_failed = sorted(
+                set(external_failed)
+                | set(failed_conformance_refs)
+                | set(failed_same_column_rules)
+            )
+        else:
+            # For Dataset entity types, only use explicit dependencies, not semantic cascading
+            all_failed = sorted(set(external_failed) | set(failed_conformance_refs))
+
+        if all_failed:
             # Tag the composite check to force a short-circuit fail in run_check
             self.force_fail_due_to_upstream = {
-                "failed_dependencies": external_failed,
+                "failed_dependencies": all_failed,
                 "reason": "upstream dependency failure",
             }
             # Give a clear message now (executor will reuse it)
+            failure_reason = (
+                f"external dependencies: {external_failed}" if external_failed else ""
+            )
+            conformance_reason = (
+                f"conformance rules: {failed_conformance_refs}"
+                if failed_conformance_refs
+                else ""
+            )
+            same_column_reason = (
+                f"same-column rules: {failed_same_column_rules}"
+                if failed_same_column_rules
+                else ""
+            )
+            combined_reason = " and ".join(
+                filter(None, [failure_reason, conformance_reason, same_column_reason])
+            )
+
             self.errorMessage = (
                 self.p.get("Message")
-                or f"{self.rule_id}: upstream dependency failure ({', '.join(external_failed)})"
+                or f"{self.rule_id}: upstream dependency failure ({combined_reason})"
             )
 
         self.nestedChecks = children
-        self.nestedCheckHandler = self.HANDLER
+        self.nestedCheckHandler = (
+            self.HANDLER.__func__ if hasattr(self.HANDLER, "__func__") else self.HANDLER
+        )
         self.errorMessage = (
             self.p.get("Message") or f"{self.rule_id}: {self.COMPOSITE_NAME} failed"
         )
@@ -1161,6 +1356,8 @@ class FocusToDuckDBSchemaConverter:
         self._prepared: Dict[str, Any] = {}
         self._views: Dict[str, str] = {}  # rule_id -> temp view name
         self.explain_mode = explain_mode
+        # Global results registry for dependency failure propagation
+        self._global_results_by_idx: Dict[int, Dict[str, Any]] = {}
 
     def _should_include_rule(
         self, rule: Any, parent_edges: Optional[Tuple[Any, ...]] = None
@@ -1229,9 +1426,11 @@ class FocusToDuckDBSchemaConverter:
         if self.conn is None:
             self.log.debug("Creating in-memory DuckDB connection")
             self.conn = duckdb.connect(":memory:")
-            self.conn.register(self.table_name, self.focus_data)
         else:
             self.log.debug("Using provided DuckDB connection")
+
+        # Register the focus data with DuckDB regardless of connection source
+        self.conn.register(self.table_name, self.focus_data)
 
         if self.pragma_threads:
             self.conn.execute(f"PRAGMA threads={int(self.pragma_threads)}")
@@ -1889,7 +2088,7 @@ class FocusToDuckDBSchemaConverter:
         if not vc:
             return None
         cond = (
-            getattr(vc, "Condition", None)
+            getattr(vc, "condition", None)  # Fixed: use lowercase attribute name
             if not isinstance(vc, dict)
             else vc.get("Condition")
         )
@@ -2075,3 +2274,15 @@ class FocusToDuckDBSchemaConverter:
                 print(f"Reference to: {info.get('referenced')}")
             elif t == "skipped":
                 print(f"Skipped: {info.get('reason')}")
+
+    def update_global_results(
+        self, node_idx: int, ok: bool, details: Dict[str, Any]
+    ) -> None:
+        """Update the global results registry for dependency propagation."""
+        self._global_results_by_idx[node_idx] = {
+            "ok": ok,
+            "details": details,
+            "rule_id": self.plan.nodes[node_idx].rule_id
+            if self.plan and node_idx < len(self.plan.nodes)
+            else None,
+        }
