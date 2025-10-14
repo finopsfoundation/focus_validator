@@ -732,6 +732,12 @@ class CheckNotSameValueGenerator(DuckDBCheckGenerator):
         return f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} <> {col_b}"
 
 
+class CheckDecimalValueGenerator(SkippedCheck):
+    def __init__(self, rule, rule_id: str, **kwargs: Any) -> None:
+        super().__init__(rule, rule_id, **kwargs)
+        self.errorMessage = "no defined check rule"
+
+
 class ColumnByColumnEqualsColumnValueGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnAName", "ColumnBName", "ResultColumnName"}
 
@@ -1313,6 +1319,10 @@ class FocusToDuckDBSchemaConverter:
             "generator": CheckNotSameValueGenerator,
             "factory": lambda args: "ColumnAName",
         },
+        "CheckDecimalValue": {
+            "generator": CheckDecimalValueGenerator,
+            "factory": lambda args: "ColumnName",
+        },        
         "CheckGreaterOrEqualThanValue": {
             "generator": CheckGreaterOrEqualGenerator,
             "factory": lambda args: "ColumnName",
