@@ -173,3 +173,4 @@ rules/model-*.json
 focus_validator/rules/model-*.json
 *.dot
 *.svg
+tests/samples/focus_sample_10000.csv
