@@ -7,7 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
-from .rule import ConformanceRule
+from .rule import ModelRule
 
 Predicate = Callable[[dict], bool]
 
@@ -30,7 +30,7 @@ class EdgeCtx:
 @dataclass
 class PlanNode:
     rule_id: str
-    rule: ConformanceRule
+    rule: ModelRule
     parents: List["PlanNode"] = field(default_factory=list)  # inbound parent nodes
     parent_edges: Dict[str, EdgeCtx] = field(
         default_factory=dict
@@ -107,12 +107,12 @@ class PlanGraph:
 class PlanBuilder:
     """
     Recursive, memoized builder that expands:
-      - structural references (Composite → CheckConformanceRule deps)
+      - structural references (Composite → CheckModelRule deps)
       - explicit cross-graph deps (validation_criteria.dependencies)
       - optional applicability gating (`condition`) as edge predicates
     """
 
-    def __init__(self, rules: Dict[str, ConformanceRule]) -> None:
+    def __init__(self, rules: Dict[str, ModelRule]) -> None:
         self.rules = rules
         self.graph = PlanGraph()
         self._memo: Dict[str, PlanNode] = {}
@@ -154,8 +154,8 @@ class PlanBuilder:
             requirement = getattr(vc, "requirement", {}) if vc else {}
             items = requirement.get("Items", []) or []
             for item in items:
-                if item.get("CheckFunction") == "CheckConformanceRule":
-                    dep_id = item.get("ConformanceRuleId")
+                if item.get("CheckFunction") == "CheckModelRule":
+                    dep_id = item.get("ModelRuleId")
                     if dep_id and dep_id in self.rules:
                         self._build_node(dep_id)
                         self._link(

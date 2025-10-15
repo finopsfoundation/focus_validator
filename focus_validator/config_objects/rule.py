@@ -52,7 +52,7 @@ class ValidationCriteria(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class ConformanceRule(BaseModel):
+class ModelRule(BaseModel):
     """
     Base rule class that loads spec configs and generates
     a pandera rule that can be validated.
@@ -62,7 +62,7 @@ class ConformanceRule(BaseModel):
     function: str = Field(..., alias="Function")
     reference: str = Field(..., alias="Reference")
     entity_type: str = Field(..., alias="EntityType")
-    cr_version_introduced: str = Field(..., alias="CRVersionIntroduced")
+    model_version_introduced: str = Field(..., alias="ModelVersionIntroduced")
     status: str = Field(..., alias="Status")
     applicability_criteria: List[str] = Field(..., alias="ApplicabilityCriteria")
     type: str = Field(..., alias="Type")
@@ -70,7 +70,7 @@ class ConformanceRule(BaseModel):
     # ---- runtime-only, private storage  ------------
     _rule_id: str | None = PrivateAttr(default=None)
 
-    def with_rule_id(self, rid: str) -> "ConformanceRule":
+    def with_rule_id(self, rid: str) -> "ModelRule":
         self.rule_id = rid
         return self
 
@@ -109,5 +109,5 @@ class ChecklistObject(BaseModel):
     friendly_name: Optional[str] = None
     error: Optional[str] = None
     status: ChecklistObjectStatus
-    rule_ref: Union[InvalidRule, ConformanceRule]
+    rule_ref: Union[InvalidRule, ModelRule]
     reason: Optional[str] = None

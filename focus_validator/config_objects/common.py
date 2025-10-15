@@ -51,9 +51,9 @@ class DistinctCountCheck(BaseModel):
     expected_count: int
 
 
-class ConformanceRuleCheck(BaseModel):
-    # Handles CheckConformanceRule
-    conformance_rule_id: str
+class ModelRuleCheck(BaseModel):
+    # Handles CheckModelRule
+    model_rule_id: str
 
 
 class ColumnComparisonCheck(BaseModel):

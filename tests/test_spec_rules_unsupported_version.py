@@ -9,7 +9,7 @@ class TestSpecRulesUnsupportedVersion(TestCase):
         with self.assertRaises(UnsupportedVersion) as cm:
             SpecRules(
                 rule_set_path="focus_validator/rules",
-                rules_file_prefix="cr-",
+                rules_file_prefix="model-",
                 rules_version="0.1",
                 rules_file_suffix=".json",
                 focus_dataset="CostAndUsage",

@@ -28,7 +28,7 @@ class Validator:
         rule_set_path: str = DEFAULT_VERSION_SETS_PATH,
         focus_dataset: Optional[str] = None,
         filter_rules: Optional[str] = None,
-        rules_file_prefix: str = "cr-",
+        rules_file_prefix: str = "model-",
         rules_version: Optional[str] = None,
         rules_file_suffix: str = ".json",
         rules_force_remote_download: bool = False,
@@ -202,10 +202,10 @@ class Validator:
         # Load the JSON data directly
         from focus_validator.config_objects.json_loader import JsonLoader
 
-        cr_data = JsonLoader.load_json_rules(json_file_path)
+        model_data = JsonLoader.load_json_rules(json_file_path)
 
         # Extract applicability criteria
-        applicability_criteria = cr_data.get("ApplicabilityCriteria", {})
+        applicability_criteria = model_data.get("ApplicabilityCriteria", {})
 
         if not applicability_criteria:
             raise ValueError(
