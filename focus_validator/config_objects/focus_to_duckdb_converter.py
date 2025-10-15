@@ -1703,12 +1703,12 @@ class FocusToDuckDBSchemaConverter:
 
         try:
             # Handle numpy/pandas types by converting to Python native type first
-            if hasattr(raw, 'item'):
+            if hasattr(raw, "item"):
                 # numpy scalar types have .item() method to get Python native type
                 raw_native = raw.item()
             else:
                 raw_native = raw
-            
+
             # Ensure we have a type that int() can handle
             if isinstance(raw_native, (int, float, str)):
                 violations = int(raw_native)
