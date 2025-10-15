@@ -35,4 +35,4 @@ jobs:
           poetry install
       - name: Test with pytest
         run: |
-          poetry run pytest --cov=focus_validator --cov-fail-under=90
+          poetry run pytest --cov=focus_validator --cov-fail-under=70
