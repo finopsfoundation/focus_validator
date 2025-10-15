@@ -84,14 +84,13 @@ def _load_config_path(path: str) -> None:
 def main() -> None:
     # Ensure UTF-8 encoding for stdout/stderr on Windows
     if sys.platform.startswith("win"):
-        import codecs
-        if hasattr(sys.stdout, 'reconfigure'):
+        if hasattr(sys.stdout, "reconfigure"):
             try:
-                sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-                sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+                sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+                sys.stderr.reconfigure(encoding="utf-8", errors="replace")
             except (AttributeError, OSError):
                 pass
-    
+
     setup_logging()
     log = logging.getLogger(__name__)
 

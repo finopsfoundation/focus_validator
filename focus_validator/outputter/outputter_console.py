@@ -14,7 +14,7 @@ def _get_safe_icons():
     try:
         # Test if we can encode Unicode characters
         test_chars = "✅⏭️❌"
-        if hasattr(sys.stdout, 'encoding') and sys.stdout.encoding:
+        if hasattr(sys.stdout, "encoding") and sys.stdout.encoding:
             test_chars.encode(sys.stdout.encoding)
         return {"pass": "✅", "skip": "⏭️", "fail": "❌"}
     except (UnicodeEncodeError, LookupError):
@@ -47,7 +47,11 @@ def _line_for_rule(rule_id: str, entry: Dict[str, Any]) -> str:
 
     tail = f"  ({', '.join(extra)})" if extra else ""
     icons = _get_safe_icons()
-    icon = icons["pass"] if status == STATUS_PASS else (icons["skip"] if status == STATUS_SKIP else icons["fail"])
+    icon = (
+        icons["pass"]
+        if status == STATUS_PASS
+        else (icons["skip"] if status == STATUS_SKIP else icons["fail"])
+    )
     return f"{icon} {rule_id}: {status}{tail}"
 
 
