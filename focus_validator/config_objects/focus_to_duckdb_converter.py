@@ -1708,7 +1708,13 @@ class FocusToDuckDBSchemaConverter:
                 raw_native = raw.item()
             else:
                 raw_native = raw
-            violations = int(raw_native)
+            
+            # Ensure we have a type that int() can handle
+            if isinstance(raw_native, (int, float, str)):
+                violations = int(raw_native)
+            else:
+                # Try to convert whatever type we have
+                violations = int(raw_native)  # type: ignore[arg-type]
         except Exception:
             raise RuntimeError(
                 f"'violations' is not an integer for {getattr(check, 'rule_id', '<rule>')} (got {type(raw).__name__}: {raw!r}).\nSQL:\n{sql_final}"
