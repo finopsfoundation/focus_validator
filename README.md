@@ -64,7 +64,7 @@ This module contains the core validation logic and configuration management:
 
 #### Rule Definition (`rule.py`)
 
-- **ConformanceRule**: Pydantic model for FOCUS specification rules
+- **ModelRule**: Pydantic model for FOCUS specification rules
 - **ValidationCriteria**: Detailed validation requirements and conditions
 - **CompositeCheck**: Support for complex AND/OR logic in rule dependencies
 - **Status Management**: Rule lifecycle management (Active, Draft, etc.)
@@ -82,7 +82,7 @@ CHECK_GENERATORS: Dict[str, Dict[str, Any]] = {
     "ColumnPresent": {"generator": ColumnPresentCheckGenerator, "factory": lambda args: "ColumnName"},
     "TypeString": {"generator": TypeStringCheckGenerator, "factory": lambda args: "ColumnName"},
     "FormatDateTime": {"generator": FormatDateTimeGenerator, "factory": lambda args: "ColumnName"},
-    "CheckConformanceRule": {"generator": CheckConformanceRuleGenerator, "factory": lambda args: "ConformanceRuleId"},
+    "CheckModelRule": {"generator": CheckModelRuleGenerator, "factory": lambda args: "ModelRuleId"},
     "AND": {"generator": CompositeANDRuleGenerator, "factory": lambda args: "Items"},
     "OR": {"generator": CompositeORRuleGenerator, "factory": lambda args: "Items"}
     # ... 20+ total generators
@@ -327,7 +327,7 @@ The resolver maintains three core data structures for efficient dependency manag
 **Composite Rule Propagation:**
 
 - **Condition Inheritance**: Implements `_propagate_composite_conditions()` to push parent composite rule conditions down to child rules via private attributes
-- **CheckConformanceRule Processing**: Analyzes ValidationCriteria.requirement.Items to identify referenced rules and propagate preconditions
+- **CheckModelRule Processing**: Analyzes ValidationCriteria.requirement.Items to identify referenced rules and propagate preconditions
 - **Runtime Condition Evaluation**: Child rules inherit parent conditions and evaluate them dynamically during execution
 
 **`getTopologicalOrder()` - Advanced Graph Algorithms:**

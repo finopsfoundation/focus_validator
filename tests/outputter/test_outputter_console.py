@@ -14,7 +14,7 @@ from focus_validator.outputter.outputter_console import (
     STATUS_SKIP
 )
 from focus_validator.rules.spec_rules import ValidationResults
-from focus_validator.config_objects.rule import ConformanceRule
+from focus_validator.config_objects.rule import ModelRule
 
 
 class TestConsoleOutputterHelpers(unittest.TestCase):
@@ -117,7 +117,7 @@ class TestConsoleOutputter(unittest.TestCase):
         self.outputter = ConsoleOutputter(output_destination=None)
         
         # Mock rule objects
-        self.mock_rule = Mock(spec=ConformanceRule)
+        self.mock_rule = Mock(spec=ModelRule)
         # Create a mock validation_criteria with must_satisfy
         mock_validation_criteria = Mock()
         mock_validation_criteria.must_satisfy = "Test requirement"

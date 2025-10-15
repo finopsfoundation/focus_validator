@@ -1,4 +1,4 @@
-"""Comprehensive tests for ConformanceRule and ValidationCriteria models."""
+"""Comprehensive tests for ModelRule and ValidationCriteria models."""
 
 import unittest
 from unittest.mock import Mock, patch
@@ -12,7 +12,7 @@ sys.modules['sqlglot'] = MagicMock()
 sys.modules['sqlglot.exp'] = MagicMock()
 
 from focus_validator.config_objects.rule import (
-    ConformanceRule,
+    ModelRule,
     ValidationCriteria,
     InvalidRule,
     CompositeCheck,
@@ -31,7 +31,7 @@ class TestValidationCriteria(unittest.TestCase):
             "Keyword": "CheckValue", 
             "Requirement": {"operator": "equals", "value": "test"},
             "Condition": {"column": "status", "value": "active"},
-            "Dependencies": ["CR-001", "CR-002"]
+            "Dependencies": ["MODEL-001", "MODEL-002"]
         }
 
     def test_valid_creation_with_aliases(self):
@@ -42,7 +42,7 @@ class TestValidationCriteria(unittest.TestCase):
         self.assertEqual(criteria.keyword, "CheckValue")
         self.assertEqual(criteria.requirement, {"operator": "equals", "value": "test"})
         self.assertEqual(criteria.condition, {"column": "status", "value": "active"})
-        self.assertEqual(criteria.dependencies, ["CR-001", "CR-002"])
+        self.assertEqual(criteria.dependencies, ["MODEL-001", "MODEL-002"])
 
     def test_valid_creation_with_field_names(self):
         """Test creating ValidationCriteria with field names instead of aliases."""
@@ -51,7 +51,7 @@ class TestValidationCriteria(unittest.TestCase):
             "keyword": "CheckValue",
             "requirement": {"operator": "equals", "value": "test"},
             "condition": {"column": "status", "value": "active"},
-            "dependencies": ["CR-001", "CR-002"]
+            "dependencies": ["MODEL-001", "MODEL-002"]
         }
         
         criteria = ValidationCriteria(**field_name_data)
@@ -139,8 +139,8 @@ class TestValidationCriteria(unittest.TestCase):
         self.assertEqual(set(data.keys()), expected_keys)
 
 
-class TestConformanceRule(unittest.TestCase):
-    """Test ConformanceRule model."""
+class TestModelRule(unittest.TestCase):
+    """Test ModelRule model."""
 
     def setUp(self):
         """Set up test fixtures."""
@@ -148,7 +148,7 @@ class TestConformanceRule(unittest.TestCase):
             "Function": "CheckValue",
             "Reference": "FOCUS-1.0#billing_account_id",
             "EntityType": "Column",
-            "CRVersionIntroduced": "1.0",
+            "ModelVersionIntroduced": "1.0",
             "Status": "Active",
             "ApplicabilityCriteria": ["CostAndUsage"],
             "Type": "Static",
@@ -162,51 +162,51 @@ class TestConformanceRule(unittest.TestCase):
         }
 
     def test_valid_creation_with_aliases(self):
-        """Test creating ConformanceRule with field aliases."""
-        rule = ConformanceRule(**self.valid_rule_data)
+        """Test creating ModelRule with field aliases."""
+        rule = ModelRule(**self.valid_rule_data)
         
         self.assertEqual(rule.function, "CheckValue")
         self.assertEqual(rule.reference, "FOCUS-1.0#billing_account_id")
         self.assertEqual(rule.entity_type, "Column")
-        self.assertEqual(rule.cr_version_introduced, "1.0")
+        self.assertEqual(rule.model_version_introduced, "1.0")
         self.assertEqual(rule.status, "Active")
         self.assertEqual(rule.applicability_criteria, ["CostAndUsage"])
         self.assertEqual(rule.type, "Static")
         self.assertIsInstance(rule.validation_criteria, ValidationCriteria)
 
     def test_optional_notes_field(self):
-        """Test ConformanceRule with optional notes field."""
+        """Test ModelRule with optional notes field."""
         data = self.valid_rule_data.copy()
         data["Notes"] = "Additional information about this rule"
         
-        rule = ConformanceRule(**data)
+        rule = ModelRule(**data)
         self.assertEqual(rule.notes, "Additional information about this rule")
 
     def test_rule_id_property(self):
         """Test rule_id property getter and setter."""
-        rule = ConformanceRule(**self.valid_rule_data)
+        rule = ModelRule(**self.valid_rule_data)
         
         # Initially None
         self.assertIsNone(rule.rule_id)
         
         # Set rule_id
-        rule.rule_id = "CR-001"
-        self.assertEqual(rule.rule_id, "CR-001")
+        rule.rule_id = "MODEL-001"
+        self.assertEqual(rule.rule_id, "MODEL-001")
 
     def test_rule_id_immutable_after_set(self):
         """Test that rule_id cannot be modified after being set."""
-        rule = ConformanceRule(**self.valid_rule_data)
+        rule = ModelRule(**self.valid_rule_data)
         
-        rule.rule_id = "CR-001"
+        rule.rule_id = "MODEL-001"
         
         with self.assertRaises(ValueError) as cm:
-            rule.rule_id = "CR-002"
+            rule.rule_id = "MODEL-002"
         
         self.assertIn("already set and cannot be modified", str(cm.exception))
 
     def test_rule_id_type_validation(self):
         """Test that rule_id must be string."""
-        rule = ConformanceRule(**self.valid_rule_data)
+        rule = ModelRule(**self.valid_rule_data)
         
         with self.assertRaises(TypeError) as cm:
             rule.rule_id = 123
@@ -215,65 +215,65 @@ class TestConformanceRule(unittest.TestCase):
 
     def test_with_rule_id_method(self):
         """Test with_rule_id fluent interface method."""
-        rule = ConformanceRule(**self.valid_rule_data)
+        rule = ModelRule(**self.valid_rule_data)
         
-        result = rule.with_rule_id("CR-123")
+        result = rule.with_rule_id("MODEL-123")
         
         # Should return the same instance
         self.assertIs(result, rule)
-        self.assertEqual(rule.rule_id, "CR-123")
+        self.assertEqual(rule.rule_id, "MODEL-123")
 
     def test_is_active_method(self):
         """Test is_active method."""
         # Active rule
-        rule = ConformanceRule(**self.valid_rule_data)
+        rule = ModelRule(**self.valid_rule_data)
         self.assertTrue(rule.is_active())
         
         # Inactive rule
         inactive_data = self.valid_rule_data.copy()
         inactive_data["Status"] = "Deprecated"
-        inactive_rule = ConformanceRule(**inactive_data)
+        inactive_rule = ModelRule(**inactive_data)
         self.assertFalse(inactive_rule.is_active())
 
     def test_is_dynamic_method(self):
         """Test is_dynamic method."""
         # Static rule
-        rule = ConformanceRule(**self.valid_rule_data)
+        rule = ModelRule(**self.valid_rule_data)
         self.assertFalse(rule.is_dynamic())
         
         # Dynamic rule
         dynamic_data = self.valid_rule_data.copy()
         dynamic_data["Type"] = "Dynamic"
-        dynamic_rule = ConformanceRule(**dynamic_data)
+        dynamic_rule = ModelRule(**dynamic_data)
         self.assertTrue(dynamic_rule.is_dynamic())
 
     def test_is_composite_method(self):
         """Test is_composite method."""
         # Non-composite rule
-        rule = ConformanceRule(**self.valid_rule_data)
+        rule = ModelRule(**self.valid_rule_data)
         self.assertFalse(rule.is_composite())
         
         # Composite rule
         composite_data = self.valid_rule_data.copy()
         composite_data["Function"] = "Composite"
-        composite_rule = ConformanceRule(**composite_data)
+        composite_rule = ModelRule(**composite_data)
         self.assertTrue(composite_rule.is_composite())
 
     def test_model_dump(self):
         """Test model serialization."""
-        rule = ConformanceRule(**self.valid_rule_data)
+        rule = ModelRule(**self.valid_rule_data)
         data = rule.model_dump()
         
         # Should contain all expected fields
         expected_fields = {
-            "function", "reference", "entity_type", "cr_version_introduced",
+            "function", "reference", "entity_type", "model_version_introduced",
             "status", "applicability_criteria", "type", "validation_criteria"
         }
         self.assertTrue(expected_fields.issubset(set(data.keys())))
 
     def test_nested_validation_criteria(self):
         """Test that ValidationCriteria is properly nested and validated."""
-        rule = ConformanceRule(**self.valid_rule_data)
+        rule = ModelRule(**self.valid_rule_data)
         
         criteria = rule.validation_criteria
         self.assertIsInstance(criteria, ValidationCriteria)
@@ -287,12 +287,12 @@ class TestInvalidRule(unittest.TestCase):
     def test_valid_creation(self):
         """Test creating InvalidRule with valid data."""
         invalid_rule = InvalidRule(
-            rule_path="rules/cr-001.json",
+            rule_path="rules/model-001.json",
             error="Missing required field 'Function'",
             error_type="ValidationError"
         )
         
-        self.assertEqual(invalid_rule.rule_path, "rules/cr-001.json")
+        self.assertEqual(invalid_rule.rule_path, "rules/model-001.json")
         self.assertEqual(invalid_rule.error, "Missing required field 'Function'")
         self.assertEqual(invalid_rule.error_type, "ValidationError")
 
@@ -332,21 +332,21 @@ class TestCompositeCheck(unittest.TestCase):
         """Test creating CompositeCheck with AND logic."""
         check = CompositeCheck(
             logic_operator="AND",
-            dependency_rule_ids=["CR-001", "CR-002", "CR-003"]
+            dependency_rule_ids=["MODEL-001", "MODEL-002", "MODEL-003"]
         )
         
         self.assertEqual(check.logic_operator, "AND")
-        self.assertEqual(check.dependency_rule_ids, ["CR-001", "CR-002", "CR-003"])
+        self.assertEqual(check.dependency_rule_ids, ["MODEL-001", "MODEL-002", "MODEL-003"])
 
     def test_valid_creation_or_logic(self):
         """Test creating CompositeCheck with OR logic."""
         check = CompositeCheck(
             logic_operator="OR",
-            dependency_rule_ids=["CR-001", "CR-002"]
+            dependency_rule_ids=["MODEL-001", "MODEL-002"]
         )
         
         self.assertEqual(check.logic_operator, "OR")
-        self.assertEqual(check.dependency_rule_ids, ["CR-001", "CR-002"])
+        self.assertEqual(check.dependency_rule_ids, ["MODEL-001", "MODEL-002"])
 
     def test_empty_dependency_list(self):
         """Test CompositeCheck with empty dependency list."""
@@ -361,13 +361,13 @@ class TestCompositeCheck(unittest.TestCase):
         """Test model serialization."""
         check = CompositeCheck(
             logic_operator="OR",
-            dependency_rule_ids=["CR-A", "CR-B"]
+            dependency_rule_ids=["MODEL-A", "MODEL-B"]
         )
         
         data = check.model_dump()
         expected = {
             "logic_operator": "OR",
-            "dependency_rule_ids": ["CR-A", "CR-B"]
+            "dependency_rule_ids": ["MODEL-A", "MODEL-B"]
         }
         self.assertEqual(data, expected)
 
@@ -377,22 +377,22 @@ class TestChecklistObject(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.mock_rule = Mock(spec=ConformanceRule)
-        self.mock_rule.rule_id = "CR-001"
+        self.mock_rule = Mock(spec=ModelRule)
+        self.mock_rule.rule_id = "MODEL-001"
         self.mock_rule.function = "CheckValue"
 
-    def test_valid_creation_with_conformance_rule(self):
-        """Test creating ChecklistObject with ConformanceRule."""
+    def test_valid_creation_with_model_rule(self):
+        """Test creating ChecklistObject with ModelRule."""
         checklist_obj = ChecklistObject(
             check_name="billing_account_id_not_null",
-            rule_id="CR-001",
+            rule_id="MODEL-001",
             friendly_name="Billing Account ID Check",
             status=ChecklistObjectStatus.PASSED,
             rule_ref=self.mock_rule
         )
         
         self.assertEqual(checklist_obj.check_name, "billing_account_id_not_null")
-        self.assertEqual(checklist_obj.rule_id, "CR-001")
+        self.assertEqual(checklist_obj.rule_id, "MODEL-001")
         self.assertEqual(checklist_obj.friendly_name, "Billing Account ID Check")
         self.assertEqual(checklist_obj.status, ChecklistObjectStatus.PASSED)
         self.assertEqual(checklist_obj.rule_ref, self.mock_rule)
@@ -407,7 +407,7 @@ class TestChecklistObject(unittest.TestCase):
         
         checklist_obj = ChecklistObject(
             check_name="broken_check",
-            rule_id="CR-BROKEN",
+            rule_id="MODEL-BROKEN",
             status=ChecklistObjectStatus.ERRORED,
             rule_ref=invalid_rule,
             error="Rule parsing failed"
@@ -421,7 +421,7 @@ class TestChecklistObject(unittest.TestCase):
         """Test ChecklistObject with optional fields."""
         checklist_obj = ChecklistObject(
             check_name="simple_check",
-            rule_id="CR-002",
+            rule_id="MODEL-002",
             status=ChecklistObjectStatus.SKIPPED,
             rule_ref=self.mock_rule,
             reason="Condition not met"
@@ -445,7 +445,7 @@ class TestChecklistObject(unittest.TestCase):
             with self.subTest(status=status):
                 checklist_obj = ChecklistObject(
                     check_name=f"check_{status.value}",
-                    rule_id=f"CR-{status.value.upper()}",
+                    rule_id=f"MODEL-{status.value.upper()}",
                     status=status,
                     rule_ref=self.mock_rule
                 )
@@ -462,7 +462,7 @@ class TestChecklistObject(unittest.TestCase):
         
         checklist_obj = ChecklistObject(
             check_name="test_check",
-            rule_id="CR-TEST",
+            rule_id="MODEL-TEST",
             friendly_name="Test Check",
             status=ChecklistObjectStatus.FAILED,
             rule_ref=invalid_rule,
@@ -473,7 +473,7 @@ class TestChecklistObject(unittest.TestCase):
         data = checklist_obj.model_dump()
         
         self.assertEqual(data["check_name"], "test_check")
-        self.assertEqual(data["rule_id"], "CR-TEST")
+        self.assertEqual(data["rule_id"], "MODEL-TEST")
         self.assertEqual(data["friendly_name"], "Test Check")
         self.assertEqual(data["status"], ChecklistObjectStatus.FAILED)
         self.assertEqual(data["error"], "Validation failed")
@@ -497,24 +497,24 @@ class TestIntegrationScenarios(unittest.TestCase):
         }
         criteria = ValidationCriteria(**criteria_data)
         
-        # Create ConformanceRule with the criteria
+        # Create ModelRule with the criteria
         rule_data = {
             "Function": "CheckValue",
             "Reference": "FOCUS-1.0#test_column",
             "EntityType": "Column",
-            "CRVersionIntroduced": "1.0",
+            "ModelVersionIntroduced": "1.0",
             "Status": "Active",
             "ApplicabilityCriteria": ["CostAndUsage"],
             "Type": "Static",
             "ValidationCriteria": criteria_data
         }
-        rule = ConformanceRule(**rule_data)
-        rule.rule_id = "CR-TEST-001"
+        rule = ModelRule(**rule_data)
+        rule.rule_id = "MODEL-TEST-001"
         
         # Create ChecklistObject for the rule
         checklist_obj = ChecklistObject(
             check_name="test_column_not_null",
-            rule_id="CR-TEST-001",
+            rule_id="MODEL-TEST-001",
             friendly_name="Test Column Validation",
             status=ChecklistObjectStatus.PASSED,
             rule_ref=rule
@@ -524,17 +524,17 @@ class TestIntegrationScenarios(unittest.TestCase):
         self.assertTrue(rule.is_active())
         self.assertFalse(rule.is_dynamic())
         self.assertFalse(rule.is_composite())
-        self.assertEqual(checklist_obj.rule_ref.rule_id, "CR-TEST-001")
+        self.assertEqual(checklist_obj.rule_ref.rule_id, "MODEL-TEST-001")
         self.assertEqual(checklist_obj.status, ChecklistObjectStatus.PASSED)
 
     def test_serialization_roundtrip(self):
         """Test that complex models can be serialized and recreated."""
-        # Create a complex ConformanceRule
+        # Create a complex ModelRule
         rule_data = {
             "Function": "Composite",
             "Reference": "FOCUS-1.0#complex_check",
             "EntityType": "Row",
-            "CRVersionIntroduced": "1.0",
+            "ModelVersionIntroduced": "1.0",
             "Status": "Active",
             "ApplicabilityCriteria": ["CostAndUsage", "BillingExport"],
             "Type": "Dynamic",
@@ -549,19 +549,19 @@ class TestIntegrationScenarios(unittest.TestCase):
                     ]
                 },
                 "Condition": {"column": "record_type", "value": "billing"},
-                "Dependencies": ["CR-001", "CR-002"]
+                "Dependencies": ["MODEL-001", "MODEL-002"]
             },
             "Notes": "Complex validation rule for testing"
         }
         
         # Create and verify
-        original_rule = ConformanceRule(**rule_data)
+        original_rule = ModelRule(**rule_data)
         
         # Serialize to dict
         serialized = original_rule.model_dump()
         
         # Recreate from serialized data
-        recreated_rule = ConformanceRule(**serialized)
+        recreated_rule = ModelRule(**serialized)
         
         # Verify key properties match
         self.assertEqual(original_rule.function, recreated_rule.function)
@@ -578,7 +578,7 @@ class TestIntegrationScenarios(unittest.TestCase):
                 "Function": "CheckValue",
                 "Reference": "FOCUS-1.0#test",
                 "EntityType": "Column", 
-                "CRVersionIntroduced": "1.0",
+                "ModelVersionIntroduced": "1.0",
                 "Status": "InvalidStatus",  # Not a valid status
                 "ApplicabilityCriteria": ["CostAndUsage"],
                 "Type": "Static",
@@ -592,7 +592,7 @@ class TestIntegrationScenarios(unittest.TestCase):
             }
             
             # This should work since we don't validate enum values in the current model
-            rule = ConformanceRule(**invalid_status_rule)
+            rule = ModelRule(**invalid_status_rule)
             self.assertEqual(rule.status, "InvalidStatus")
             self.assertFalse(rule.is_active())  # Only "Active" returns True
             

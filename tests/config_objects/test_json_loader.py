@@ -21,12 +21,12 @@ class TestJsonLoader(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.sample_json_data = {
-            "ConformanceRules": {
-                "CR-001": {
+            "ModelRules": {
+                "MODEL-001": {
                     "Function": "CheckValue",
                     "Reference": "FOCUS-1.0#billing_account_id",
                     "EntityType": "Column",
-                    "CRVersionIntroduced": "1.0",
+                    "ModelVersionIntroduced": "1.0",
                     "Status": "Active",
                     "ApplicabilityCriteria": ["CostAndUsage"],
                     "Type": "Static",
@@ -39,9 +39,9 @@ class TestJsonLoader(unittest.TestCase):
                     }
                 }
             },
-            "ConformanceDatasets": {
+            "ModelDatasets": {
                 "CostAndUsage": {
-                    "ConformanceRules": ["CR-001"]
+                    "ModelRules": ["MODEL-001"]
                 }
             },
             "CheckFunctions": {
@@ -73,7 +73,7 @@ class TestJsonLoader(unittest.TestCase):
 
     def test_load_json_rules_invalid_json(self):
         """Test loading file with invalid JSON."""
-        invalid_json = '{"ConformanceRules": {"CR-001": invalid json}'
+        invalid_json = '{"ModelRules": {"MODEL-001": invalid json}'
         
         with patch('builtins.open', mock_open(read_data=invalid_json)):
             with patch('os.path.exists', return_value=True):
@@ -100,7 +100,7 @@ class TestJsonLoader(unittest.TestCase):
         # Mock the resolver instance and its methods
         mock_resolver = Mock()
         mock_resolver_class.return_value = mock_resolver
-        mock_resolver.getRelevantRules.return_value = {"CR-001": Mock()}
+        mock_resolver.getRelevantRules.return_value = {"MODEL-001": Mock()}
         mock_resolver.build_plan_and_schedule.return_value = Mock()  # ValidationPlan mock
         
         json_content = json.dumps(self.sample_json_data)
@@ -136,8 +136,8 @@ class TestJsonLoader(unittest.TestCase):
                 self.assertIn("Focus dataset 'InvalidDataset' not found", str(cm.exception))
 
     def test_load_json_rules_with_dependencies_missing_datasets(self):
-        """Test loading with missing ConformanceDatasets section."""
-        invalid_data = {"ConformanceRules": {}}  # Missing ConformanceDatasets
+        """Test loading with missing ModelDatasets section."""
+        invalid_data = {"ModelRules": {}}  # Missing ModelDatasets
         json_content = json.dumps(invalid_data)
         
         with patch('builtins.open', mock_open(read_data=json_content)):
@@ -153,7 +153,7 @@ class TestJsonLoader(unittest.TestCase):
         """Test loading with rule filtering."""
         mock_resolver = Mock()
         mock_resolver_class.return_value = mock_resolver
-        mock_resolver.getRelevantRules.return_value = {"CR-001": Mock()}
+        mock_resolver.getRelevantRules.return_value = {"MODEL-001": Mock()}
         mock_resolver.build_plan_and_schedule.return_value = Mock()
         
         json_content = json.dumps(self.sample_json_data)
@@ -163,17 +163,17 @@ class TestJsonLoader(unittest.TestCase):
                 result = JsonLoader.load_json_rules_with_dependencies(
                     json_rule_file="test_rules.json",
                     focus_dataset="CostAndUsage",
-                    filter_rules="CR-"
+                    filter_rules="MODEL-"
                 )
                 
                 # Verify buildDependencyGraph was called with filter
-                mock_resolver.buildDependencyGraph.assert_called_once_with(target_rule_prefix="CR-")
+                mock_resolver.buildDependencyGraph.assert_called_once_with(target_rule_prefix="MODEL-")
 
     @patch('focus_validator.config_objects.json_loader.RuleDependencyResolver')
     def test_load_json_rules_with_empty_dataset_rules(self, mock_resolver_class):
         """Test loading dataset with empty rules list."""
         data_with_empty_rules = self.sample_json_data.copy()
-        data_with_empty_rules["ConformanceDatasets"]["CostAndUsage"]["ConformanceRules"] = []
+        data_with_empty_rules["ModelDatasets"]["CostAndUsage"]["ModelRules"] = []
         
         mock_resolver = Mock()
         mock_resolver_class.return_value = mock_resolver
@@ -196,15 +196,15 @@ class TestJsonLoader(unittest.TestCase):
         """Test loading JSON file with various encodings."""
         # Test with UTF-8 content including special characters
         special_content = {
-            "ConformanceRules": {
-                "CR-001": {
+            "ModelRules": {
+                "MODEL-001": {
                     "Function": "CheckValue",
                     "Reference": "FOCUS-1.0#test_ñáme",
                     "Notes": "Test with spëcial characters: €, ñ, 测试"
                 }
             },
-            "ConformanceDatasets": {
-                "CostAndUsage": {"ConformanceRules": ["CR-001"]}
+            "ModelDatasets": {
+                "CostAndUsage": {"ModelRules": ["MODEL-001"]}
             },
             "CheckFunctions": {}
         }
@@ -216,29 +216,29 @@ class TestJsonLoader(unittest.TestCase):
                 result = JsonLoader.load_json_rules("special_chars.json")
                 
                 # Verify special characters are preserved
-                self.assertIn("ñáme", result["ConformanceRules"]["CR-001"]["Reference"])
+                self.assertIn("ñáme", result["ModelRules"]["MODEL-001"]["Reference"])
 
     def test_load_json_rules_large_file_simulation(self):
         """Test loading large JSON file (simulated)."""
         # Create a larger dataset
         large_data = {
-            "ConformanceRules": {},
-            "ConformanceDatasets": {
-                "CostAndUsage": {"ConformanceRules": []}
+            "ModelRules": {},
+            "ModelDatasets": {
+                "CostAndUsage": {"ModelRules": []}
             },
             "CheckFunctions": {}
         }
         
         # Add many rules to simulate large file
         for i in range(100):
-            rule_id = f"CR-{i:03d}"
-            large_data["ConformanceRules"][rule_id] = {
+            rule_id = f"MODEL-{i:03d}"
+            large_data["ModelRules"][rule_id] = {
                 "Function": "CheckValue",
                 "Reference": f"FOCUS-1.0#field_{i}",
                 "EntityType": "Column",
                 "Status": "Active"
             }
-            large_data["ConformanceDatasets"]["CostAndUsage"]["ConformanceRules"].append(rule_id)
+            large_data["ModelDatasets"]["CostAndUsage"]["ModelRules"].append(rule_id)
         
         json_content = json.dumps(large_data)
         
@@ -246,8 +246,8 @@ class TestJsonLoader(unittest.TestCase):
             with patch('os.path.exists', return_value=True):
                 result = JsonLoader.load_json_rules("large_rules.json")
                 
-                self.assertEqual(len(result["ConformanceRules"]), 100)
-                self.assertIn("CR-050", result["ConformanceRules"])
+                self.assertEqual(len(result["ModelRules"]), 100)
+                self.assertIn("MODEL-050", result["ModelRules"])
 
     def test_json_loader_static_method_independence(self):
         """Test that JsonLoader static methods are independent."""
@@ -271,13 +271,13 @@ class TestJsonLoader(unittest.TestCase):
         """Test handling of various malformed JSON structures."""
         malformed_cases = [
             # Missing closing brace
-            '{"ConformanceRules": {"CR-001": {"Function": "CheckValue"',
+            '{"ModelRules": {"MODEL-001": {"Function": "CheckValue"',
             # Invalid JSON with trailing comma
-            '{"ConformanceRules": {"CR-001": {},},}',
+            '{"ModelRules": {"MODEL-001": {},},}',
             # Mixed quotes
-            '{"ConformanceRules": {\'CR-001\': {"Function": "CheckValue"}}}',
+            '{"ModelRules": {\'MODEL-001\': {"Function": "CheckValue"}}}',
             # Unescaped special characters
-            '{"ConformanceRules": {"CR-001": {"Notes": "Line\nbreak"}}}',
+            '{"ModelRules": {"MODEL-001": {"Notes": "Line\nbreak"}}}',
         ]
         
         for i, malformed_json in enumerate(malformed_cases):
@@ -303,15 +303,15 @@ class TestJsonLoaderIntegration(unittest.TestCase):
     def test_real_file_operations(self):
         """Test JsonLoader with actual temporary files."""
         test_data = {
-            "ConformanceRules": {
-                "CR-TEST": {
+            "ModelRules": {
+                "MODEL-TEST": {
                     "Function": "CheckValue",
                     "Status": "Active"
                 }
             },
-            "ConformanceDatasets": {
+            "ModelDatasets": {
                 "TestDataset": {
-                    "ConformanceRules": ["CR-TEST"]
+                    "ModelRules": ["MODEL-TEST"]
                 }
             },
             "CheckFunctions": {}
@@ -327,7 +327,7 @@ class TestJsonLoaderIntegration(unittest.TestCase):
             result = JsonLoader.load_json_rules(temp_filename)
             
             self.assertEqual(result, test_data)
-            self.assertIn("CR-TEST", result["ConformanceRules"])
+            self.assertIn("MODEL-TEST", result["ModelRules"])
             
         finally:
             # Clean up

@@ -35,21 +35,21 @@ class JsonLoader:
         select relevant rules, and return an execution-ready ValidationPlan
         (parents preserved, topo-ordered nodes + layers).
         """
-        cr_data = JsonLoader.load_json_rules(json_rule_file)
+        model_data = JsonLoader.load_json_rules(json_rule_file)
 
         # ---- dataset + base maps ------------------------------------------------
-        datasets = cr_data.get("ConformanceDatasets", {})
+        datasets = model_data.get("ModelDatasets", {})
         if focus_dataset not in datasets:
             raise ValueError(
                 f"Focus dataset '{focus_dataset}' not found in rules file '{json_rule_file}'"
             )
 
         dataset = datasets[focus_dataset]
-        dataset_rules = dataset.get("ConformanceRules", [])
-        rules_dict = cr_data.get("ConformanceRules", {})
-        checkfunctions_dict = OrderedDict(cr_data.get("CheckFunctions", {}))
+        dataset_rules = dataset.get("ModelRules", [])
+        rules_dict = model_data.get("ModelRules", {})
+        checkfunctions_dict = OrderedDict(model_data.get("CheckFunctions", {}))
         applicability_criteria_dict = OrderedDict(
-            cr_data.get("ApplicabilityCriteria", {})
+            model_data.get("ApplicabilityCriteria", {})
         )
 
         # ---- validate and filter applicability criteria ----------------------
@@ -97,7 +97,7 @@ class JsonLoader:
             validated_applicability_criteria=validated_criteria,
         )
         resolver.buildDependencyGraph(target_rule_prefix=filter_rules)
-        relevant_rules = resolver.getRelevantRules()  # Dict[str, ConformanceRule]
+        relevant_rules = resolver.getRelevantRules()  # Dict[str, ModelRule]
 
         # ---- choose roots for the plan ------------------------------------------
         # If a filter prefix is provided, prefer roots drawn from the relevant set first.

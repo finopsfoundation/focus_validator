@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import duckdb  # type: ignore[import-untyped]
 import requests
 
-from focus_validator.config_objects import ConformanceRule, JsonLoader
+from focus_validator.config_objects import JsonLoader, ModelRule
 from focus_validator.config_objects.focus_to_duckdb_converter import (
     FocusToDuckDBSchemaConverter,
 )
@@ -28,9 +28,7 @@ class ValidationResults:
 
     by_idx: Dict[int, Dict[str, Any]]
     by_rule_id: Dict[str, Dict[str, Any]]
-    rules: Dict[
-        str, ConformanceRule
-    ]  # rule_id -> full rule object for outputter access
+    rules: Dict[str, ModelRule]  # rule_id -> full rule object for outputter access
 
 
 class SpecRules:
