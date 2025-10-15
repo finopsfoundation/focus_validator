@@ -1702,7 +1702,13 @@ class FocusToDuckDBSchemaConverter:
             )
 
         try:
-            violations = int(raw)
+            # Handle numpy/pandas types by converting to Python native type first
+            if hasattr(raw, 'item'):
+                # numpy scalar types have .item() method to get Python native type
+                raw_native = raw.item()
+            else:
+                raw_native = raw
+            violations = int(raw_native)
         except Exception:
             raise RuntimeError(
                 f"'violations' is not an integer for {getattr(check, 'rule_id', '<rule>')} (got {type(raw).__name__}: {raw!r}).\nSQL:\n{sql_final}"
