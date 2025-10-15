@@ -8,7 +8,7 @@ from .plan_builder import (
     compile_validation_plan,
     default_key_fn,
 )
-from .rule import ConformanceRule
+from .rule import ModelRule
 
 log = logging.getLogger(__name__)
 
@@ -266,7 +266,7 @@ class RuleDependencyResolver:
         for rule_id in self.dataset_rules:
             rule_data = raw_rules_data.get(rule_id)
             if rule_data is not None:
-                rule = ConformanceRule.model_validate(rule_data).with_rule_id(rule_id)
+                rule = ModelRule.model_validate(rule_data).with_rule_id(rule_id)
                 # Always include the rule - let the converter handle applicability filtering with SkippedNonApplicableCheck
                 relevant_rules[rule_id] = rule
                 rule_dependencies = relevant_rules[
@@ -290,9 +290,7 @@ class RuleDependencyResolver:
 
             dep_rule_data = raw_rules_data.get(dep_id)
             if dep_rule_data is not None and dep_id not in relevant_rules:
-                dep_rule = ConformanceRule.model_validate(dep_rule_data).with_rule_id(
-                    dep_id
-                )
+                dep_rule = ModelRule.model_validate(dep_rule_data).with_rule_id(dep_id)
                 # Always include the dependency rule - let the converter handle applicability filtering with SkippedNonApplicableCheck
                 relevant_rules[dep_id] = dep_rule
                 rule_dependencies = relevant_rules[
@@ -430,7 +428,7 @@ class RuleDependencyResolver:
     def isCompositeRule(self, rule_id: str) -> bool:
         """
         Check if a rule is composite by examining its Function type
-        and whether it has CheckConformanceRule dependencies.
+        and whether it has CheckModelRule dependencies.
         """
         rule = self.rules.get(rule_id, {})
         has_dependencies = len(rule.validation_criteria.dependencies) > 0
@@ -453,20 +451,20 @@ class RuleDependencyResolver:
 
     def _propagate_composite_conditions(
         self,
-        rules: Dict[str, "ConformanceRule"],
+        rules: Dict[str, "ModelRule"],
     ) -> None:
         """
         For every Composite rule with a non-empty ValidationCriteria.condition,
         set that condition as the runtime inherited_precondition on each
-        directly referenced rule via CheckConformanceRule.
+        directly referenced rule via CheckModelRule.
         """
         for rule in rules.values():
             if rule.function == "Composite" and rule.validation_criteria.condition:
                 condition = rule.validation_criteria.condition
 
                 for item in rule.validation_criteria.requirement.get("Items", []):
-                    if item.get("CheckFunction", None) == "CheckConformanceRule":
-                        dep_rule_id = item.get("ConformanceRuleId", None)
+                    if item.get("CheckFunction", None) == "CheckModelRule":
+                        dep_rule_id = item.get("ModelRuleId", None)
                         if dep_rule_id in rules:
                             rules[
                                 dep_rule_id
@@ -477,7 +475,7 @@ class RuleDependencyResolver:
                                 dep_rule_id,
                             )
 
-    def getRelevantRules(self) -> Dict[str, "ConformanceRule"]:
+    def getRelevantRules(self) -> Dict[str, "ModelRule"]:
         """Return the filtered set of rules relevant to the target prefix and dependencies."""
         return self.rules
 

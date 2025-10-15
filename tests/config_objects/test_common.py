@@ -21,7 +21,7 @@ from focus_validator.config_objects.common import (
     ValueComparisonCheck,
     FormatCheck,
     DistinctCountCheck,
-    ConformanceRuleCheck,
+    ModelRuleCheck,
     ColumnComparisonCheck,
     DataTypeCheck,
     generate_check_friendly_name,
@@ -264,24 +264,24 @@ class TestDistinctCountCheck(unittest.TestCase):
         self.assertEqual(data, expected)
 
 
-class TestConformanceRuleCheck(unittest.TestCase):
-    """Test the ConformanceRuleCheck model."""
+class TestModelRuleCheck(unittest.TestCase):
+    """Test the ModelRuleCheck model."""
 
     def test_valid_creation(self):
-        """Test creating ConformanceRuleCheck with valid data."""
-        check = ConformanceRuleCheck(conformance_rule_id="CR-001")
-        self.assertEqual(check.conformance_rule_id, "CR-001")
+        """Test creating ModelRuleCheck with valid data."""
+        check = ModelRuleCheck(model_rule_id="MODEL-001")
+        self.assertEqual(check.model_rule_id, "MODEL-001")
 
     def test_empty_rule_id(self):
-        """Test ConformanceRuleCheck with empty rule ID."""
-        check = ConformanceRuleCheck(conformance_rule_id="")
-        self.assertEqual(check.conformance_rule_id, "")
+        """Test ModelRuleCheck with empty rule ID."""
+        check = ModelRuleCheck(model_rule_id="")
+        self.assertEqual(check.model_rule_id, "")
 
     def test_model_dump(self):
         """Test model serialization."""
-        check = ConformanceRuleCheck(conformance_rule_id="CR-123")
+        check = ModelRuleCheck(model_rule_id="MODEL-123")
         data = check.model_dump()
-        self.assertEqual(data, {"conformance_rule_id": "CR-123"})
+        self.assertEqual(data, {"model_rule_id": "MODEL-123"})
 
 
 class TestColumnComparisonCheck(unittest.TestCase):

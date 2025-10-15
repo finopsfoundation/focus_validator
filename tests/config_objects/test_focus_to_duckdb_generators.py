@@ -43,13 +43,13 @@ from focus_validator.config_objects.focus_to_duckdb_converter import (
     
     # Advanced generators
     CheckDistinctCountGenerator,
-    CheckConformanceRuleGenerator,
+    CheckModelRuleGenerator,
     CompositeBaseRuleGenerator,
     
     # Utility functions
     _compact_json
 )
-from focus_validator.config_objects.rule import ConformanceRule, ValidationCriteria
+from focus_validator.config_objects.rule import ModelRule, ValidationCriteria
 
 
 class TestDuckDBColumnCheck(unittest.TestCase):
@@ -57,7 +57,7 @@ class TestDuckDBColumnCheck(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
-        self.mock_rule = Mock(spec=ConformanceRule)
+        self.mock_rule = Mock(spec=ModelRule)
         self.mock_rule.rule_id = "TEST-001"
         self.mock_rule.function = "TypeDecimal"
     
@@ -105,13 +105,13 @@ class TestTypeDecimalGenerator(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures with real FOCUS rule structure."""
-        # Create a ConformanceRule similar to the ListUnitPrice example
+        # Create a ModelRule similar to the ListUnitPrice example
         self.rule_data = {
             "Function": "Type",
             "Reference": "ListUnitPrice", 
             "EntityType": "Column",
             "Notes": "",
-            "CRVersionIntroduced": "1.2",
+            "ModelVersionIntroduced": "1.2",
             "Status": "Active",
             "ApplicabilityCriteria": [],
             "Type": "Static",
@@ -136,8 +136,8 @@ class TestTypeDecimalGenerator(unittest.TestCase):
             Dependencies=self.rule_data["ValidationCriteria"]["Dependencies"]
         )
         
-        # Create ConformanceRule 
-        self.mock_rule = Mock(spec=ConformanceRule)
+        # Create ModelRule 
+        self.mock_rule = Mock(spec=ModelRule)
         self.mock_rule.rule_id = "ListUnitPrice-C-001-M"
         self.mock_rule.function = self.rule_data["Function"]
         self.mock_rule.validation_criteria = self.validation_criteria
@@ -187,7 +187,7 @@ class TestTypeStringGenerator(unittest.TestCase):
     
     def setUp(self):
         """Set up TypeString generator."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "BillingAccountId-TYPE-001"
         
         self.generator = TypeStringCheckGenerator(
@@ -217,7 +217,7 @@ class TestCheckValueGenerator(unittest.TestCase):
     
     def setUp(self):
         """Set up CheckValue generator."""
-        self.mock_rule = Mock(spec=ConformanceRule)
+        self.mock_rule = Mock(spec=ModelRule)
         self.mock_rule.rule_id = "TEST-CHECK-VALUE"
         
     def test_check_value_with_string_value(self):
@@ -283,7 +283,7 @@ class TestFormatGenerators(unittest.TestCase):
     
     def test_format_numeric_generator(self):
         """Test FormatNumeric SQL generation."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "FORMAT-NUMERIC-001"
         
         generator = FormatNumericGenerator(
@@ -300,7 +300,7 @@ class TestFormatGenerators(unittest.TestCase):
         
     def test_format_datetime_generator(self):
         """Test FormatDateTime SQL generation."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "FORMAT-DATETIME-001"
         
         generator = FormatDateTimeGenerator(
@@ -317,7 +317,7 @@ class TestFormatGenerators(unittest.TestCase):
         
     def test_format_currency_code_generator(self):
         """Test FormatBillingCurrencyCode SQL generation."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "FORMAT-CURRENCY-001"
         
         generator = FormatBillingCurrencyCodeGenerator(
@@ -338,7 +338,7 @@ class TestComparisonGenerators(unittest.TestCase):
     
     def test_check_greater_or_equal_generator(self):
         """Test CheckGreaterOrEqual SQL generation."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "CHECK-GTE-001"
         
         generator = CheckGreaterOrEqualGenerator(
@@ -356,7 +356,7 @@ class TestComparisonGenerators(unittest.TestCase):
         
     def test_check_not_value_generator(self):
         """Test CheckNotValue SQL generation."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "CHECK-NOT-VALUE-001"
         
         generator = CheckNotValueGenerator(
@@ -374,7 +374,7 @@ class TestComparisonGenerators(unittest.TestCase):
         
     def test_check_not_value_generator_with_null_handling(self):
         """Test CheckNotValue handles NULL values correctly (ChargeClass != 'Correction' scenario)."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "CHECK-NOT-VALUE-002"
         
         # Test the ChargeClass != 'Correction' scenario that was failing
@@ -398,7 +398,7 @@ class TestComparisonGenerators(unittest.TestCase):
         
     def test_column_comparison_generator(self):
         """Test ColumnByColumnEqualsColumnValue generator."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "COLUMN-COMPARE-001"
         
         generator = ColumnByColumnEqualsColumnValueGenerator(
@@ -419,7 +419,7 @@ class TestAdvancedGenerators(unittest.TestCase):
     
     def test_check_distinct_count_generator(self):
         """Test CheckDistinctCount SQL generation."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "DISTINCT-COUNT-001"
         
         generator = CheckDistinctCountGenerator(
@@ -456,7 +456,7 @@ class TestSQLGenerationPatterns(unittest.TestCase):
         
     def test_sql_template_structure(self):
         """Test that all generators follow consistent SQL template structure."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "TEMPLATE-TEST"
         
         generators = [
@@ -487,7 +487,7 @@ class TestRuleIntegration(unittest.TestCase):
             "Reference": "ListUnitPrice",
             "EntityType": "Column", 
             "Notes": "",
-            "CRVersionIntroduced": "1.2",
+            "ModelVersionIntroduced": "1.2",
             "Status": "Active",
             "ApplicabilityCriteria": [],
             "Type": "Static",
@@ -503,11 +503,11 @@ class TestRuleIntegration(unittest.TestCase):
             }
         }
         
-        # Create ConformanceRule from JSON
+        # Create ModelRule from JSON
         validation_criteria = ValidationCriteria(**rule_json["ValidationCriteria"])
         
         # Create and configure generator
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "ListUnitPrice-C-001-M"
         mock_rule.validation_criteria = validation_criteria
         
@@ -551,7 +551,7 @@ class TestRuleIntegration(unittest.TestCase):
         ]
         
         for case in test_cases:
-            mock_rule = Mock(spec=ConformanceRule)
+            mock_rule = Mock(spec=ModelRule)
             mock_rule.rule_id = f"CONSISTENCY-TEST-{case['generator_class'].__name__}"
             
             generator = case["generator_class"](
@@ -577,7 +577,7 @@ class TestGeneratePredicateFunctionality(unittest.TestCase):
     
     def test_check_value_generate_predicate(self):
         """Test CheckValue generatePredicate for condition mode."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "TEST-PREDICATE-001"
         
         # Test with string value
@@ -608,7 +608,7 @@ class TestGeneratePredicateFunctionality(unittest.TestCase):
         
     def test_check_not_same_value_generate_predicate(self):
         """Test CheckNotSameValue generatePredicate for condition mode."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "TEST-PREDICATE-003"
         
         generator = CheckNotSameValueGenerator(
@@ -632,7 +632,7 @@ class TestGeneratePredicateFunctionality(unittest.TestCase):
         
     def test_check_greater_or_equal_generate_predicate(self):
         """Test CheckGreaterOrEqual generatePredicate for condition mode."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "TEST-PREDICATE-004"
         
         generator = CheckGreaterOrEqualGenerator(
@@ -650,7 +650,7 @@ class TestGeneratePredicateFunctionality(unittest.TestCase):
         
     def test_generators_without_predicate_support(self):
         """Test generators that don't support generatePredicate (requirement mode only)."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "TEST-PREDICATE-005"
         
         # TypeDecimal generator doesn't support condition mode
@@ -666,7 +666,7 @@ class TestGeneratePredicateFunctionality(unittest.TestCase):
         
     def test_predicate_vs_sql_difference(self):
         """Test the difference between generatePredicate() and generateSql()."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "TEST-PREDICATE-006"
         
         # Test same generator in different modes
@@ -712,7 +712,7 @@ class TestConditionalRules(unittest.TestCase):
             "Reference": "BilledCost",
             "EntityType": "Column",
             "Notes": "",
-            "CRVersionIntroduced": "1.2",
+            "ModelVersionIntroduced": "1.2",
             "Status": "Active",
             "ApplicabilityCriteria": [],
             "Type": "Static",
@@ -736,7 +736,7 @@ class TestConditionalRules(unittest.TestCase):
             }
         }
         
-        self.mock_rule = Mock(spec=ConformanceRule)
+        self.mock_rule = Mock(spec=ModelRule)
         self.mock_rule.rule_id = "BilledCost-C-004-C"
         self.mock_rule.function = "Validation"
     
@@ -885,7 +885,7 @@ class TestAdvancedConditionalScenarios(unittest.TestCase):
     
     def test_multiple_condition_types(self):
         """Test generators that could be used in various conditional scenarios."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "MULTI-CONDITION-TEST"
         
         # Test various condition types that might be used in complex rules
@@ -934,7 +934,7 @@ class TestAdvancedConditionalScenarios(unittest.TestCase):
         # IF (ServiceCategory = 'Compute' AND ChargeCategory = 'Usage') 
         # THEN UsageQuantity > 0
         
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "NESTED-LOGIC-TEST"
         
         # Generate components that could be combined with AND/OR logic
@@ -980,7 +980,7 @@ class TestErrorHandling(unittest.TestCase):
     
     def test_missing_required_parameters(self):
         """Test generator behavior with missing required parameters."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "MISSING-PARAMS-TEST"
         
         # This should raise a KeyError for missing ColumnName
@@ -989,7 +989,7 @@ class TestErrorHandling(unittest.TestCase):
             
     def test_empty_column_name(self):
         """Test generator with empty column name."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "EMPTY-COLUMN-TEST"
         
         generator = TypeDecimalCheckGenerator(
@@ -1004,7 +1004,7 @@ class TestErrorHandling(unittest.TestCase):
         
     def test_special_characters_in_column_names(self):
         """Test generators with special characters in column names."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "SPECIAL-CHARS-TEST"
         
         generator = CheckValueGenerator(
@@ -1041,7 +1041,7 @@ class TestFOCUSRuleScenarios(unittest.TestCase):
             }
         }
         
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "BillingCurrency-FORMAT-001"
         
         generator = FormatBillingCurrencyCodeGenerator(
@@ -1059,7 +1059,7 @@ class TestFOCUSRuleScenarios(unittest.TestCase):
         
     def test_usage_quantity_range_rule(self):
         """Test UsageQuantity >= 0 validation rule."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "UsageQuantity-GTE-001"
         
         generator = CheckGreaterOrEqualGenerator(
@@ -1077,7 +1077,7 @@ class TestFOCUSRuleScenarios(unittest.TestCase):
         
     def test_composite_cost_calculation_rule(self):
         """Test composite rule: EffectiveCost = ListUnitPrice * UsageQuantity."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "EffectiveCost-CALC-001"
         
         generator = ColumnByColumnEqualsColumnValueGenerator(
@@ -1098,7 +1098,7 @@ class TestFOCUSRuleScenarios(unittest.TestCase):
         
     def test_account_id_consistency_rule(self):
         """Test BillingAccountId to BillingAccountName consistency."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "Account-CONSISTENCY-001"
         
         generator = CheckDistinctCountGenerator(
@@ -1128,7 +1128,7 @@ class TestSQLSafetyAndPerformance(unittest.TestCase):
             "test'; SELECT * FROM sensitive_data; --"
         ]
         
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "INJECTION-TEST"
         
         for dangerous_value in dangerous_values:
@@ -1151,7 +1151,7 @@ class TestSQLSafetyAndPerformance(unittest.TestCase):
             
     def test_null_handling_across_generators(self):
         """Test proper NULL handling in different generator types.""" 
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "NULL-HANDLING-TEST"
         
         generators = [
@@ -1171,7 +1171,7 @@ class TestSQLSafetyAndPerformance(unittest.TestCase):
                 
     def test_large_value_handling(self):
         """Test handling of large numeric and string values."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "LARGE-VALUE-TEST"
         
         # Test very large number
@@ -1200,7 +1200,7 @@ class TestSQLSafetyAndPerformance(unittest.TestCase):
         
     def test_unicode_and_special_characters(self):
         """Test handling of Unicode and special characters."""
-        mock_rule = Mock(spec=ConformanceRule)
+        mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "UNICODE-TEST"
         
         unicode_values = [

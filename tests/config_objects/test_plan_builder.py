@@ -16,7 +16,7 @@ from focus_validator.config_objects.plan_builder import (
     PlanNode,
     PlanGraph,
 )
-from focus_validator.config_objects.rule import ConformanceRule
+from focus_validator.config_objects.rule import ModelRule
 
 
 class TestEdgeCtx(unittest.TestCase):
@@ -82,28 +82,28 @@ class TestPlanNode(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        # Mock ConformanceRule for testing
-        self.mock_rule = Mock(spec=ConformanceRule)
-        self.mock_rule.rule_id = "CR-001"
+        # Mock ModelRule for testing
+        self.mock_rule = Mock(spec=ModelRule)
+        self.mock_rule.rule_id = "MODEL-001"
         self.mock_rule.function = "CheckValue"
 
     def test_basic_creation(self):
         """Test creating PlanNode with basic parameters."""
-        node = PlanNode(rule_id="CR-001", rule=self.mock_rule)
+        node = PlanNode(rule_id="MODEL-001", rule=self.mock_rule)
         
-        self.assertEqual(node.rule_id, "CR-001")
+        self.assertEqual(node.rule_id, "MODEL-001")
         self.assertEqual(node.rule, self.mock_rule)
         self.assertEqual(node.parents, [])
         self.assertEqual(node.parent_edges, {})
 
     def test_creation_with_parents(self):
         """Test creating PlanNode with parent nodes."""
-        parent_rule = Mock(spec=ConformanceRule)
-        parent_rule.rule_id = "CR-000"
-        parent_node = PlanNode(rule_id="CR-000", rule=parent_rule)
+        parent_rule = Mock(spec=ModelRule)
+        parent_rule.rule_id = "MODEL-000"
+        parent_node = PlanNode(rule_id="MODEL-000", rule=parent_rule)
         
         node = PlanNode(
-            rule_id="CR-001",
+            rule_id="MODEL-001",
             rule=self.mock_rule,
             parents=[parent_node]
         )
@@ -114,15 +114,15 @@ class TestPlanNode(unittest.TestCase):
     def test_creation_with_parent_edges(self):
         """Test creating PlanNode with parent edges."""
         edge_ctx = EdgeCtx(kind="structural", note="dependency")
-        parent_edges = {"CR-000": edge_ctx}
+        parent_edges = {"MODEL-000": edge_ctx}
         
         node = PlanNode(
-            rule_id="CR-001",
+            rule_id="MODEL-001",
             rule=self.mock_rule,
             parent_edges=parent_edges
         )
         
-        self.assertEqual(node.parent_edges["CR-000"], edge_ctx)
+        self.assertEqual(node.parent_edges["MODEL-000"], edge_ctx)
 
     def test_multiple_parents(self):
         """Test PlanNode with multiple parent nodes."""
@@ -130,25 +130,25 @@ class TestPlanNode(unittest.TestCase):
         parent_nodes = []
         
         for i in range(3):
-            rule = Mock(spec=ConformanceRule)
-            rule.rule_id = f"CR-{i:03d}"
+            rule = Mock(spec=ModelRule)
+            rule.rule_id = f"MODEL-{i:03d}"
             parent_rules.append(rule)
-            parent_nodes.append(PlanNode(rule_id=f"CR-{i:03d}", rule=rule))
+            parent_nodes.append(PlanNode(rule_id=f"MODEL-{i:03d}", rule=rule))
         
         node = PlanNode(
-            rule_id="CR-001",
+            rule_id="MODEL-001",
             rule=self.mock_rule,
             parents=parent_nodes
         )
         
         self.assertEqual(len(node.parents), 3)
-        self.assertEqual(node.parents[1].rule_id, "CR-001")
+        self.assertEqual(node.parents[1].rule_id, "MODEL-001")
 
     def test_node_equality(self):
         """Test PlanNode equality (based on dataclass behavior)."""
-        node1 = PlanNode(rule_id="CR-001", rule=self.mock_rule)
-        node2 = PlanNode(rule_id="CR-001", rule=self.mock_rule)
-        node3 = PlanNode(rule_id="CR-002", rule=Mock(spec=ConformanceRule))
+        node1 = PlanNode(rule_id="MODEL-001", rule=self.mock_rule)
+        node2 = PlanNode(rule_id="MODEL-001", rule=self.mock_rule)
+        node3 = PlanNode(rule_id="MODEL-002", rule=Mock(spec=ModelRule))
         
         # Note: equality depends on all fields, including rule object
         self.assertEqual(node1, node2)  # Same rule_id and rule object
@@ -165,10 +165,10 @@ class TestPlanGraph(unittest.TestCase):
         # Create mock rules for testing
         self.rules = {}
         for i in range(5):
-            rule = Mock(spec=ConformanceRule)
-            rule.rule_id = f"CR-{i:03d}"
+            rule = Mock(spec=ModelRule)
+            rule.rule_id = f"MODEL-{i:03d}"
             rule.function = "CheckValue"
-            self.rules[f"CR-{i:03d}"] = rule
+            self.rules[f"MODEL-{i:03d}"] = rule
 
     def test_empty_graph_initialization(self):
         """Test creating empty PlanGraph."""
@@ -181,22 +181,22 @@ class TestPlanGraph(unittest.TestCase):
         """Test adding basic edge to graph."""
         edge_ctx = EdgeCtx(kind="structural", note="test dependency")
         
-        self.graph.add_edge("CR-000", "CR-001", edge_ctx)
+        self.graph.add_edge("MODEL-000", "MODEL-001", edge_ctx)
         
         # Check children relationship
-        self.assertIn("CR-001", self.graph.children["CR-000"])
+        self.assertIn("MODEL-001", self.graph.children["MODEL-000"])
         
         # Check parents relationship
-        self.assertIn("CR-000", self.graph.parents["CR-001"])
+        self.assertIn("MODEL-000", self.graph.parents["MODEL-001"])
         
         # Check edge storage
-        self.assertEqual(self.graph.edges[("CR-000", "CR-001")], edge_ctx)
+        self.assertEqual(self.graph.edges[("MODEL-000", "MODEL-001")], edge_ctx)
 
     def test_add_edge_self_reference(self):
         """Test that self-referential edges are ignored."""
         edge_ctx = EdgeCtx(kind="structural")
         
-        self.graph.add_edge("CR-001", "CR-001", edge_ctx)
+        self.graph.add_edge("MODEL-001", "MODEL-001", edge_ctx)
         
         # Should not add self-referential edge
         self.assertEqual(len(self.graph.children), 0)
@@ -206,17 +206,17 @@ class TestPlanGraph(unittest.TestCase):
     def test_add_multiple_edges(self):
         """Test adding multiple edges to graph."""
         edges = [
-            ("CR-000", "CR-001", EdgeCtx(kind="structural")),
-            ("CR-000", "CR-002", EdgeCtx(kind="data_dep")),
-            ("CR-001", "CR-002", EdgeCtx(kind="applicability")),
+            ("MODEL-000", "MODEL-001", EdgeCtx(kind="structural")),
+            ("MODEL-000", "MODEL-002", EdgeCtx(kind="data_dep")),
+            ("MODEL-001", "MODEL-002", EdgeCtx(kind="applicability")),
         ]
         
         for parent, child, ctx in edges:
             self.graph.add_edge(parent, child, ctx)
         
         # Check graph structure
-        self.assertEqual(len(self.graph.children["CR-000"]), 2)  # CR-001, CR-002
-        self.assertEqual(len(self.graph.parents["CR-002"]), 2)   # CR-000, CR-001
+        self.assertEqual(len(self.graph.children["MODEL-000"]), 2)  # MODEL-001, MODEL-002
+        self.assertEqual(len(self.graph.parents["MODEL-002"]), 2)   # MODEL-000, MODEL-001
         self.assertEqual(len(self.graph.edges), 3)
 
     def test_add_edge_overwrite(self):
@@ -224,12 +224,12 @@ class TestPlanGraph(unittest.TestCase):
         edge1 = EdgeCtx(kind="structural", note="first")
         edge2 = EdgeCtx(kind="data_dep", note="second")
         
-        self.graph.add_edge("CR-000", "CR-001", edge1)
-        self.graph.add_edge("CR-000", "CR-001", edge2)
+        self.graph.add_edge("MODEL-000", "MODEL-001", edge1)
+        self.graph.add_edge("MODEL-000", "MODEL-001", edge2)
         
         # Should overwrite the edge
-        self.assertEqual(self.graph.edges[("CR-000", "CR-001")], edge2)
-        self.assertEqual(self.graph.edges[("CR-000", "CR-001")].note, "second")
+        self.assertEqual(self.graph.edges[("MODEL-000", "MODEL-001")], edge2)
+        self.assertEqual(self.graph.edges[("MODEL-000", "MODEL-001")].note, "second")
 
     @patch('focus_validator.config_objects.plan_builder.heapq')
     def test_topo_schedule_basic(self, mock_heapq):
@@ -237,17 +237,17 @@ class TestPlanGraph(unittest.TestCase):
         # Mock heapq for deterministic behavior
         mock_heapq.heappush = Mock()
         mock_heapq.heappop = Mock(side_effect=[
-            (0, "CR-000"),  # First node (no dependencies)
-            (1, "CR-001"),  # Second node
+            (0, "MODEL-000"),  # First node (no dependencies)
+            (1, "MODEL-001"),  # Second node
         ])
         mock_heapq.heappush.return_value = None
         
         # Add some edges to create a dependency graph
-        self.graph.add_edge("CR-000", "CR-001", EdgeCtx(kind="structural"))
+        self.graph.add_edge("MODEL-000", "MODEL-001", EdgeCtx(kind="structural"))
         
         # Mock the internal state that topo_schedule would build
-        with patch.object(self.graph, 'children', {"CR-000": {"CR-001"}}):
-            with patch.object(self.graph, 'parents', {"CR-001": {"CR-000"}}):
+        with patch.object(self.graph, 'children', {"MODEL-000": {"MODEL-001"}}):
+            with patch.object(self.graph, 'parents', {"MODEL-001": {"MODEL-000"}}):
                 try:
                     ordered, layers = self.graph.topo_schedule()
                     # This test mainly ensures the method can be called
@@ -264,35 +264,35 @@ class TestPlanGraph(unittest.TestCase):
             self.graph.nodes[rule_id] = node
         
         self.assertEqual(len(self.graph.nodes), 5)
-        self.assertIn("CR-002", self.graph.nodes)
-        self.assertEqual(self.graph.nodes["CR-001"].rule_id, "CR-001")
+        self.assertIn("MODEL-002", self.graph.nodes)
+        self.assertEqual(self.graph.nodes["MODEL-001"].rule_id, "MODEL-001")
 
     def test_complex_graph_structure(self):
         """Test complex graph with multiple dependency types."""
         # Create a more complex dependency graph
         dependencies = [
-            ("CR-000", "CR-001", EdgeCtx(kind="structural", note="base dep")),
-            ("CR-000", "CR-002", EdgeCtx(kind="structural", note="parallel dep")),
-            ("CR-001", "CR-003", EdgeCtx(kind="data_dep", note="data flow")),
-            ("CR-002", "CR-003", EdgeCtx(kind="applicability", note="condition")),
-            ("CR-003", "CR-004", EdgeCtx(kind="ordering", note="sequence")),
+            ("MODEL-000", "MODEL-001", EdgeCtx(kind="structural", note="base dep")),
+            ("MODEL-000", "MODEL-002", EdgeCtx(kind="structural", note="parallel dep")),
+            ("MODEL-001", "MODEL-003", EdgeCtx(kind="data_dep", note="data flow")),
+            ("MODEL-002", "MODEL-003", EdgeCtx(kind="applicability", note="condition")),
+            ("MODEL-003", "MODEL-004", EdgeCtx(kind="ordering", note="sequence")),
         ]
         
         for parent, child, ctx in dependencies:
             self.graph.add_edge(parent, child, ctx)
         
         # Verify complex structure
-        self.assertEqual(len(self.graph.children["CR-000"]), 2)  # Branches to CR-001, CR-002
-        self.assertEqual(len(self.graph.parents["CR-003"]), 2)   # Merges from CR-001, CR-002
+        self.assertEqual(len(self.graph.children["MODEL-000"]), 2)  # Branches to MODEL-001, MODEL-002
+        self.assertEqual(len(self.graph.parents["MODEL-003"]), 2)   # Merges from MODEL-001, MODEL-002
         self.assertEqual(len(self.graph.edges), 5)
         
         # Check specific edge contexts
         self.assertEqual(
-            self.graph.edges[("CR-001", "CR-003")].kind,
+            self.graph.edges[("MODEL-001", "MODEL-003")].kind,
             "data_dep"
         )
         self.assertEqual(
-            self.graph.edges[("CR-002", "CR-003")].note,
+            self.graph.edges[("MODEL-002", "MODEL-003")].note,
             "condition"
         )
 
@@ -305,9 +305,9 @@ class TestPlanGraph(unittest.TestCase):
             predicate=predicate_func
         )
         
-        self.graph.add_edge("CR-000", "CR-001", edge_with_predicate)
+        self.graph.add_edge("MODEL-000", "MODEL-001", edge_with_predicate)
         
-        stored_edge = self.graph.edges[("CR-000", "CR-001")]
+        stored_edge = self.graph.edges[("MODEL-000", "MODEL-001")]
         self.assertEqual(stored_edge.predicate, predicate_func)
         
         # Test predicate functionality

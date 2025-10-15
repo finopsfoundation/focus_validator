@@ -13,7 +13,7 @@ from focus_validator.exceptions import InvalidRuleException
 from focus_validator.utils.download_currency_codes import get_currency_codes
 
 from .plan_builder import EdgeCtx, ValidationPlan
-from .rule import ConformanceRule
+from .rule import ModelRule
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class DuckDBColumnCheck:
     def __init__(
         self,
         rule_id: str,
-        rule: ConformanceRule,
+        rule: ModelRule,
         check_type: str,
         check_sql: str,
         error_message: str,
@@ -56,6 +56,9 @@ class DuckDBColumnCheck:
             exec_mode or "requirement"
         )  # "requirement" / "condition" / "reference"
         self.referenced_rule_id = referenced_rule_id  # if applicable
+        self.force_fail_due_to_upstream: Optional[
+            Dict[str, Any]
+        ] = None  # For upstream dependency failures
 
 
 class DuckDBCheckGenerator(ABC):
@@ -127,7 +130,7 @@ class DuckDBCheckGenerator(ABC):
                 child_checks.append(
                     DuckDBColumnCheck(
                         rule_id=getattr(chk, "rule_id", getattr(self, "rule_id", "")),
-                        rule=getattr(chk, "rule", getattr(self, "rule", None)) or ConformanceRule(),  # type: ignore
+                        rule=getattr(chk, "rule", getattr(self, "rule", None)) or ModelRule(),  # type: ignore
                         check_type=getattr(
                             chk, "checkType", getattr(chk, "check_type", "unknown")
                         ),
@@ -868,22 +871,22 @@ class CheckDistinctCountGenerator(DuckDBCheckGenerator):
         return "distinct_count"
 
 
-class CheckConformanceRuleGenerator(DuckDBCheckGenerator):
-    REQUIRED_KEYS = {"ConformanceRuleId"}
+class CheckModelRuleGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ModelRuleId"}
 
     def getCheckType(self) -> str:
-        return "conformance_rule_reference"
+        return "model_rule_reference"
 
     def generateSql(self) -> str:
         # Won’t be executed; we’ll attach a special executor instead.
-        self.errorMessage = f"Conformance reference to {self.params.ConformanceRuleId}"
+        self.errorMessage = f"Conformance reference to {self.params.ModelRuleId}"
         return "SELECT 0 AS violations"
 
     def generateCheck(self):
         # Let the base create the DuckDBColumnCheck (with errorMessage, type, sql)
         chk = super().generateCheck()
 
-        target_id = self.params.ConformanceRuleId
+        target_id = self.params.ModelRuleId
         plan = self.plan
         # Make a dict {rule_id -> result} out of parent_results_by_idx + plan
         id2res: dict[str, dict] = {}
@@ -1024,21 +1027,21 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
 
         # 3) rule_ids that appear inside Items (if Items are references with RuleId)
         item_rule_ids = set()
-        conformance_rule_refs = set()  # Track CheckConformanceRule references
+        model_rule_refs = set()  # Track CheckModelRule references
         for item in items:
             if isinstance(item, dict):
                 rid = item.get("RuleId") or item.get("rule_id")
                 if rid:
                     item_rule_ids.add(rid)
-                # Check for CheckConformanceRule references
-                if item.get("CheckFunction") == "CheckConformanceRule":
-                    conf_rule_id = item.get("ConformanceRuleId")
+                # Check for CheckModelRule references
+                if item.get("CheckFunction") == "CheckModelRule":
+                    conf_rule_id = item.get("ModelRuleId")
                     if conf_rule_id:
-                        conformance_rule_refs.add(conf_rule_id)
+                        model_rule_refs.add(conf_rule_id)
 
-        # 4) Check if any CheckConformanceRule references have failed
+        # 4) Check if any CheckModelRule references have failed
         failed_conformance_refs = []
-        if conformance_rule_refs and self.plan:
+        if model_rule_refs and self.plan:
             converter = None
             if (
                 callable(self.child_builder)
@@ -1054,7 +1057,7 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
                 for node_idx, result in converter._global_results_by_idx.items():
                     if node_idx < len(self.plan.nodes):
                         rule_id = self.plan.nodes[node_idx].rule_id
-                        if rule_id in conformance_rule_refs:
+                        if rule_id in model_rule_refs:
                             is_ok = result.get("ok", True)
                             if not is_ok:
                                 # Check if the failed conformance rule is a Dataset entity type
@@ -1322,7 +1325,7 @@ class FocusToDuckDBSchemaConverter:
         "CheckDecimalValue": {
             "generator": CheckDecimalValueGenerator,
             "factory": lambda args: "ColumnName",
-        },        
+        },
         "CheckGreaterOrEqualThanValue": {
             "generator": CheckGreaterOrEqualGenerator,
             "factory": lambda args: "ColumnName",
@@ -1331,9 +1334,9 @@ class FocusToDuckDBSchemaConverter:
             "generator": CheckDistinctCountGenerator,
             "factory": lambda args: "ColumnAName",
         },
-        "CheckConformanceRule": {
-            "generator": CheckConformanceRuleGenerator,
-            "factory": lambda args: "ConformanceRuleId",
+        "CheckModelRule": {
+            "generator": CheckModelRuleGenerator,
+            "factory": lambda args: "ModelRuleId",
         },
         "AND": {
             "generator": CompositeANDRuleGenerator,
@@ -1967,11 +1970,37 @@ class FocusToDuckDBSchemaConverter:
 
         # Normalize to an iterable of edges/ids/indices/nodes
         if isinstance(parent_edges, dict):
-            items = parent_edges.values()
-        else:
-            items = parent_edges or ()
+            for e in parent_edges.values():
+                # Handle each edge case for dict values
+                # 1) direct index
+                if isinstance(e, int):
+                    try:
+                        node = plan.nodes[e]
+                        yield getattr(node, "rule", None)
+                    except (IndexError, AttributeError):
+                        pass
+                # 2) EdgeCtx-like object
+                elif hasattr(e, "parent_idx") or hasattr(e, "src_idx"):
+                    idx = getattr(e, "parent_idx", None) or getattr(e, "src_idx", None)
+                    if isinstance(idx, int):
+                        try:
+                            node = plan.nodes[idx]
+                            yield getattr(node, "rule", None)
+                        except (IndexError, AttributeError):
+                            pass
+                # 3) direct rule_id string
+                elif isinstance(e, str):
+                    node = self._node_by_rule_id(e)
+                    if node:
+                        yield getattr(node, "rule", None)
+                # 4) PlanNode directly
+                elif hasattr(e, "rule"):
+                    yield getattr(e, "rule", None)
+            return
 
-        for e in items:
+        # Handle non-dict parent_edges
+        edge_items = parent_edges or ()
+        for e in edge_items:
             # 1) direct index
             if isinstance(e, int):
                 try:

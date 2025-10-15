@@ -8,7 +8,7 @@ import tempfile
 import os
 
 from focus_validator.outputter.outputter_unittest import UnittestOutputter, UnittestFormatter
-from focus_validator.config_objects.rule import ChecklistObject, ChecklistObjectStatus, ConformanceRule, InvalidRule
+from focus_validator.config_objects.rule import ChecklistObject, ChecklistObjectStatus, ModelRule, InvalidRule
 
 
 class TestUnittestFormatter(unittest.TestCase):
@@ -216,7 +216,7 @@ class TestUnittestOutputter(unittest.TestCase):
 
     def create_mock_checklist_object(self, check_name, status, column_id="TestColumn", error=None):
         """Helper to create mock ChecklistObject."""
-        mock_rule_ref = Mock(spec=ConformanceRule)
+        mock_rule_ref = Mock(spec=ModelRule)
         mock_rule_ref.check_type_friendly_name = "TestCheckType"
         
         obj = Mock(spec=ChecklistObject)

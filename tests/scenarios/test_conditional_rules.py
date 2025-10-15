@@ -1,14 +1,6 @@
-"""
-Unit tests for conditional rule validation scenarios.
-
-These tests validate specific rule states (PASS/FAIL) using CSV data stored 
-in Python objects instead of external files.
-"""
-
 import unittest
 import pandas as pd
 from io import StringIO
-
 from focus_validator.rules.spec_rules import SpecRules, ValidationResults
 
 
@@ -20,7 +12,7 @@ class TestConditionalRulesScenarios(unittest.TestCase):
         # Initialize SpecRules for FOCUS 1.2
         self.spec_rules = SpecRules(
             rule_set_path="focus_validator/rules",
-            rules_file_prefix="cr-",
+            rules_file_prefix="model-",
             rules_version="1.2",
             rules_file_suffix=".json",
             focus_dataset="CostAndUsage",
