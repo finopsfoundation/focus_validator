@@ -80,10 +80,13 @@ class TestProgressivePerformance(unittest.TestCase):
         # Set the environment variable for logging level
         env = os.environ.copy()
         env["LOG_LEVEL"] = "INFO"
+        # Ensure UTF-8 encoding on Windows
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONLEGACYWINDOWSSTDIO"] = "0"
         
         # Use module execution instead of direct file execution
         command = ['poetry', 'run', 'python', '-m', 'focus_validator.main'] + args
-        return subprocess.run(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        return subprocess.run(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', check=True)
 
     def test_1000_record_csv_performance(self):
         self.execute_performance(str(self.csv_filename_1000), 25.0)

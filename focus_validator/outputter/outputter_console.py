@@ -1,4 +1,5 @@
 import logging
+import sys
 from typing import Any, Dict
 
 # from focus_validator.rules.spec_rules import ValidationResults  # wherever it lives
@@ -6,6 +7,19 @@ from typing import Any, Dict
 STATUS_PASS = "PASS"
 STATUS_FAIL = "FAIL"
 STATUS_SKIP = "SKIPPED"
+
+
+def _get_safe_icons():
+    """Get console-safe icons based on the system's encoding capabilities."""
+    try:
+        # Test if we can encode Unicode characters
+        test_chars = "✅⏭️❌"
+        if hasattr(sys.stdout, 'encoding') and sys.stdout.encoding:
+            test_chars.encode(sys.stdout.encoding)
+        return {"pass": "✅", "skip": "⏭️", "fail": "❌"}
+    except (UnicodeEncodeError, LookupError):
+        # Fall back to ASCII-safe characters
+        return {"pass": "[PASS]", "skip": "[SKIP]", "fail": "[FAIL]"}
 
 
 def _status_from_result(entry: Dict[str, Any]) -> str:
@@ -32,7 +46,8 @@ def _line_for_rule(rule_id: str, entry: Dict[str, Any]) -> str:
         extra.append(f"{details['timing_ms']:.1f}ms")
 
     tail = f"  ({', '.join(extra)})" if extra else ""
-    icon = "✅" if status == STATUS_PASS else ("⏭️" if status == STATUS_SKIP else "❌")
+    icons = _get_safe_icons()
+    icon = icons["pass"] if status == STATUS_PASS else (icons["skip"] if status == STATUS_SKIP else icons["fail"])
     return f"{icon} {rule_id}: {status}{tail}"
 
 

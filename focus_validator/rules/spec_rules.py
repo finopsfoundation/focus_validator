@@ -360,6 +360,7 @@ class SpecRules:
     def results_as_markdown(self, results: ValidationResults) -> str:
         lines = ["# Validation Results", ""]
         for rid, res in results.by_rule_id.items():
-            status = "✅ PASS" if res.get("ok") else "❌ FAIL"
+            # Use ASCII-safe characters for Windows compatibility
+            status = ":white_check_mark: PASS" if res.get("ok") else ":x: FAIL"
             lines.append(f"- `{rid}` — {status}")
         return "\n".join(lines)
