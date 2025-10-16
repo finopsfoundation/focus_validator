@@ -166,6 +166,12 @@ def main() -> None:
         help="Force download the FOCUS spec JSON from GitHub for the specified version",
     )
     parser.add_argument(
+        "--block-download",
+        action="store_true",
+        default=False,
+        help="Block download of the FOCUS spec JSON from GitHub for the specified version",
+    )
+    parser.add_argument(
         "--allow-draft-releases",
         action="store_true",
         default=False,
@@ -223,6 +229,7 @@ def main() -> None:
         focus_dataset=args.focus_dataset,
         filter_rules=args.filter_rules,
         rules_force_remote_download=args.force_download,
+        rules_block_remote_download=args.block_download,
         allow_draft_releases=args.allow_draft_releases,
         allow_prerelease_releases=args.allow_prerelease_releases,
         applicability_criteria=args.applicability_criteria,

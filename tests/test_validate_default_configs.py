@@ -23,6 +23,7 @@ class TestValidateDefaultConfigs(TestCase):
             allow_draft_releases=False,
             allow_prerelease_releases=False,
             column_namespace=None,
+            rules_block_remote_download=True,
         )
         spec_rules.load_rules()
 

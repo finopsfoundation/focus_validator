@@ -113,7 +113,7 @@ class TestProgressivePerformance(unittest.TestCase):
         start_time = time.time()
 
         # Command to execute the focus_validator tool
-        result = self.run_validator(['--data-file', os.path.join(test_dir, '../' + file_name), '--validate-version', '1.2'])
+        result = self.run_validator(['--data-file', os.path.join(test_dir, '../' + file_name), '--validate-version', '1.2', '--block-download'])
         print(result.stdout)
 
         end_time = time.time()

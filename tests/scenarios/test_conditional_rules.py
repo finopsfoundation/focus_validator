@@ -18,6 +18,7 @@ class TestConditionalRulesScenarios(unittest.TestCase):
             focus_dataset="CostAndUsage",
             filter_rules="BilledCost-C-005-C",  # Focus on our conditional rule
             rules_force_remote_download=False,
+            rules_block_remote_download=True,
             allow_draft_releases=False,
             allow_prerelease_releases=False,
             column_namespace=None,
