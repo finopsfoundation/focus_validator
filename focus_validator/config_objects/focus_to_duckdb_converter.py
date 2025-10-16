@@ -1458,7 +1458,15 @@ class FocusToDuckDBSchemaConverter:
     ) -> None:
         """Optional cleanup: drop temps, emit summaries, etc."""
         # e.g., self.conn.execute("DROP VIEW IF EXISTS ...")
-        pass
+        # Close DuckDB connection to prevent hanging in CI environments
+        if hasattr(self, "conn") and self.conn is not None:
+            try:
+                self.conn.close()
+            except Exception:
+                # Ignore errors during cleanup
+                pass
+            finally:
+                self.conn = None
 
     # -- check build/execute --------------------------------------------------
     def build_check(

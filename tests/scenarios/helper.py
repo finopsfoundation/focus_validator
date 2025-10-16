@@ -177,7 +177,6 @@ class SpecRulesFromData:
         # Force connection to None to ensure fresh connection
         fresh_connection = duckdb.connect(":memory:")
         converter.prepare(conn=fresh_connection, plan=plan)
-      
 
         try:
             # Walk execution layers
@@ -223,6 +222,13 @@ class SpecRulesFromData:
 
         finally:
             converter.finalize(success=True, results_by_idx=results_by_idx)
+            # Explicitly close the connection we created
+            if fresh_connection:
+                try:
+                    fresh_connection.close()
+                except Exception:
+                    # Ignore errors during cleanup
+                    pass
 
         rules_dict = {
             self.plan.nodes[i].rule_id: self.plan.nodes[i].rule
