@@ -217,6 +217,13 @@ class SpecRules:
 
     def supported_remote_versions(self) -> List[str]:
         """Return list of versions from remote source."""
+        # Respect block download setting
+        if self.rules_block_remote_download:
+            self.log.debug(
+                "Remote download blocked, returning empty remote versions list"
+            )
+            return []
+
         # Implement logic to fetch supported remote versions
         self.remote_versions = self.find_release_assets()
         return [v for v in self.remote_versions.keys()]

@@ -49,6 +49,7 @@ class TestPerformanceProfiler(unittest.TestCase):
             output_destination=None,
             column_namespace=None,
             focus_dataset="CostAndUsage",
+            rules_block_remote_download=True,
         )
 
         # Set up the profiler
