@@ -11,13 +11,13 @@ class TestExample(unittest.TestCase):
         self.rule_data = load_rule_data_from_file("base_rule_data.json")
         self.rule_data['ModelDatasets'] = {
             "CostAndUsage": {
-                "ModelRules": ["BillingAccountName-C-001-M"]
+                "ModelRules": ["ServiceName-C-008-C"]
             }
         }
         self.rule_data["ModelRules"] = {
-                "BillingAccountName-C-001-M": {
-                "Function": "Type",
-                "Reference": "BillingAccountName",
+            "ServiceName-C-008-C": {
+                "Function": "Validation",
+                "Reference": "ServiceName",
                 "EntityType": "Column",
                 "Notes": "",
                 "ModelVersionIntroduced": "1.2",
@@ -25,11 +25,13 @@ class TestExample(unittest.TestCase):
                 "ApplicabilityCriteria": [],
                 "Type": "Static",
                 "ValidationCriteria": {
-                "MustSatisfy": "BillingAccountName MUST be of type String.",
-                "Keyword": "MUST",
+                "MustSatisfy": "ServiceName SHOULD have one and only one ServiceSubcategory that best aligns with its primary purpose, except when no suitable ServiceSubcategory is available.",
+                "Keyword": "SHOULD",
                 "Requirement": {
-                    "CheckFunction": "TypeString",
-                    "ColumnName": "BillingAccountName"
+                    "CheckFunction": "CheckDistinctCount",
+                    "ColumnAName": "ServiceName",
+                    "ColumnBName": "ServiceSubcategory",
+                    "ExpectedCount": 1
                 },
                 "Condition": {},
                 "Dependencies": []
@@ -46,26 +48,32 @@ class TestExample(unittest.TestCase):
 
     def test_rule_pass_scenario(self):
         """Test pass."""
-        csv_data = """BillingAccountName
-"AccountName123"
+        csv_data = """ServiceName,ServiceSubcategory
+"ServiceA","SubcategoryA"
+"ServiceB","SubcategoryB"
+"ServiceC","SubcategoryC"
+"ServiceA","SubcategoryA"
+"ServiceB","SubcategoryB"
+"ServiceA","SubcategoryA"
 """
         df = pd.read_csv(StringIO(csv_data))
         results = self.spec_rules.validate(focus_data=df)
         
         # Check rule state
-        rule_result = results.by_rule_id["BillingAccountName-C-001-M"]
+        rule_result = results.by_rule_id["ServiceName-C-008-C"]
         self.assertTrue(rule_result.get("ok"), f"Rule should PASS but got: {rule_result}")
     
     def test_rule_fail_scenario(self):
         """Test failure."""
-        csv_data = """BillingAccountName
-123.45
+        csv_data = """ServiceName,ServiceSubcategory
+"ServiceA","SubcategoryA"
+"ServiceA","SubcategoryB"
 """
         df = pd.read_csv(StringIO(csv_data))
         results = self.spec_rules.validate(focus_data=df)
         
         # Check rule state
-        rule_result = results.by_rule_id["BillingAccountName-C-001-M"]
+        rule_result = results.by_rule_id["ServiceName-C-008-C"]
         self.assertFalse(rule_result.get("ok"), f"Rule should FAIL but got: {rule_result}")
 
 if __name__ == '__main__':

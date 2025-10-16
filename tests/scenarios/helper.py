@@ -74,6 +74,7 @@ class SpecRulesFromData:
         self.filter_rules = filter_rules
         self.applicability_criteria_list = applicability_criteria_list or []
         self.plan: Optional[ValidationPlan] = None
+        self._validated_criteria_cache: Optional[List[str]] = None
         
     def load_rules(self) -> ValidationPlan:
         """Load rules from the provided data (no file I/O)."""
@@ -93,9 +94,16 @@ class SpecRulesFromData:
         # Validate applicability criteria (same logic as JsonLoader)
         validated_criteria = []
         if self.applicability_criteria_list:
-            for criteria in self.applicability_criteria_list:
-                if criteria in applicability_criteria_dict:
-                    validated_criteria.append(criteria)
+            # Check if 'ALL' is specified (case insensitive) - must be the only item
+            if (
+                len(self.applicability_criteria_list) == 1
+                and self.applicability_criteria_list[0].upper() == "ALL"
+            ):
+                validated_criteria = list(applicability_criteria_dict.keys())
+            else:
+                for criteria in self.applicability_criteria_list:
+                    if criteria in applicability_criteria_dict:
+                        validated_criteria.append(criteria)
 
         # Build dependency resolver
         from focus_validator.config_objects.rule_dependency_resolver import RuleDependencyResolver
@@ -133,11 +141,32 @@ class SpecRulesFromData:
         )
 
         self.plan = val_plan
+        self._validated_criteria_cache = validated_criteria  # Cache the validated criteria
         return val_plan
     
     def load(self) -> None:
         """Convenience method for loading rules."""
         self.load_rules()
+    
+    def _get_validated_criteria(self) -> List[str]:
+        """Get the validated applicability criteria, handling ALL expansion."""
+        if self._validated_criteria_cache is not None:
+            return self._validated_criteria_cache
+        
+        # If not cached, re-compute (this shouldn't happen normally)
+        applicability_criteria_dict = self.rule_data.get("ApplicabilityCriteria", {})
+        validated_criteria = []
+        if self.applicability_criteria_list:
+            if (
+                len(self.applicability_criteria_list) == 1
+                and self.applicability_criteria_list[0].upper() == "ALL"
+            ):
+                validated_criteria = list(applicability_criteria_dict.keys())
+            else:
+                for criteria in self.applicability_criteria_list:
+                    if criteria in applicability_criteria_dict:
+                        validated_criteria.append(criteria)
+        return validated_criteria
     
     def validate(
         self,
@@ -169,9 +198,19 @@ class SpecRulesFromData:
         
         plan = self.plan
         results_by_idx: Dict[int, Dict[str, Any]] = {}
+        
+        # Get the resolved applicability criteria from the dependency resolver
+        # which already handled the "ALL" expansion in load_rules()
+        from focus_validator.config_objects.rule_dependency_resolver import RuleDependencyResolver
+        resolver = RuleDependencyResolver(
+            dataset_rules=self.rule_data.get("ModelDatasets", {}).get(self.focus_dataset, {}).get("ModelRules", []),
+            raw_rules_data=self.rule_data.get("ModelRules", {}),
+            validated_applicability_criteria=self._get_validated_criteria(),
+        )
+        
         converter = FocusToDuckDBSchemaConverter(
             focus_data=focus_data,
-            validated_applicability_criteria=self.applicability_criteria_list,
+            validated_applicability_criteria=self._get_validated_criteria(),
         )
         # Always create a fresh connection to avoid test interference
         # Force connection to None to ensure fresh connection

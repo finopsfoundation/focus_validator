@@ -1,3 +1,4 @@
+import inspect
 import json
 import logging
 import re
@@ -1230,6 +1231,119 @@ class CompositeORRuleGenerator(CompositeBaseRuleGenerator):
     COMPOSITE_NAME = "OR"
     HANDLER = staticmethod(any)
 
+    def generateCheck(self) -> DuckDBColumnCheck:
+        """
+        Override to create a custom OR check that handles the semantic flip.
+        In OR context, we want "at least one condition passes" rather than "all conditions pass".
+        """
+        # Let the base class do most of the work
+        check = super().generateCheck()
+
+        # Add a special executor that handles OR semantics correctly
+        if hasattr(check, "nestedChecks") and check.nestedChecks:
+            original_nested_checks = check.nestedChecks
+            original_handler = check.nestedCheckHandler
+
+            def _or_special_executor(conn):
+                """
+                Custom executor for OR that handles the semantic interpretation correctly.
+                For OR composites, each child check should pass if it finds ANY matching rows,
+                not if ALL rows match.
+                """
+                # We need access to the converter's run_check method
+                # This is a bit hacky, but we'll get it from the closure or context
+                converter = None
+
+                frame = inspect.currentframe()
+                try:
+                    while frame:
+                        if "self" in frame.f_locals and hasattr(
+                            frame.f_locals["self"], "run_check"
+                        ):
+                            converter = frame.f_locals["self"]
+                            break
+                        frame = frame.f_back
+                finally:
+                    del frame
+
+                if not converter:
+                    # Fallback to original behavior if we can't find converter
+                    return (
+                        original_handler([False] * len(original_nested_checks))
+                        if original_handler
+                        else (False, {"error": "No converter found"})
+                    )
+
+                # Run each child and collect results with OR semantics
+                child_oks = []
+                child_details = []
+                total_rows = None
+
+                for child in original_nested_checks:
+                    ok_i, det_i = converter.run_check(child)
+                    violations = det_i.get("violations", 1)
+
+                    # Get total row count if we don't have it yet
+                    if total_rows is None:
+                        try:
+                            # Quick way to get row count
+                            result = conn.execute(
+                                "SELECT COUNT(*) as total FROM {table_name}".format(
+                                    table_name=converter.table_name
+                                )
+                            ).fetchone()
+                            total_rows = result[0] if result else 1
+                        except Exception:
+                            total_rows = 1  # Fallback
+
+                    # OR semantics: child passes if it has fewer violations than total rows
+                    # (meaning at least one row matched the condition)
+                    or_child_ok = violations < total_rows
+                    child_oks.append(or_child_ok)
+
+                    # Update the details to reflect OR semantics
+                    det_i["violations"] = 0 if or_child_ok else 1
+                    det_i["or_adjusted"] = True  # Mark that we adjusted this
+                    child_details.append(
+                        {"rule_id": getattr(child, "rule_id", None), **det_i}
+                    )
+
+                # OR passes if ANY child passes
+                overall_ok = any(child_oks)
+
+                # For the composite level, if OR fails, report the actual number of failing rows
+                # This is the original violation count from any child (they should all be the same)
+                composite_violations = 0
+                if not overall_ok:
+                    # Find the original violation count from the first child that was adjusted
+                    for child_detail in child_details:
+                        if (
+                            child_detail.get("or_adjusted")
+                            and "violations" in child_detail
+                        ):
+                            # We need to recover the original violation count
+                            # Since all children should have had the same violation count (total_rows)
+                            # when none of the conditions matched, use total_rows
+                            composite_violations = total_rows
+                            break
+                    if composite_violations == 0:  # Fallback
+                        composite_violations = 1
+
+                details = {
+                    "children": child_details,
+                    "aggregated": "any",
+                    "message": f"{getattr(check, 'rule_id', '<rule>')}: {'OR passed' if overall_ok else 'OR failed'}",
+                    "violations": composite_violations,
+                    "check_type": "composite",
+                    "or_semantic_adjustment": True,
+                }
+
+                return overall_ok, details
+
+            check.special_executor = _or_special_executor
+
+        return check
+
     def generatePredicate(self) -> str | None:
         if getattr(self, "exec_mode", "requirement") != "condition":
             return None
@@ -1299,7 +1413,7 @@ class FocusToDuckDBSchemaConverter:
             "factory": lambda args: "ColumnName",
         },
         "CheckNationalCurrency": {
-            "generator": FormatCurrencyGenerator,
+            "generator": FormatBillingCurrencyCodeGenerator,
             "factory": lambda args: "ColumnName",
         },
         "FormatUnit": {
@@ -1575,6 +1689,23 @@ class FocusToDuckDBSchemaConverter:
         # ---- composite (AND/OR) -------------------------------------------------
         nested = getattr(check, "nestedChecks", None) or []
         handler = getattr(check, "nestedCheckHandler", None)
+
+        # Check for special executor on composite (e.g., custom OR logic)
+        special = getattr(check, "special_executor", None)
+        if callable(special):
+            ok, details = special(self.conn)
+            details.setdefault("violations", 0 if ok else 1)
+            details.setdefault(
+                "message",
+                getattr(check, "errorMessage", None)
+                or f"{getattr(check, 'rule_id', '<rule>')}: composite evaluation",
+            )
+            details.setdefault(
+                "check_type",
+                getattr(check, "checkType", None) or getattr(check, "check_type", None),
+            )
+            return ok, details
+
         if nested and handler:
             # Upstream dependency short-circuit (tag set by composite generator)
             upstream = getattr(check, "force_fail_due_to_upstream", None)

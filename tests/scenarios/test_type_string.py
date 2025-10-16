@@ -1,11 +1,11 @@
 import unittest
 import pandas as pd
 from io import StringIO
-from helper import load_rule_data_from_file
 from helper import SpecRulesFromData
+from helper import load_rule_data_from_file
 
-class TestExample(unittest.TestCase):
-    """Example basic test to use as template."""
+class TestTypeStringData(unittest.TestCase):
+    """Test column data type string."""
     
     def setUp(self):
         self.rule_data = load_rule_data_from_file("base_rule_data.json")
@@ -15,7 +15,7 @@ class TestExample(unittest.TestCase):
             }
         }
         self.rule_data["ModelRules"] = {
-                "BillingAccountName-C-001-M": {
+            "BillingAccountName-C-001-M": {
                 "Function": "Type",
                 "Reference": "BillingAccountName",
                 "EntityType": "Column",
@@ -36,6 +36,7 @@ class TestExample(unittest.TestCase):
                 }
             }
         }
+        
         self.spec_rules = SpecRulesFromData(
             rule_data=self.rule_data,
             focus_dataset="CostAndUsage",
@@ -44,29 +45,28 @@ class TestExample(unittest.TestCase):
         )
         self.spec_rules.load()
 
-    def test_rule_pass_scenario(self):
-        """Test pass."""
+    def test_rule_pass_scenario_embedded_data(self):
+        """Test with valid string data using embedded rules."""
         csv_data = """BillingAccountName
-"AccountName123"
+"account-123"
 """
         df = pd.read_csv(StringIO(csv_data))
         results = self.spec_rules.validate(focus_data=df)
         
-        # Check rule state
         rule_result = results.by_rule_id["BillingAccountName-C-001-M"]
         self.assertTrue(rule_result.get("ok"), f"Rule should PASS but got: {rule_result}")
     
-    def test_rule_fail_scenario(self):
-        """Test failure."""
+    def test_rule_fail_scenario_embedded_data(self):
+        """Test with invalid numeric data using embedded rules."""
         csv_data = """BillingAccountName
 123.45
 """
         df = pd.read_csv(StringIO(csv_data))
         results = self.spec_rules.validate(focus_data=df)
         
-        # Check rule state
         rule_result = results.by_rule_id["BillingAccountName-C-001-M"]
         self.assertFalse(rule_result.get("ok"), f"Rule should FAIL but got: {rule_result}")
+
 
 if __name__ == '__main__':
     unittest.main()

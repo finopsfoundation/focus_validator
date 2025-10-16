@@ -4,20 +4,20 @@ from io import StringIO
 from helper import load_rule_data_from_file
 from helper import SpecRulesFromData
 
-class TestExample(unittest.TestCase):
-    """Example basic test to use as template."""
+class TestSameValue(unittest.TestCase):
+    """Test same value rule."""
     
     def setUp(self):
         self.rule_data = load_rule_data_from_file("base_rule_data.json")
         self.rule_data['ModelDatasets'] = {
             "CostAndUsage": {
-                "ModelRules": ["BillingAccountName-C-001-M"]
+                "ModelRules": ["SkuPriceId-C-011-O"]
             }
         }
         self.rule_data["ModelRules"] = {
-                "BillingAccountName-C-001-M": {
-                "Function": "Type",
-                "Reference": "BillingAccountName",
+            "SkuPriceId-C-011-O": {
+                "Function": "Validation",
+                "Reference": "SkuPriceId",
                 "EntityType": "Column",
                 "Notes": "",
                 "ModelVersionIntroduced": "1.2",
@@ -25,16 +25,17 @@ class TestExample(unittest.TestCase):
                 "ApplicabilityCriteria": [],
                 "Type": "Static",
                 "ValidationCriteria": {
-                "MustSatisfy": "BillingAccountName MUST be of type String.",
-                "Keyword": "MUST",
+                "MustSatisfy": "SkuPriceId MAY equal SkuId.",
+                "Keyword": "MAY",
                 "Requirement": {
-                    "CheckFunction": "TypeString",
-                    "ColumnName": "BillingAccountName"
+                    "CheckFunction": "CheckSameValue",
+                    "ColumnAName": "SkuPriceId",
+                    "ColumnBName": "SkuId"
                 },
                 "Condition": {},
                 "Dependencies": []
                 }
-            }
+            }    
         }
         self.spec_rules = SpecRulesFromData(
             rule_data=self.rule_data,
@@ -46,26 +47,32 @@ class TestExample(unittest.TestCase):
 
     def test_rule_pass_scenario(self):
         """Test pass."""
-        csv_data = """BillingAccountName
-"AccountName123"
+        csv_data = """SkuPriceId,SkuId
+"abc123","abc123"
 """
         df = pd.read_csv(StringIO(csv_data))
         results = self.spec_rules.validate(focus_data=df)
         
         # Check rule state
-        rule_result = results.by_rule_id["BillingAccountName-C-001-M"]
+        rule_result = results.by_rule_id["SkuPriceId-C-011-O"]
         self.assertTrue(rule_result.get("ok"), f"Rule should PASS but got: {rule_result}")
+        
+        # Check KeyWord context
+        rule_obj = results.rules["SkuPriceId-C-011-O"]
+        keyword = rule_obj.validation_criteria.keyword
+        self.assertEqual(keyword, "MAY", f"Expected MAY keyword but got {keyword}")
+        
     
     def test_rule_fail_scenario(self):
         """Test failure."""
-        csv_data = """BillingAccountName
-123.45
+        csv_data = """SkuPriceId,SkuId
+"abc123","abc1234"
 """
         df = pd.read_csv(StringIO(csv_data))
         results = self.spec_rules.validate(focus_data=df)
         
         # Check rule state
-        rule_result = results.by_rule_id["BillingAccountName-C-001-M"]
+        rule_result = results.by_rule_id["SkuPriceId-C-011-O"]
         self.assertFalse(rule_result.get("ok"), f"Rule should FAIL but got: {rule_result}")
 
 if __name__ == '__main__':

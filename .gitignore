@@ -169,6 +169,7 @@ reports/
 
 poetry.lock
 visualize.png
+visualize.svg
 rules/model-*.json
 focus_validator/rules/model-*.json
 *.dot

@@ -1,7 +1,8 @@
 import unittest
 import pandas as pd
 from io import StringIO
-from focus_validator.rules.spec_rules import SpecRules, ValidationResults
+from helper import load_rule_data_from_file, SpecRulesFromData
+from focus_validator.rules.spec_rules import ValidationResults
 
 
 class TestConditionalRulesScenarios(unittest.TestCase):
@@ -9,19 +10,52 @@ class TestConditionalRulesScenarios(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures for conditional rule testing."""
-        # Initialize SpecRules for FOCUS 1.2
-        self.spec_rules = SpecRules(
-            rule_set_path="focus_validator/rules",
-            rules_file_prefix="model-",
-            rules_version="1.2",
-            rules_file_suffix=".json",
+        # Load base rule data and configure for BilledCost conditional rule
+        self.rule_data = load_rule_data_from_file("base_rule_data.json")
+        self.rule_data['ModelDatasets'] = {
+            "CostAndUsage": {
+                "ModelRules": ["BilledCost-C-005-C"]
+            }
+        }
+        
+        # Define the BilledCost-C-005-C conditional rule
+        self.rule_data["ModelRules"] = self.rule_data.get("ModelRules", {})
+        self.rule_data["ModelRules"] = {
+            "BilledCost-C-005-C": {
+                "Function": "Validation",
+                "Reference": "BilledCost",
+                "EntityType": "Column",
+                "Notes": "",
+                "ModelVersionIntroduced": "1.2",
+                "Status": "Active",
+                "ApplicabilityCriteria": [],
+                "Type": "Static",
+                "ValidationCriteria": {
+                "MustSatisfy": "BilledCost MUST be 0 for charges where payments are received by a third party (e.g., marketplace transactions).",
+                "Keyword": "MUST",
+                "Requirement": {
+                    "CheckFunction": "CheckValue",
+                    "ColumnName": "BilledCost",
+                    "Value": 0
+                },
+                "Condition": {
+                    "CheckFunction": "CheckNotSameValue",
+                    "ColumnAName": "ProviderName",
+                    "ColumnBName": "InvoiceIssuerName"
+                },
+                "Dependencies": [
+                    "ProviderName-C-000-M",
+                    "InvoiceIssuerName-C-000-M"
+                ]
+                }
+            }
+        }
+        
+        self.spec_rules = SpecRulesFromData(
+            rule_data=self.rule_data,
             focus_dataset="CostAndUsage",
-            filter_rules="BilledCost-C-005-C",  # Focus on our conditional rule
-            rules_force_remote_download=False,
-            rules_block_remote_download=True,
-            allow_draft_releases=False,
-            allow_prerelease_releases=False,
-            column_namespace=None,
+            filter_rules="BilledCost-C-005-C",
+            applicability_criteria_list=["ALL"]
         )
         self.spec_rules.load()
 
