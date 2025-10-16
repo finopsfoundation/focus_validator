@@ -41,6 +41,7 @@ class SpecRules:
         focus_dataset,
         filter_rules,
         rules_force_remote_download,
+        rules_block_remote_download,
         allow_draft_releases,
         allow_prerelease_releases,
         column_namespace,
@@ -59,6 +60,9 @@ class SpecRules:
         )
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.rules_force_remote_download = rules_force_remote_download
+        self.rules_block_remote_download = rules_block_remote_download
+        if self.rules_block_remote_download and self.rules_force_remote_download:
+            raise ValueError("rules_block_remote_download and rules_force_remote_download cannot both be True")
         self.allow_draft_releases = allow_draft_releases
         self.allow_prerelease_releases = allow_prerelease_releases
         self.local_supported_versions = self.supported_local_versions()
@@ -68,8 +72,14 @@ class SpecRules:
             self.local_supported_versions,
         )
         self.remote_versions = {}
-        if (
-            self.rules_force_remote_download
+        if self.rules_block_remote_download and (self.rules_version not in self.local_supported_versions):
+            self.log.error(
+                "Version %s not found in local versions and remote download blocked", self.rules_version
+            )
+            raise UnsupportedVersion(
+                f"FOCUS version {self.rules_version} not supported. Supported versions: local {self.local_supported_versions}"
+            )
+        elif ( self.rules_force_remote_download
             or self.rules_version not in self.local_supported_versions
         ):
             self.log.info(

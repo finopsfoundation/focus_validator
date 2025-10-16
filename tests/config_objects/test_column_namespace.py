@@ -14,6 +14,7 @@ class TestColumnNamespace(TestCase):
                 column_namespace="F",
                 rules_version="1.2",  # Use available version
                 focus_dataset="CostAndUsage",
+                rules_block_remote_download=True,
             )
             validator.load()
             results = validator.spec_rules.validate(focus_data=validator.focus_data)
@@ -38,6 +39,7 @@ class TestColumnNamespace(TestCase):
                 column_namespace="TestNamespace",
                 rules_version="1.2",
                 focus_dataset="CostAndUsage",
+                rules_block_remote_download=True,
             )
             # If we get here without error, the parameter is accepted
             # Check that the column_namespace was passed through to spec_rules

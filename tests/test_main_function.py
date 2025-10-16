@@ -8,7 +8,7 @@ from focus_validator.rules.spec_rules import ValidationResults
 
 class TestMainFunction(TestCase):
     def test_supported_versions(self):
-        with patch("sys.argv", ["prog", "--supported-versions"]):
+        with patch("sys.argv", ["prog", "--supported-versions", "--block-download"]):
             try:
                 main()
             except SystemExit as e:
@@ -17,7 +17,7 @@ class TestMainFunction(TestCase):
     @patch.object(Validator, "validate")
     def test_data_file(self, mock_validate):
         mock_validate.return_value = ({}, MagicMock(), ValidationResults({}, {}, {}))
-        with patch("sys.argv", ["prog", "--data-file", "path/to/data.csv"]):
+        with patch("sys.argv", ["prog", "--data-file", "path/to/data.csv", "--block-download"]):
             try:
                 main()
             except SystemExit as e:

@@ -26,6 +26,7 @@ class TestMultipleRulesScenarios(unittest.TestCase):
             focus_dataset="CostAndUsage",
             filter_rules="BilledCost-C-001-M,BilledCost-C-002-M,BilledCost-C-003-M,BilledCost-C-005-C",
             rules_force_remote_download=False,
+            rules_block_remote_download=True,
             allow_draft_releases=False,
             allow_prerelease_releases=False,
             column_namespace=None,

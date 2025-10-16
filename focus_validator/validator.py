@@ -32,6 +32,7 @@ class Validator:
         rules_version: Optional[str] = None,
         rules_file_suffix: str = ".json",
         rules_force_remote_download: bool = False,
+        rules_block_remote_download: bool = False,
         allow_draft_releases: bool = False,
         allow_prerelease_releases: bool = False,
         column_namespace: Optional[str] = None,
@@ -71,6 +72,7 @@ class Validator:
             focus_dataset=focus_dataset,
             filter_rules=filter_rules,
             rules_force_remote_download=rules_force_remote_download,
+            rules_block_remote_download=rules_block_remote_download,  # New parameter, defaulting to False
             allow_draft_releases=allow_draft_releases,
             allow_prerelease_releases=allow_prerelease_releases,
             column_namespace=column_namespace,
