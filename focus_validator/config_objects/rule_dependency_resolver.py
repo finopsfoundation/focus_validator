@@ -479,6 +479,38 @@ class RuleDependencyResolver:
         """Return the filtered set of rules relevant to the target prefix and dependencies."""
         return self.rules
 
+    def getColumnTypeMapping(self) -> Dict[str, str]:
+        """
+        Extract column type mappings from Function 'Type' entities in the filtered rule set.
+
+        Returns:
+            Dict mapping column names to pandas dtype strings (e.g., "string", "float64")
+        """
+        column_type_mapping = {}
+
+        for rule_id, rule in self.rules.items():
+            # Only process Function "Type" entities
+            if rule.function == "Type":
+                requirement = rule.validation_criteria.requirement
+                check_function = requirement.get("CheckFunction")
+                column_name = requirement.get("ColumnName")
+
+                if check_function and column_name:
+                    # Map CheckFunction types to pandas dtypes
+                    if check_function == "TypeString":
+                        column_type_mapping[column_name] = "string"
+                    elif check_function == "TypeDecimal":
+                        column_type_mapping[column_name] = "float64"
+                    elif check_function == "TypeDateTime":
+                        column_type_mapping[column_name] = "datetime64[ns]"
+                    # Add more type mappings as needed
+                    # elif check_function == "TypeInteger":
+                    #     column_type_mapping[column_name] = "int64"
+                    # elif check_function == "TypeBoolean":
+                    #     column_type_mapping[column_name] = "boolean"
+
+        return column_type_mapping
+
     def build_plan_and_schedule(
         self,
         entry_rule_ids: Optional[List[str]] = None,

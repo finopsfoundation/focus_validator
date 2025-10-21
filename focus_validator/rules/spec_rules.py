@@ -131,6 +131,8 @@ class SpecRules:
         self.column_namespace = column_namespace
         self.json_rules = {}
         self.json_checkfunctions = {}
+        self.plan = None
+        self.column_types = {}
 
     def supported_local_versions(self) -> List[str]:
         """Return list of versions from files in rule_set_path."""
@@ -249,13 +251,14 @@ class SpecRules:
         self.load_rules()
 
     def load_rules(self) -> ValidationPlan:
-        val_plan = JsonLoader.load_json_rules_with_dependencies(
+        val_plan, column_types = JsonLoader.load_json_rules_with_dependencies_and_types(
             json_rule_file=self.json_rule_file,
             focus_dataset=self.focus_dataset,
             filter_rules=self.filter_rules,
             applicability_criteria_list=self.applicability_criteria_list,
         )
         self.plan = val_plan
+        self.column_types = column_types
         self._meta = {
             "json_rule_file": self.json_rule_file,
             "focus_dataset": self.focus_dataset,
@@ -398,3 +401,12 @@ class SpecRules:
             status = ":white_check_mark: PASS" if res.get("ok") else ":x: FAIL"
             lines.append(f"- `{rid}` — {status}")
         return "\n".join(lines)
+
+    def get_column_types(self) -> Dict[str, str]:
+        """
+        Get the column type mapping extracted from the loaded rules.
+
+        Returns:
+            Dict mapping column names to pandas dtype strings
+        """
+        return self.column_types

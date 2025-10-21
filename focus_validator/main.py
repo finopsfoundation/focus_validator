@@ -101,9 +101,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="FOCUS specification validator.")
     parser.add_argument(
         "--data-file",
-        help="Path to the data file (CSV)",
-        required="--supported-versions" not in sys.argv
-        and "--show-applicability-criteria" not in sys.argv,
+        help="Path to the data file (CSV/Parquet) or '-' for stdin (default: stdin)",
+        default="-",
+        required=False,
+    )
+    parser.add_argument(
+        "--data-format",
+        help="Data format when using stdin (default: csv)",
+        choices=["csv", "parquet"],
+        default="csv",
+        required=False,
     )
     parser.add_argument(
         "--column-namespace",
@@ -221,6 +228,7 @@ def main() -> None:
 
     validator = Validator(
         data_filename=args.data_file,
+        data_format=args.data_format if args.data_file == "-" else None,
         rule_set_path=args.rule_set_path,
         rules_version=args.validate_version,
         output_type=args.output_type,

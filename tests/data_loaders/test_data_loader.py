@@ -260,6 +260,57 @@ class TestDataLoader(unittest.TestCase):
                        hasattr(load_method, '_original_func') or
                        callable(load_method))
 
+    def test_dataloader_with_column_types_parameter(self):
+        """Test that DataLoader can pass column types to underlying loaders."""
+        # Note: Current DataLoader doesn't accept column_types parameter
+        # This test documents the expected behavior for future enhancement
+        
+        # Test CSV loader directly with column types
+        column_types = {'col1': 'int64', 'col2': 'string'}
+        csv_loader = CSVDataLoader(self.temp_csv.name, column_types=column_types)
+        
+        # Should initialize with column types
+        self.assertEqual(csv_loader.column_types, column_types)
+        self.assertEqual(csv_loader.failed_columns, set())
+
+    def test_resilient_loading_integration(self):
+        """Test that data loaders integrate properly with resilient loading features."""
+        # Create CSV with mixed data types and some problematic values
+        problematic_csv = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        problematic_csv.write("NumericCol,DateCol,StringCol\n")
+        problematic_csv.write("123.45,2023-01-01,value1\n")
+        problematic_csv.write("INVALID,BAD_DATE,value2\n")
+        problematic_csv.write("67.89,2023-03-01,value3\n")
+        problematic_csv.close()
+        
+        try:
+            # Test that CSV loader can handle problematic data with column types
+            column_types = {
+                'NumericCol': 'float64',
+                'DateCol': 'datetime64[ns, UTC]',
+                'StringCol': 'string'
+            }
+            
+            csv_loader = CSVDataLoader(problematic_csv.name, column_types=column_types)
+            result = csv_loader.load()
+            
+            # Should succeed despite problematic data
+            self.assertIsInstance(result, pd.DataFrame)
+            self.assertEqual(len(result), 3)
+            
+            # Check that types were applied correctly
+            self.assertEqual(result['NumericCol'].dtype, 'float64')
+            self.assertEqual(str(result['DateCol'].dtype), 'datetime64[ns, UTC]')
+            self.assertEqual(result['StringCol'].dtype.name, 'string')
+            
+            # Check that invalid values were coerced
+            self.assertTrue(pd.isna(result['NumericCol'].iloc[1]))  # INVALID -> NaN
+            self.assertTrue(pd.isna(result['DateCol'].iloc[1]))     # BAD_DATE -> NaT
+            
+        finally:
+            if os.path.exists(problematic_csv.name):
+                os.unlink(problematic_csv.name)
+
 
 class TestDataLoaderEdgeCases(unittest.TestCase):
     """Test edge cases and error conditions."""

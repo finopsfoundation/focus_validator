@@ -25,6 +25,7 @@ class Validator:
         data_filename: Optional[str],
         output_destination: Optional[str],
         output_type: str,
+        data_format: Optional[str] = None,
         rule_set_path: str = DEFAULT_VERSION_SETS_PATH,
         focus_dataset: Optional[str] = None,
         filter_rules: Optional[str] = None,
@@ -40,6 +41,7 @@ class Validator:
     ) -> None:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.data_filename = data_filename
+        self.data_format = data_format
         self.focus_data = None
 
         # Log validator initialization
@@ -125,13 +127,35 @@ class Validator:
     def load(self) -> None:
         self.log.info("Loading validation data and rules...")
 
-        # Load data
-        self.log.debug("Loading data from: %s", self.data_filename)
-        if self.data_filename and os.path.exists(self.data_filename):
-            file_size = os.path.getsize(self.data_filename)
-            self.log.info("Data file size: %.2f MB", file_size / 1024 / 1024)
+        # Load rules first to extract column type information
+        self.log.debug("Loading specification rules...")
+        self.spec_rules.load()
 
-        dataLoader = data_loader.DataLoader(data_filename=self.data_filename)
+        # Get column types from the loaded rules
+        column_types = self.spec_rules.get_column_types()
+        if column_types:
+            self.log.info(
+                "Extracted column types for %d columns: %s",
+                len(column_types),
+                column_types,
+            )
+        else:
+            self.log.debug("No column type information found in rules")
+
+        # Load data with column type information
+        if self.data_filename == "-":
+            self.log.info("Loading data from stdin...")
+        else:
+            self.log.debug("Loading data from: %s", self.data_filename)
+            if self.data_filename and os.path.exists(self.data_filename):
+                file_size = os.path.getsize(self.data_filename)
+                self.log.info("Data file size: %.2f MB", file_size / 1024 / 1024)
+
+        dataLoader = data_loader.DataLoader(
+            data_filename=self.data_filename,
+            data_format=self.data_format,
+            column_types=column_types,
+        )
         self.focus_data = dataLoader.load()
 
         if self.focus_data is not None:
@@ -156,9 +180,6 @@ class Validator:
             except Exception as e:
                 self.log.warning("Could not determine data dimensions: %s", e)
 
-        # Load rules
-        self.log.debug("Loading specification rules...")
-        self.spec_rules.load()
         self.log.info("Data and rules loading completed")
 
     @logPerformance("validator.validate", includeArgs=True)
