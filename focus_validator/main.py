@@ -207,6 +207,12 @@ def main() -> None:
         default=False,
         help="Generate SQL explanations for validation rules without executing validation or requiring input data",
     )
+    parser.add_argument(
+        "--transpile",
+        type=str,
+        default=None,
+        help="In explain mode, transpile SQL queries to the specified target dialect (e.g., postgres, mysql, snowflake, bigquery). Only works with --explain-mode.",
+    )
 
     args = parser.parse_args()
 
@@ -238,6 +244,11 @@ def main() -> None:
             "Explain mode enabled - data file will be ignored, no validation will be executed"
         )
 
+    if args.transpile and not args.explain_mode:
+        log.error("--transpile can only be used with --explain-mode")
+        parser.error("--transpile requires --explain-mode")
+        sys.exit(1)
+
     if args.output_type != "console" and args.output_destination is None:
         log.error("Output destination required for output type: %s", args.output_type)
         parser.error("--output-destination required {}".format(args.output_type))
@@ -259,6 +270,7 @@ def main() -> None:
         allow_prerelease_releases=args.allow_prerelease_releases,
         applicability_criteria=args.applicability_criteria,
         explain_mode=args.explain_mode,
+        transpile_dialect=args.transpile,
     )
     if args.supported_versions:
         log.info("Retrieving supported versions...")

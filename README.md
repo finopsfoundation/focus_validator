@@ -858,6 +858,185 @@ FROM invalid
 - Test rule logic without full datasets
 - Debug rule generation and SQL creation
 
+### SQL Transpilation for Database Migration
+
+The FOCUS Validator includes a powerful **SQL Transpilation** feature that allows you to see how DuckDB validation queries would appear in different SQL dialects. This is invaluable for database migration planning, cross-platform compatibility analysis, and understanding how validation logic translates across different database systems.
+
+#### Using the --transpile Option
+
+The `--transpile` option can only be used with `--explain-mode` and allows you to specify a target SQL dialect:
+
+```bash
+# Transpile validation queries to PostgreSQL
+focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode --transpile postgres
+
+# Transpile to MySQL
+focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode --transpile mysql
+
+# Transpile to BigQuery
+focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode --transpile bigquery
+
+# Transpile to Snowflake
+focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode --transpile snowflake
+```
+
+#### Supported SQL Dialects
+
+The transpiler supports 18+ SQL dialects including:
+
+- **PostgreSQL**: `postgres` - Enterprise-grade RDBMS
+- **MySQL**: `mysql` - Popular open-source database
+- **BigQuery**: `bigquery` - Google Cloud data warehouse
+- **Snowflake**: `snowflake` - Cloud data platform
+- **Microsoft SQL Server**: `tsql` - Enterprise database system
+- **Oracle**: `oracle` - Enterprise database platform
+- **SQLite**: `sqlite` - Lightweight embedded database
+- **Amazon Redshift**: `redshift` - AWS data warehouse
+- **Databricks**: `databricks` - Unified analytics platform
+- **Apache Spark**: `spark` - Distributed computing engine
+- **ClickHouse**: `clickhouse` - Columnar database
+- **Teradata**: `teradata` - Enterprise data warehouse
+- **Hive**: `hive` - Hadoop data warehouse
+- **Presto/Trino**: `presto` - Distributed SQL engine
+- **Apache Drill**: `drill` - Schema-free SQL engine
+- **StarRocks**: `starrocks` - MPP database
+- **DuckDB**: `duckdb` - Analytical database (original format)
+- **ANSI SQL**: `ansi` - Standard SQL compliance
+
+#### Transpilation Output
+
+When using `--transpile`, the SQL queries in explain mode are automatically converted to the target dialect:
+
+```text
+=== SQL Explanations for 578 rules (transpiled to postgres) ===
+
+📋 AvailabilityZone-C-001-M
+   Type: leaf
+   Check: type_string
+   Generator: TypeStringCheckGenerator
+   MustSatisfy: AvailabilityZone MUST be of type String.
+   SQL (PostgreSQL):
+     WITH invalid AS (
+       SELECT 1
+       FROM focus_data
+       WHERE "AvailabilityZone" IS NOT NULL AND pg_typeof("AvailabilityZone") != 'text'
+     )
+     SELECT COUNT(*) AS violations, 
+            CASE WHEN COUNT(*) > 0 
+                 THEN 'AvailabilityZone MUST be of type VARCHAR (string).' 
+            END AS error_message
+     FROM invalid
+```
+
+#### Key Transpilation Features
+
+**Dialect-Specific Syntax**: Automatically converts DuckDB syntax to target dialect conventions:
+
+- **Function Names**: `typeof()` → `pg_typeof()` (PostgreSQL), `type()` (BigQuery)
+- **Type Names**: `VARCHAR` → `TEXT` (PostgreSQL), `STRING` (BigQuery)  
+- **Identifiers**: Automatic quoting and escaping based on dialect requirements
+- **Date/Time Functions**: Converts temporal functions to dialect-specific equivalents
+- **String Operations**: Adapts regex and string manipulation functions
+
+**Error Handling**: Robust fallback mechanism for complex queries:
+
+- **Graceful Degradation**: Shows original DuckDB SQL if transpilation fails
+- **Error Logging**: Detailed error messages for debugging transpilation issues
+- **Partial Success**: Successfully transpiled queries are shown even if others fail
+
+**Performance Optimization**: Efficient transpilation without data processing:
+
+- **Parse-Only Mode**: Analyzes SQL structure without executing queries
+- **Cached Results**: Reuses transpilation results for similar query patterns
+- **Fast Execution**: No impact on explain mode performance
+
+#### Use Cases for SQL Transpilation
+
+##### Database Migration Planning
+
+Understand how FOCUS validation logic would need to be adapted when migrating from DuckDB to other database systems:
+
+```bash
+# See how validations would work in PostgreSQL environment
+focus-validator --explain-mode --transpile postgres --filter-rules "BilledCost*"
+
+# Compare BigQuery compatibility for cloud migration
+focus-validator --explain-mode --transpile bigquery --filter-rules "EffectiveCost*"
+```
+
+##### Cross-Platform Compatibility Analysis
+
+Validate that your FOCUS implementation can work across multiple database platforms:
+
+```bash
+# Check MySQL compatibility for web application backends
+focus-validator --explain-mode --transpile mysql
+
+# Verify Snowflake compatibility for data warehouse implementations
+focus-validator --explain-mode --transpile snowflake
+```
+
+##### Multi-Database Validation Implementation
+
+Use transpiled SQL as a reference for implementing FOCUS validation in different database environments:
+
+```bash
+# Generate SQL for Oracle-based validation systems
+focus-validator --explain-mode --transpile oracle > oracle_validation_queries.sql
+
+# Create Spark-compatible validation logic
+focus-validator --explain-mode --transpile spark > spark_validation_logic.sql
+```
+
+##### Educational and Learning Purposes
+
+Learn how SQL patterns differ across database systems:
+
+```bash
+# Compare how type checking differs between databases
+focus-validator --explain-mode --transpile postgres --filter-rules "*-C-001-M" | grep "typeof"
+focus-validator --explain-mode --transpile mysql --filter-rules "*-C-001-M" | grep "typeof"
+```
+
+#### Error Handling and Limitations
+
+**Unsupported Dialect Handling**: If an invalid dialect is specified, the tool provides helpful feedback:
+
+```bash
+focus-validator --explain-mode --transpile invalid_dialect
+# Error: Unsupported dialect 'invalid_dialect'. Available dialects: postgres, mysql, bigquery, snowflake, ...
+```
+
+**Complex Query Limitations**: Some advanced DuckDB features may not have direct equivalents in all dialects:
+
+- Complex window functions
+- Advanced temporal operations
+- Specialized analytical functions
+- Custom DuckDB extensions
+
+When transpilation isn't possible, the original DuckDB SQL is shown with a note about the limitation.
+
+**Fallback Behavior**: The transpiler prioritizes showing useful information:
+
+1. **Successful Transpilation**: Shows converted SQL in target dialect
+2. **Partial Failure**: Shows original SQL with transpilation error note
+3. **Complete Failure**: Shows original DuckDB SQL without modification
+
+#### Combining with Other Explain Mode Features
+
+The `--transpile` option works seamlessly with all other explain mode features:
+
+```bash
+# Transpile with applicability criteria
+focus-validator --explain-mode --transpile postgres --applicability-criteria ALL
+
+# Transpile specific rule groups
+focus-validator --explain-mode --transpile bigquery --filter-rules "BilledCost*,EffectiveCost*"
+
+# Transpile and save to file for analysis
+focus-validator --explain-mode --transpile snowflake > snowflake_validation_queries.sql
+```
+
 ### Performance and Output Management
 
 Explain mode is designed for fast execution since it doesn't process actual data:
@@ -866,18 +1045,19 @@ Explain mode is designed for fast execution since it doesn't process actual data
 - **Complete Coverage**: Analyzes all rules in the specification (500+ rules for FOCUS 1.2)
 - **Alphabetical Ordering**: Predictable rule ordering for easy navigation
 - **Detailed Output**: Comprehensive information for each rule
+- **Transpilation Speed**: SQL conversion adds minimal overhead to explain mode execution
 
 The output can be extensive (500+ rules), so consider using shell tools for navigation:
 
 ```bash
-# Search for specific rules
-focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode | grep "BilledCost"
+# Search for specific rules with transpilation
+focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode --transpile postgres | grep "BilledCost"
 
-# Page through output
-focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode | less
+# Page through transpiled output
+focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode --transpile mysql | less
 
-# Save to file for analysis
-focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode > rules_explanation.txt
+# Save transpiled queries to file for analysis
+focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode --transpile bigquery > bigquery_validation_queries.sql
 ```
 
 ## Running Tests

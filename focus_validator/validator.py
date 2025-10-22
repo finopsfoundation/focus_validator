@@ -3,6 +3,8 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
+import sqlglot
+
 from focus_validator.data_loaders import data_loader
 from focus_validator.outputter.outputter import Outputter
 from focus_validator.rules.spec_rules import SpecRules, ValidationResults
@@ -33,12 +35,14 @@ class Validator:
         column_namespace: Optional[str] = None,
         applicability_criteria: Optional[str] = None,
         explain_mode: bool = False,
+        transpile_dialect: Optional[str] = None,
     ) -> None:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.data_filename = data_filename
         self.data_format = data_format
         self.focus_data = None
         self.explain_mode = explain_mode
+        self.transpile_dialect = transpile_dialect
 
         # Log validator initialization
         self.log.info("Initializing FOCUS Validator")
@@ -53,6 +57,10 @@ class Validator:
             self.log.info(
                 "Explain mode enabled - will generate SQL explanations without validation"
             )
+            if transpile_dialect:
+                self.log.info(
+                    "SQL transpilation enabled for dialect: %s", transpile_dialect
+                )
 
         if filter_rules:
             self.log.info("Rule filtering enabled: %s", filter_rules)
@@ -232,7 +240,11 @@ class Validator:
             sql_map: Dictionary from explain() method
             verbose: If True, show full SQL queries, otherwise truncate
         """
-        print(f"\n=== SQL Explanations for {len(sql_map)} rules ===\n")
+        dialect_info = ""
+        if self.transpile_dialect:
+            dialect_info = f" (transpiled to {self.transpile_dialect})"
+
+        print(f"\n=== SQL Explanations for {len(sql_map)} rules{dialect_info} ===\n")
 
         # Sort rules alphabetically by rule_id
         for rule_id in sorted(sql_map.keys()):
@@ -261,10 +273,23 @@ class Validator:
             # Show SQL for leaf rules
             sql = explanation.get("sql")
             if sql and sql != "None":
-                # Always show full SQL with pretty formatting
-                print("   SQL:")
-                # Format the SQL for better readability
-                formatted_sql = self._format_sql_for_display(sql)
+                # Transpile SQL if target dialect is specified
+                if self.transpile_dialect:
+                    try:
+                        transpiled_sql = self._transpile_sql(
+                            sql, self.transpile_dialect
+                        )
+                        print(f"   SQL (transpiled to {self.transpile_dialect}):")
+                        formatted_sql = self._format_sql_for_display(transpiled_sql)
+                    except Exception as e:
+                        print(
+                            f"   SQL (transpilation to {self.transpile_dialect} failed: {e}):"
+                        )
+                        formatted_sql = self._format_sql_for_display(sql)
+                else:
+                    print("   SQL:")
+                    formatted_sql = self._format_sql_for_display(sql)
+
                 # Indent each line of the SQL
                 for line in formatted_sql.split("\n"):
                     print(f"     {line}")
@@ -394,3 +419,62 @@ class Validator:
 
         self.log.debug("Found %d applicability criteria", len(applicability_criteria))
         return dict(applicability_criteria)
+
+    def _transpile_sql(self, sql: str, target_dialect: str) -> str:
+        """Transpile SQL from DuckDB dialect to target dialect using SQLGlot.
+
+        Args:
+            sql: SQL query string in DuckDB dialect
+            target_dialect: Target SQL dialect (e.g., 'postgres', 'mysql', 'snowflake', 'bigquery')
+
+        Returns:
+            Transpiled SQL string
+
+        Raises:
+            Exception: If transpilation fails
+        """
+        try:
+            # Validate target dialect
+            supported_dialects = [
+                "bigquery",
+                "clickhouse",
+                "databricks",
+                "drill",
+                "duckdb",
+                "hive",
+                "mysql",
+                "oracle",
+                "postgres",
+                "presto",
+                "redshift",
+                "snowflake",
+                "spark",
+                "sqlite",
+                "starrocks",
+                "tableau",
+                "teradata",
+                "trino",
+            ]
+
+            if target_dialect.lower() not in supported_dialects:
+                raise ValueError(
+                    f"Unsupported dialect '{target_dialect}'. "
+                    f"Supported dialects: {', '.join(supported_dialects)}"
+                )
+
+            # Transpile from DuckDB to target dialect
+            transpiled = sqlglot.transpile(
+                sql, read="duckdb", write=target_dialect.lower(), pretty=True
+            )
+
+            if not transpiled:
+                raise ValueError("SQLGlot returned empty result")
+
+            return transpiled[0]
+
+        except Exception as e:
+            self.log.warning(
+                "Failed to transpile SQL to %s: %s", target_dialect, str(e)
+            )
+            # Re-raise to let caller handle the error
+            raise
