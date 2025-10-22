@@ -386,6 +386,57 @@ class SpecRules:
             results_by_idx, self._results_by_rule_id(results_by_idx), rules_dict
         )
 
+    def explain(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Generate SQL explanations for all validation rules without executing them.
+        This method creates a converter in explain mode and uses the existing
+        emit_sql_map functionality to build SQL queries for each rule.
+
+        Returns:
+            Dictionary mapping rule_id to explanation dict containing:
+            - type: rule type (leaf, composite, reference, skipped)
+            - sql: generated SQL query (for leaf rules)
+            - check_type: classification of the check
+            - generator: generator class used
+            - row_condition_sql: condition SQL if applicable
+        """
+        if self.plan is None:
+            raise RuntimeError("SpecRules.explain() called before load_rules().")
+
+        self.log.info(
+            "Generating SQL explanations for %d rules...", len(self.plan.nodes)
+        )
+
+        # Create converter in explain mode with dummy focus_data
+        converter = FocusToDuckDBSchemaConverter(
+            focus_data=None,  # No data needed for explain mode
+            explain_mode=True,
+            validated_applicability_criteria=self.applicability_criteria_list,
+        )
+
+        # Create a minimal connection for explain mode (converter needs it for initialization)
+        connection = duckdb.connect(":memory:")
+
+        try:
+            # Prepare the converter (this will set up the plan)
+            converter.prepare(conn=connection, plan=self.plan)
+
+            # Generate SQL explanations using the existing functionality
+            sql_map = converter.emit_sql_map()
+
+            self.log.debug("Generated SQL explanations for %d rules", len(sql_map))
+            return sql_map
+
+        except Exception:
+            self.log.error("Failed to generate SQL explanations")
+            raise
+        finally:
+            # Clean up the connection
+            try:
+                connection.close()
+            except Exception:
+                pass
+
     # Optional helper(s)
     def _results_by_rule_id(
         self, by_idx: Dict[int, Dict[str, Any]]

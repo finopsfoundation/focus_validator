@@ -949,6 +949,7 @@ class CheckModelRuleGenerator(DuckDBCheckGenerator):
         # Attach the callable to the check so run_check can use it
         chk.special_executor = _exec_reference
         chk.exec_mode = "reference"
+        chk.referenced_rule_id = target_id
         return chk
 
 
@@ -1556,8 +1557,17 @@ class FocusToDuckDBSchemaConverter:
         else:
             self.log.debug("Using provided DuckDB connection")
 
-        # Register the focus data with DuckDB regardless of connection source
-        self.conn.register(self.table_name, self.focus_data)
+        # Register the focus data with DuckDB (skip if None in explain mode)
+        if self.focus_data is not None:
+            self.conn.register(self.table_name, self.focus_data)
+        elif self.explain_mode:
+            # In explain mode, create a dummy table with no rows for SQL generation
+            self.log.debug("Explain mode: creating empty dummy table")
+            self.conn.execute(
+                f"CREATE TABLE {self.table_name} AS SELECT 1 AS dummy_col WHERE FALSE"
+            )
+        else:
+            raise ValueError("focus_data cannot be None outside of explain mode")
 
         if self.pragma_threads:
             self.conn.execute(f"PRAGMA threads={int(self.pragma_threads)}")
@@ -2372,20 +2382,71 @@ class FocusToDuckDBSchemaConverter:
         ctype = getattr(check, "checkType", None) or getattr(check, "check_type", None)
         meta = getattr(check, "meta", {}) or {}
 
-        # Skipped / dynamic
+        # Get MustSatisfy from the rule object
+        rule = getattr(check, "rule", None)
+        must_satisfy = None
         if (
-            getattr(check, "checkType", "") == "skipped_check"
+            rule
+            and hasattr(rule, "validation_criteria")
+            and hasattr(rule.validation_criteria, "must_satisfy")
+        ):
+            must_satisfy = rule.validation_criteria.must_satisfy
+
+        # Skipped / dynamic
+        check_type_attr = getattr(check, "checkType", "")
+        check_type_method = getattr(check, "getCheckType", lambda: "")()
+
+        if (
+            check_type_attr == "skipped_check"
+            or check_type_method == "skipped_check"
             or hasattr(check, "is_skip")
             and check.is_skip
         ):
+            # Check if this is a dynamic rule specifically
+            reason = (
+                getattr(check, "reason", None)
+                or getattr(check, "errorMessage", None)
+                or "skipped rule"
+            )
+            generator_name = meta.get("generator")
+
+            # Check the entity type of the rule to determine if it's dynamic
+            rule_entity_type = getattr(
+                getattr(check, "rule", None), "entity_type", None
+            )
+
+            # For different types of skipped rules, provide appropriate generator names
+            if rule_entity_type == "Dynamic":
+                generator_name = "None due to dynamic rule"
+            elif reason == "dynamic rule" or isinstance(check, SkippedDynamicCheck):
+                generator_name = "None due to dynamic rule"
+            elif reason == "non applicable rule" or isinstance(
+                check, SkippedNonApplicableCheck
+            ):
+                generator_name = "None due to non-applicable rule"
+            elif reason in [
+                "no defined check rule",
+                "FormatUnit rule is dynamic",
+                "FormatUnit check is dynamic",
+            ]:
+                generator_name = "None due to dynamic rule"
+            elif generator_name is None:
+                # For other skipped checks, use the class name or a generic message
+                generator_name = (
+                    getattr(check, "__class__", type(check)).__name__
+                    if hasattr(check, "__class__")
+                    else "None"
+                )
+
             return {
                 "rule_id": rid,
                 "type": "skipped",
                 "check_type": ctype,
-                "reason": getattr(check, "reason", None) or "dynamic rule",
+                "reason": reason,
                 "sql": None,
                 "row_condition_sql": None,
-                "generator": meta.get("generator"),
+                "generator": generator_name,
+                "must_satisfy": must_satisfy,
             }
 
         # Composite (AND / OR)
@@ -2412,6 +2473,7 @@ class FocusToDuckDBSchemaConverter:
                 "children": children,
                 # Many composite generators return "SELECT 0 AS violations"—not meaningful alone
                 "sql": None,
+                "must_satisfy": must_satisfy,
             }
 
         # Conformance reference / special executor (no SQL)
@@ -2426,18 +2488,28 @@ class FocusToDuckDBSchemaConverter:
                 "referenced": getattr(check, "referenced_rule_id", None),
                 "sql": None,  # executed by reference, not SQL
                 "note": "mirrors referenced rule outcome (no SQL)",
+                "must_satisfy": must_satisfy,
             }
 
         # Leaf with SQL
         sql = getattr(check, "checkSql", None) or getattr(check, "check_sql", None)
+
+        # Check if this is a Dynamic entity rule that ended up in the leaf branch
+        rule_entity_type = getattr(getattr(check, "rule", None), "entity_type", None)
+        generator_name = meta.get("generator")
+
+        if rule_entity_type == "Dynamic" and generator_name is None:
+            generator_name = "None due to dynamic rule"
+
         return {
             "rule_id": rid,
             "type": "leaf",
             "check_type": ctype,
-            "generator": meta.get("generator"),
+            "generator": generator_name,
             "row_condition_sql": meta.get("row_condition_sql"),
             "sql": self._subst_table(sql) if sql else None,
             "message": getattr(check, "errorMessage", None),
+            "must_satisfy": must_satisfy,
         }
 
     def _subst_table(self, sql: str) -> str:

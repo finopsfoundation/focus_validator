@@ -1,7 +1,7 @@
 import importlib.resources
 import logging
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from focus_validator.data_loaders import data_loader
 from focus_validator.outputter.outputter import Outputter
@@ -32,11 +32,13 @@ class Validator:
         allow_prerelease_releases: bool = False,
         column_namespace: Optional[str] = None,
         applicability_criteria: Optional[str] = None,
+        explain_mode: bool = False,
     ) -> None:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.data_filename = data_filename
         self.data_format = data_format
         self.focus_data = None
+        self.explain_mode = explain_mode
 
         # Log validator initialization
         self.log.info("Initializing FOCUS Validator")
@@ -47,6 +49,10 @@ class Validator:
         self.log.debug(
             "Output type: %s, destination: %s", output_type, output_destination
         )
+        if explain_mode:
+            self.log.info(
+                "Explain mode enabled - will generate SQL explanations without validation"
+            )
 
         if filter_rules:
             self.log.info("Rule filtering enabled: %s", filter_rules)
@@ -125,6 +131,12 @@ class Validator:
         self.log.debug("Loading specification rules...")
         self.spec_rules.load()
 
+        # Skip data loading in explain mode
+        if self.explain_mode:
+            self.log.info("Explain mode: skipping data loading")
+            self.focus_data = None
+            return
+
         # Get column types from the loaded rules
         column_types = self.spec_rules.get_column_types()
         if column_types:
@@ -193,6 +205,155 @@ class Validator:
 
         self.log.info("Validation process completed")
         return results
+
+    @logPerformance("validator.explain", includeArgs=True)
+    def explain(self) -> Dict[str, Dict[str, str]]:
+        """Generate SQL explanations for validation rules without executing validation.
+
+        Returns:
+            Dictionary mapping rule_id to explanation dict containing SQL and metadata
+        """
+        self.log.info("Starting explain mode - generating SQL explanations...")
+        self.load()  # This will load rules but skip data in explain mode
+
+        # Generate SQL explanations
+        self.log.debug("Generating SQL explanations for all rules...")
+        sql_map = self.spec_rules.explain()
+
+        self.log.info("SQL explanation generation completed for %d rules", len(sql_map))
+        return sql_map
+
+    def print_sql_explanations(
+        self, sql_map: Dict[str, Dict[str, Any]], verbose: bool = False
+    ) -> None:
+        """Print SQL explanations in a human-readable format.
+
+        Args:
+            sql_map: Dictionary from explain() method
+            verbose: If True, show full SQL queries, otherwise truncate
+        """
+        print(f"\n=== SQL Explanations for {len(sql_map)} rules ===\n")
+
+        # Sort rules alphabetically by rule_id
+        for rule_id in sorted(sql_map.keys()):
+            explanation = sql_map[rule_id]
+            rule_type = explanation.get("type", "unknown")
+            check_type = explanation.get("check_type", "unknown")
+            generator = explanation.get("generator", "unknown")
+
+            print(f"📋 {rule_id}")
+            print(f"   Type: {rule_type}")
+            if check_type != "unknown":
+                print(f"   Check: {check_type}")
+            if generator != "unknown":
+                print(f"   Generator: {generator}")
+
+            # Show MustSatisfy if present
+            must_satisfy = explanation.get("must_satisfy")
+            if must_satisfy:
+                print(f"   MustSatisfy: {must_satisfy}")
+
+            # Show condition if present
+            condition = explanation.get("row_condition_sql")
+            if condition:
+                print(f"   Condition: {condition}")
+
+            # Show SQL for leaf rules
+            sql = explanation.get("sql")
+            if sql and sql != "None":
+                # Always show full SQL with pretty formatting
+                print("   SQL:")
+                # Format the SQL for better readability
+                formatted_sql = self._format_sql_for_display(sql)
+                # Indent each line of the SQL
+                for line in formatted_sql.split("\n"):
+                    print(f"     {line}")
+
+            # Show composite info
+            children = explanation.get("children")
+            if children:
+                print(f"   Children: {len(children)} rules")
+                # Always show children for CompositeANDRuleGenerator and CompositeORRuleGenerator
+                if verbose or generator in [
+                    "CompositeANDRuleGenerator",
+                    "CompositeORRuleGenerator",
+                ]:
+                    for child in children:
+                        if isinstance(child, dict):
+                            child_id = child.get("rule_id", "unknown")
+                            child_type = child.get("type", "unknown")
+                            child_check = child.get("check_type", "")
+
+                            # For reference type children, show the referenced rule instead of the parent rule_id
+                            if child_type == "reference":
+                                referenced_id = child.get("referenced", child_id)
+                                if referenced_id and referenced_id != child_id:
+                                    child_display_id = f"{child_id} -> {referenced_id}"
+                                else:
+                                    child_display_id = child_id
+                            else:
+                                child_display_id = child_id
+
+                            if child_check and child_check != "unknown":
+                                print(
+                                    f"     - {child_display_id} ({child_type}, {child_check})"
+                                )
+                            else:
+                                print(f"     - {child_display_id} ({child_type})")
+                    # For other composite types in verbose mode, limit to first 3
+                    if (
+                        verbose
+                        and generator
+                        not in ["CompositeANDRuleGenerator", "CompositeORRuleGenerator"]
+                        and len(children) > 3
+                    ):
+                        print(f"     ... and {len(children) - 3} more")
+
+            print()  # Empty line between rules
+
+    def _format_sql_for_display(self, sql: str) -> str:
+        """Format SQL for better display readability."""
+        if not sql:
+            return sql
+
+        import re
+
+        # Clean up whitespace first
+        formatted = re.sub(r"\s+", " ", sql.strip())
+
+        # Add newlines before major SQL keywords
+        major_keywords = [
+            "WITH",
+            "SELECT",
+            "FROM",
+            "WHERE",
+            "GROUP BY",
+            "ORDER BY",
+            "HAVING",
+            "UNION",
+        ]
+        for keyword in major_keywords:
+            # Add newline before keyword (but not at the start)
+            pattern = r"(?<!^)\s+" + keyword + r"\b"
+            formatted = re.sub(pattern, r"\n" + keyword, formatted, flags=re.IGNORECASE)
+
+        # Split into lines and add basic indentation
+        lines = [line.strip() for line in formatted.split("\n") if line.strip()]
+        result_lines = []
+
+        for line in lines:
+            # Main clauses start at base level
+            if re.match(
+                r"^\s*(WITH|SELECT|FROM|WHERE|GROUP BY|ORDER BY|HAVING|UNION)\b",
+                line,
+                re.IGNORECASE,
+            ):
+                result_lines.append(line)
+            else:
+                # Everything else gets indented
+                result_lines.append("  " + line)
+
+        return "\n".join(result_lines)
 
     def get_supported_versions(self) -> Tuple[List[str], List[str]]:
         self.log.debug("Retrieving supported versions...")

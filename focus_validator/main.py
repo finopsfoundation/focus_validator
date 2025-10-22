@@ -201,6 +201,12 @@ def main() -> None:
         default=False,
         help="Show available applicability criteria for the specified FOCUS version and exit",
     )
+    parser.add_argument(
+        "--explain-mode",
+        action="store_true",
+        default=False,
+        help="Generate SQL explanations for validation rules without executing validation or requiring input data",
+    )
 
     args = parser.parse_args()
 
@@ -214,12 +220,23 @@ def main() -> None:
     log.info("  Rule set path: %s", args.rule_set_path)
     log.info("  Transitional rules: %s", args.transitional)
     log.info("  Visualization: %s", args.visualize)
+    log.info("  Explain mode: %s", args.explain_mode)
     if args.filter_rules:
         log.info("  Filter rules: %s", args.filter_rules)
     if args.column_namespace:
         log.info("  Column namespace: %s", args.column_namespace)
     if args.applicability_criteria:
         log.info("  Applicability criteria: %s", args.applicability_criteria)
+
+    # Validate argument combinations
+    if args.explain_mode:
+        if args.visualize:
+            log.error("--explain-mode and --visualize cannot be used together")
+            parser.error("--explain-mode and --visualize are incompatible options")
+            sys.exit(1)
+        log.info(
+            "Explain mode enabled - data file will be ignored, no validation will be executed"
+        )
 
     if args.output_type != "console" and args.output_destination is None:
         log.error("Output destination required for output type: %s", args.output_type)
@@ -241,6 +258,7 @@ def main() -> None:
         allow_draft_releases=args.allow_draft_releases,
         allow_prerelease_releases=args.allow_prerelease_releases,
         applicability_criteria=args.applicability_criteria,
+        explain_mode=args.explain_mode,
     )
     if args.supported_versions:
         log.info("Retrieving supported versions...")
@@ -271,6 +289,21 @@ def main() -> None:
             log.error("Failed to retrieve applicability criteria: %s", str(e))
             print(f"Error: {e}")
             sys.exit(1)
+    elif args.explain_mode:
+        log.info("Running in explain mode - generating SQL explanations...")
+        startTime = time.time()
+        try:
+            explain_results = validator.explain()
+            duration = time.time() - startTime
+            log.info("SQL explanation generation completed in %.3f seconds", duration)
+
+            # Output the results
+            validator.print_sql_explanations(explain_results, verbose=False)
+
+        except Exception as e:
+            duration = time.time() - startTime
+            log.error("Explain mode failed after %.3f seconds: %s", duration, str(e))
+            raise
     else:
         log.info("Starting validation process...")
         startTime = time.time()

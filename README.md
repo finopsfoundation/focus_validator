@@ -624,6 +624,262 @@ For help and more options:
 focus-validator --help
 ```
 
+## Explain Mode
+
+The FOCUS Validator includes a powerful **Explain Mode** that allows you to inspect validation rules and their underlying SQL logic without executing actual validation or requiring input data. This feature is invaluable for understanding FOCUS specification requirements, debugging validation logic, and learning how rules are implemented.
+
+### What is Explain Mode?
+
+Explain Mode generates comprehensive explanations for all validation rules in a FOCUS specification version, including:
+
+- **Rule Metadata**: Rule ID, type, check method, and generator information
+- **MustSatisfy Requirements**: The human-readable requirement that each rule validates
+- **SQL Queries**: Complete, formatted SQL queries that implement the validation logic
+- **Rule Relationships**: Hierarchy and dependencies between composite and child rules
+- **Condition Logic**: Row-level conditions and filters applied during validation
+
+### How to Use Explain Mode
+
+#### Basic Usage
+
+```bash
+# Explain all rules for FOCUS 1.2 with CostAndUsage dataset
+focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode
+```
+
+#### With Applicability Criteria
+
+```bash
+# Show all rules including those with specific applicability requirements
+focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode --applicability-criteria ALL
+
+# Show rules for specific applicability criteria
+focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode --applicability-criteria "AVAILABILITY_ZONE_SUPPORTED,MULTIPLE_SUB_ACCOUNT_TYPES_SUPPORTED"
+```
+
+#### View Available Applicability Criteria
+
+```bash
+# List all applicability criteria for a FOCUS version
+focus-validator --validate-version 1.2 --show-applicability-criteria
+```
+
+### Explain Mode Output Format
+
+The output is organized alphabetically by rule ID and includes comprehensive information for each rule:
+
+#### Example Output
+
+```text
+=== SQL Explanations for 578 rules ===
+
+📋 AvailabilityZone-C-001-M
+   Type: leaf
+   Check: type_string
+   Generator: TypeStringCheckGenerator
+   MustSatisfy: AvailabilityZone MUST be of type String.
+   SQL:
+     WITH invalid AS (
+       SELECT 1
+       FROM focus_data
+       WHERE AvailabilityZone IS NOT NULL AND typeof(AvailabilityZone) != 'VARCHAR'
+     )
+     SELECT COUNT(*) AS violations, 
+            CASE WHEN COUNT(*) > 0 
+                 THEN 'AvailabilityZone MUST be of type VARCHAR (string).' 
+            END AS error_message
+     FROM invalid
+
+📋 BilledCost-C-000-M
+   Type: composite
+   Check: composite
+   Generator: CompositeANDRuleGenerator
+   MustSatisfy: The BilledCost column adheres to the following requirements:
+   Children: 7 rules
+     - BilledCost-C-000-M -> BilledCost-C-001-M (reference, model_rule_reference)
+     - BilledCost-C-000-M -> BilledCost-C-002-M (reference, model_rule_reference)
+     - BilledCost-C-000-M -> BilledCost-C-003-M (reference, model_rule_reference)
+     - BilledCost-C-000-M -> BilledCost-C-004-M (reference, model_rule_reference)
+     - BilledCost-C-000-M -> BilledCost-C-005-C (reference, model_rule_reference)
+     - BilledCost-C-000-M -> BilledCost-C-006-M (reference, model_rule_reference)
+     - BilledCost-C-000-M -> BilledCost-C-007-M (reference, model_rule_reference)
+
+📋 RegionId-C-000-C
+   Type: skipped
+   Check: None
+   Generator: None due to non-applicable rule
+   MustSatisfy: RegionId is RECOMMENDED to be present in a FOCUS dataset when the provider supports deploying resources or services within regions.
+```
+
+#### Output Components Explained
+
+**📋 Rule Header**: Rule ID in alphabetical order
+
+**Type**:
+
+- `leaf` - Individual validation rule with SQL query
+- `composite` - Rule that combines multiple child rules (AND/OR logic)
+- `reference` - Rule that references another rule's outcome
+- `skipped` - Rule that cannot be executed (dynamic or non-applicable)
+
+**Check**: The validation method used:
+
+- `type_string` - Validates column data type is string
+- `column_presence` - Validates column exists in dataset
+- `format_datetime` - Validates datetime format compliance
+- `composite` - Combines multiple child rule results
+- `model_rule_reference` - References another rule's result
+
+**Generator**: The code generator that creates the validation logic:
+
+- `TypeStringCheckGenerator` - Generates SQL for type validation
+- `ColumnPresentCheckGenerator` - Generates SQL for column existence
+- `CompositeANDRuleGenerator` - Combines child rules with AND logic
+- `CompositeORRuleGenerator` - Combines child rules with OR logic
+- `None due to dynamic rule` - Rule requires runtime data analysis
+- `None due to non-applicable rule` - Rule doesn't apply to current criteria
+
+**MustSatisfy**: Human-readable description of what the rule validates, directly from the FOCUS specification
+
+**SQL**: Complete, formatted SQL query that implements the validation (for leaf rules only)
+
+**Children**: For composite rules, shows all child rules with their types and references
+
+**Condition**: Row-level conditions applied during validation (when present)
+
+### Rule Types and Categories
+
+#### Leaf Rules
+
+Individual validation rules that execute SQL queries against the dataset. These represent the core validation logic.
+
+**Examples:**
+
+- Column presence validation
+- Data type checking  
+- Format validation (dates, currencies, etc.)
+- Value constraint checking
+- Pattern matching validation
+
+#### Composite Rules
+
+Rules that combine multiple child rules using logical operators:
+
+- **AND Rules** (`CompositeANDRuleGenerator`): All child rules must pass
+- **OR Rules** (`CompositeORRuleGenerator`): At least one child rule must pass
+
+#### Reference Rules
+
+Rules that mirror the outcome of another rule without executing additional SQL.
+
+#### Skipped Rules
+
+Rules that cannot be executed for various reasons:
+
+- **Dynamic Rules**: Require runtime data analysis to determine validation logic
+- **Non-Applicable Rules**: Don't apply based on current applicability criteria
+- **Missing Dependencies**: Reference unavailable components or data
+
+### Understanding Applicability Criteria
+
+Some FOCUS rules only apply under specific conditions (e.g., when a provider supports availability zones). The `--applicability-criteria` option controls which rules are included:
+
+- **Default (none specified)**: Shows only universally applicable rules
+- **`ALL`**: Shows all rules including those with specific requirements
+- **Specific criteria**: Shows rules for particular provider capabilities
+
+Use `--show-applicability-criteria` to see available criteria for a FOCUS version.
+
+### SQL Query Analysis
+
+The SQL queries in explain mode show exactly how each validation is implemented:
+
+#### Common SQL Patterns
+
+**Column Presence Check:**
+
+```sql
+WITH col_check AS (
+    SELECT COUNT(*) AS found
+    FROM information_schema.columns
+    WHERE table_name = 'focus_data' AND column_name = 'ColumnName'
+)
+SELECT CASE WHEN found = 0 THEN 1 ELSE 0 END AS violations,
+       CASE WHEN found = 0 THEN 'Column "ColumnName" MUST be present in the table.' END AS error_message
+FROM col_check
+```
+
+**Type Validation:**
+
+```sql
+SELECT COUNT(*) AS violations,
+       'ColumnName MUST be of type VARCHAR (string).' AS error_message
+FROM focus_data
+WHERE ColumnName IS NOT NULL AND typeof(ColumnName) != 'VARCHAR'
+```
+
+**Format Validation:**
+
+```sql
+WITH invalid AS (
+    SELECT ColumnName::TEXT AS value
+    FROM focus_data
+    WHERE ColumnName IS NOT NULL 
+      AND NOT (ColumnName::TEXT ~ '^[pattern]$')
+)
+SELECT COUNT(*) AS violations,
+       CASE WHEN COUNT(*) > 0 THEN 'Format validation message' END AS error_message
+FROM invalid
+```
+
+### Use Cases for Explain Mode
+
+#### 1. Learning FOCUS Specification
+
+- Understand what each rule validates
+- See the relationship between rules
+- Learn validation requirements for each column
+
+#### 2. Debugging Validation Issues
+
+- Inspect SQL logic for failing rules
+- Understand why certain rules are skipped
+- Analyze composite rule dependencies
+
+#### 3. Implementation Reference
+
+- Use SQL patterns for custom validation tools
+- Understand FOCUS rule implementation details
+- Reference validation logic for documentation
+
+#### 4. Rule Development
+
+- Validate new rule implementations
+- Test rule logic without full datasets
+- Debug rule generation and SQL creation
+
+### Performance and Output Management
+
+Explain mode is designed for fast execution since it doesn't process actual data:
+
+- **Fast Execution**: No data loading or SQL execution against datasets
+- **Complete Coverage**: Analyzes all rules in the specification (500+ rules for FOCUS 1.2)
+- **Alphabetical Ordering**: Predictable rule ordering for easy navigation
+- **Detailed Output**: Comprehensive information for each rule
+
+The output can be extensive (500+ rules), so consider using shell tools for navigation:
+
+```bash
+# Search for specific rules
+focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode | grep "BilledCost"
+
+# Page through output
+focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode | less
+
+# Save to file for analysis
+focus-validator --validate-version 1.2 --focus-dataset CostAndUsage --explain-mode > rules_explanation.txt
+```
+
 ## Running Tests
 
 ### Basic Testing
