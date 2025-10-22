@@ -610,7 +610,7 @@ poetry install
 
 ## Usage
 
-Activate the virtual environment:
+Activate the virtual environment (See: [poetry-plugin-shell](https://github.com/python-poetry/poetry-plugin-shell)):
 
 ```bash
 poetry shell
