@@ -1,13 +1,13 @@
+import argparse
 import xml.etree.ElementTree as ET
 
 import pandas as pd
 import requests
 
 DATAHUB_URL = "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml"
-CURRENCY_CODE_CSV_PATH = "focus_validator/rules/currency_codes.csv"
 
 
-def download_currency_codes():  # pragma: no cover
+def download_currency_codes(output_file: str):  # pragma: no cover
     r = requests.get(DATAHUB_URL)
     root = ET.fromstring(r.content.decode())
 
@@ -16,14 +16,24 @@ def download_currency_codes():  # pragma: no cover
         if child.tag == "Ccy":
             currency_codes.append(child.text)
 
-    df = pd.DataFrame(set(currency_codes), columns=["currency_codes"])
-    df.to_csv(CURRENCY_CODE_CSV_PATH)
+    # Filter out None values and create DataFrame with unique currency codes
+    valid_currency_codes = [code for code in currency_codes if code is not None]
+    df = pd.DataFrame(set(valid_currency_codes), columns=["currency_codes"])
+    df.to_csv(output_file)
 
 
-def get_currency_codes():
-    df = pd.read_csv(CURRENCY_CODE_CSV_PATH)
+def get_currency_codes(code_file: str) -> set:  # pragma: no cover
+    df = pd.read_csv(code_file)
     return set(df["currency_codes"].values)
 
 
 if __name__ == "__main__":  # pragma: no cover
-    download_currency_codes()
+    parser = argparse.ArgumentParser(description="FOCUS specification validator.")
+    parser.add_argument(
+        "--output-file",
+        help="Path to save the downloaded currency codes CSV file.",
+        default="focus_validator/rules/currency_codes.csv",
+        required=False,
+    )
+    args = parser.parse_args()
+    download_currency_codes(args.output_file)
