@@ -22,9 +22,9 @@ class EdgeCtx:
 
     kind: str  # "structural" | "data_dep" | "applicability" | "ordering"
     note: Optional[str] = None
-    predicate: Optional[
-        Predicate
-    ] = None  # if provided, edge only counts when predicate(ctx) is True
+    predicate: Optional[Predicate] = (
+        None  # if provided, edge only counts when predicate(ctx) is True
+    )
 
 
 @dataclass

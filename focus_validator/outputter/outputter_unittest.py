@@ -157,15 +157,19 @@ class UnittestOutputter:
                     )(),  # Mock status object
                     "column_id": getattr(entry, "column_id", "Unknown"),
                     "friendly_name": getattr(entry, "friendly_name", rule_id),
-                    "error": getattr(entry, "error", None)
-                    if status in ["failed", "errored"]
-                    else None,
+                    "error": (
+                        getattr(entry, "error", None)
+                        if status in ["failed", "errored"]
+                        else None
+                    ),
                     "rule_ref": {
-                        "check_type_friendly_name": getattr(
-                            entry.rule_ref, "check_type_friendly_name", "Unknown"
+                        "check_type_friendly_name": (
+                            getattr(
+                                entry.rule_ref, "check_type_friendly_name", "Unknown"
+                            )
+                            if hasattr(entry, "rule_ref")
+                            else "Unknown"
                         )
-                        if hasattr(entry, "rule_ref")
-                        else "Unknown"
                     },
                 }
 
@@ -182,19 +186,19 @@ class UnittestOutputter:
                 "status": type(
                     "MockStatus", (), {"value": status}
                 )(),  # Mock status object
-                "column_id": getattr(rule, "column_id", "Unknown")
-                if rule
-                else "Unknown",
-                "friendly_name": getattr(rule, "friendly_name", rule_id)
-                if rule
-                else rule_id,
+                "column_id": (
+                    getattr(rule, "column_id", "Unknown") if rule else "Unknown"
+                ),
+                "friendly_name": (
+                    getattr(rule, "friendly_name", rule_id) if rule else rule_id
+                ),
                 "error": details.get("message") if status == "failed" else None,
                 "rule_ref": {
-                    "check_type_friendly_name": getattr(
-                        rule, "check_type_friendly_name", "Unknown"
+                    "check_type_friendly_name": (
+                        getattr(rule, "check_type_friendly_name", "Unknown")
+                        if rule
+                        else "Unknown"
                     )
-                    if rule
-                    else "Unknown"
                 },
             }
 

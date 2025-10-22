@@ -57,9 +57,9 @@ class DuckDBColumnCheck:
             exec_mode or "requirement"
         )  # "requirement" / "condition" / "reference"
         self.referenced_rule_id = referenced_rule_id  # if applicable
-        self.force_fail_due_to_upstream: Optional[
-            Dict[str, Any]
-        ] = None  # For upstream dependency failures
+        self.force_fail_due_to_upstream: Optional[Dict[str, Any]] = (
+            None  # For upstream dependency failures
+        )
 
 
 class DuckDBCheckGenerator(ABC):
@@ -2472,7 +2472,9 @@ class FocusToDuckDBSchemaConverter:
         self._global_results_by_idx[node_idx] = {
             "ok": ok,
             "details": details,
-            "rule_id": self.plan.nodes[node_idx].rule_id
-            if self.plan and node_idx < len(self.plan.nodes)
-            else None,
+            "rule_id": (
+                self.plan.nodes[node_idx].rule_id
+                if self.plan and node_idx < len(self.plan.nodes)
+                else None
+            ),
         }

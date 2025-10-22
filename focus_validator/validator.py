@@ -8,15 +8,9 @@ from focus_validator.outputter.outputter import Outputter
 from focus_validator.rules.spec_rules import SpecRules, ValidationResults
 from focus_validator.utils.performance_logging import logPerformance
 
-try:
-    DEFAULT_VERSION_SETS_PATH = str(
-        importlib.resources.files("focus_validator").joinpath("rules")
-    )
-except AttributeError:
-    # for compatibility with python 3.8, which does not support files api in importlib
-    from pkg_resources import resource_filename
-
-    DEFAULT_VERSION_SETS_PATH = resource_filename("focus_validator", "rules")
+DEFAULT_VERSION_SETS_PATH = str(
+    importlib.resources.files("focus_validator").joinpath("rules")
+)
 
 
 class Validator:
@@ -173,9 +167,11 @@ class Validator:
                 )
                 self.log.debug(
                     "Column names: %s",
-                    list(self.focus_data.columns)
-                    if hasattr(self.focus_data, "columns")
-                    else "N/A",
+                    (
+                        list(self.focus_data.columns)
+                        if hasattr(self.focus_data, "columns")
+                        else "N/A"
+                    ),
                 )
             except Exception as e:
                 self.log.warning("Could not determine data dimensions: %s", e)

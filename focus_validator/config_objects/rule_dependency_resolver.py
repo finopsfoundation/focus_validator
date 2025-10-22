@@ -466,9 +466,9 @@ class RuleDependencyResolver:
                     if item.get("CheckFunction", None) == "CheckModelRule":
                         dep_rule_id = item.get("ModelRuleId", None)
                         if dep_rule_id in rules:
-                            rules[
-                                dep_rule_id
-                            ].validation_criteria.precondition = condition
+                            rules[dep_rule_id].validation_criteria.precondition = (
+                                condition
+                            )
                         else:
                             self.log.warning(
                                 "Referenced rule ID %s not found for condition propagation",
