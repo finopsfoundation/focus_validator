@@ -287,7 +287,7 @@ class TestDataLoader(unittest.TestCase):
             # Test that CSV loader can handle problematic data with column types
             column_types = {
                 'NumericCol': 'float64',
-                'DateCol': pl.Datetime("us", "UTC"),
+                'DateCol': 'datetime64[ns, UTC]',
                 'StringCol': 'string'
             }
             
@@ -300,9 +300,7 @@ class TestDataLoader(unittest.TestCase):
             
             # Check that types were applied correctly
             self.assertEqual(result['NumericCol'].dtype, pl.Float64)
-            # DateCol should be dropped due to invalid date
-            self.assertNotIn('DateCol', result.columns) 
-            self.assertIn('DateCol', csv_loader.failed_columns)
+            self.assertEqual(result['DateCol'].dtype, pl.Datetime("us", "UTC"))
             self.assertEqual(result['StringCol'].dtype, pl.Utf8)
             
             # Check that invalid values were coerced to null

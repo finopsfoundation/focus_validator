@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import Mock, patch
 import tempfile
 import os
-import polars as pl
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import io
@@ -23,19 +23,19 @@ class TestParquetDataLoaderBasic(unittest.TestCase):
         self.temp_parquet.close()
         
         # Create test data and save as Parquet
-        test_data = pl.DataFrame({
+        test_data = pd.DataFrame({
             'col1': [1, 2, 3],
             'col2': ['a', 'b', 'c'],
             'col3': [1.1, 2.2, 3.3]
         })
-        test_data.write_parquet(self.temp_parquet.name)
+        test_data.to_parquet(self.temp_parquet.name, index=False)
 
     def tearDown(self):
         """Clean up test fixtures."""
         if os.path.exists(self.temp_parquet.name):
             os.unlink(self.temp_parquet.name)
 
-    @patch('focus_validator.data_loaders.parquet_data_loader.pl.read_parquet')
+    @patch('focus_validator.data_loaders.parquet_data_loader.pd.read_parquet')
     def test_file_not_found(self, mock_read_parquet):
         """Test behavior when Parquet file doesn't exist."""
         mock_read_parquet.side_effect = FileNotFoundError("File not found")
@@ -61,10 +61,10 @@ class TestParquetDataLoaderBasic(unittest.TestCase):
         finally:
             os.unlink(temp_filename)
 
-    @patch('focus_validator.data_loaders.parquet_data_loader.pl.read_parquet')
-    def test_polars_exception_handling(self, mock_read_parquet):
-        """Test handling when pl.read_parquet raises unexpected exceptions."""
-        mock_read_parquet.side_effect = Exception("Unexpected polars error")
+    @patch('focus_validator.data_loaders.parquet_data_loader.pd.read_parquet')
+    def test_pandas_exception_handling(self, mock_read_parquet):
+        """Test handling when pandas.read_parquet raises unexpected exceptions."""
+        mock_read_parquet.side_effect = Exception("Unexpected pandas error")
         
         loader = ParquetDataLoader("test.parquet")
         
@@ -72,13 +72,13 @@ class TestParquetDataLoaderBasic(unittest.TestCase):
         with self.assertRaises(Exception) as cm:
             loader.load()
         
-        self.assertIn("Unexpected polars error", str(cm.exception))
+        self.assertIn("Unexpected pandas error", str(cm.exception))
 
-    @patch('focus_validator.data_loaders.parquet_data_loader.pl.read_parquet')
+    @patch('focus_validator.data_loaders.parquet_data_loader.pd.read_parquet')
     def test_successful_mocked_load(self, mock_read_parquet):
-        """Test successful parquet loading with mocked polars."""
+        """Test successful parquet loading with mocked pandas."""
         # Mock successful parquet loading
-        expected_df = pl.DataFrame({
+        expected_df = pd.DataFrame({
             'col1': [1, 2, 3],
             'col2': ['a', 'b', 'c']
         })
@@ -87,7 +87,7 @@ class TestParquetDataLoaderBasic(unittest.TestCase):
         loader = ParquetDataLoader("test.parquet")
         result = loader.load()
         
-        self.assertIsInstance(result, pl.DataFrame)
+        self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 3)
         self.assertEqual(len(result.columns), 2)
         mock_read_parquet.assert_called_once_with("test.parquet")
@@ -116,9 +116,9 @@ class TestParquetDataLoaderBasic(unittest.TestCase):
                 loader = ParquetDataLoader(filename)
                 self.assertEqual(loader.data_filename, filename)
 
-    @patch('focus_validator.data_loaders.parquet_data_loader.pl.read_parquet')
+    @patch('focus_validator.data_loaders.parquet_data_loader.pd.read_parquet')
     def test_load_returns_none_handling(self, mock_read_parquet):
-        """Test handling when polars returns None (unusual but possible)."""
+        """Test handling when pandas returns None (unusual but possible)."""
         mock_read_parquet.return_value = None
         
         loader = ParquetDataLoader("test.parquet")
@@ -178,7 +178,7 @@ class TestParquetDataLoaderResilientLoading(unittest.TestCase):
         """Test initialization with column types parameter."""
         column_types = {
             'BilledCost': 'float64',
-            'BillingPeriodStart': pl.Datetime("us", "UTC"),
+            'BillingPeriodStart': 'datetime64[ns, UTC]',
             'AvailabilityZone': 'string'
         }
         
@@ -190,7 +190,7 @@ class TestParquetDataLoaderResilientLoading(unittest.TestCase):
     def test_successful_load_with_type_conversion(self):
         """Test successful loading with column type conversions."""
         # Create test Parquet data
-        test_data = pl.DataFrame({
+        test_data = pd.DataFrame({
             'Amount': [100.5, 200.0, 300.75],
             'Date': ['2023-01-01', '2023-02-01', '2023-03-01'],
             'Zone': ['us-east-1a', 'eu-west-1b', 'ap-south-1c']
@@ -198,12 +198,12 @@ class TestParquetDataLoaderResilientLoading(unittest.TestCase):
         
         self.temp_parquet = tempfile.NamedTemporaryFile(suffix='.parquet', delete=False)
         self.temp_parquet.close()
-        test_data.write_parquet(self.temp_parquet.name)
+        test_data.to_parquet(self.temp_parquet.name, index=False)
         
         # Define column types for conversion
         column_types = {
             'Amount': 'float64',
-            'Date': pl.Datetime("us", "UTC"),
+            'Date': 'datetime64[ns, UTC]',
             'Zone': 'string'
         }
         
@@ -211,16 +211,16 @@ class TestParquetDataLoaderResilientLoading(unittest.TestCase):
         result = loader.load()
         
         # Check successful loading and type conversion
-        self.assertIsInstance(result, pl.DataFrame)
+        self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 3)
-        self.assertEqual(result['Amount'].dtype, pl.Float64)
-        self.assertEqual(result['Date'].dtype, pl.Datetime('us', 'UTC'))
-        self.assertEqual(result['Zone'].dtype, pl.Utf8)
+        self.assertEqual(result['Amount'].dtype, 'float64')
+        self.assertEqual(str(result['Date'].dtype), 'datetime64[ns, UTC]')
+        self.assertEqual(result['Zone'].dtype.name, 'string')
 
     def test_type_conversion_with_invalid_data(self):
-        """Test type conversion resilience - columns with invalid dates should be dropped."""
+        """Test type conversion resilience with data that can't be converted."""
         # Create Parquet data with mixed types that will challenge conversion
-        test_data = pl.DataFrame({
+        test_data = pd.DataFrame({
             'NumericCol': ['123.45', 'INVALID', '67.89'],  # String column with invalid numeric
             'DateCol': ['2023-01-01', 'BAD_DATE', '2023-03-01'],  # String column with invalid date
             'StringCol': [1, 2, 3]  # Numeric column to convert to string
@@ -228,44 +228,45 @@ class TestParquetDataLoaderResilientLoading(unittest.TestCase):
         
         self.temp_parquet = tempfile.NamedTemporaryFile(suffix='.parquet', delete=False)
         self.temp_parquet.close()
-        test_data.write_parquet(self.temp_parquet.name)
+        test_data.to_parquet(self.temp_parquet.name, index=False)
         
         column_types = {
             'NumericCol': 'float64',
-            'DateCol': pl.Datetime("us", "UTC"),
+            'DateCol': 'datetime64[ns, UTC]',
             'StringCol': 'string'
         }
         
         loader = ParquetDataLoader(self.temp_parquet.name, column_types=column_types)
         result = loader.load()
         
-        # Should succeed with some columns dropped
-        self.assertIsInstance(result, pl.DataFrame)
+        # Should succeed with coercion
+        self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 3)
         
         # Check numeric coercion
-        self.assertEqual(result['NumericCol'][0], 123.45)
-        self.assertTrue((result['NumericCol'][1] is None))  # Invalid -> NaN
-        self.assertEqual(result['NumericCol'][2], 67.89)
+        self.assertEqual(result['NumericCol'].iloc[0], 123.45)
+        self.assertTrue(pd.isna(result['NumericCol'].iloc[1]))  # Invalid -> NaN
+        self.assertEqual(result['NumericCol'].iloc[2], 67.89)
         
-        # DateCol should be dropped due to invalid date (BAD_DATE)
-        self.assertNotIn('DateCol', result.columns)
+        # Check datetime coercion
+        self.assertIsInstance(result['DateCol'].iloc[0], pd.Timestamp)
+        self.assertTrue(pd.isna(result['DateCol'].iloc[1]))  # Invalid -> NaT
+        self.assertIsInstance(result['DateCol'].iloc[2], pd.Timestamp)
         
         # Check string conversion
-        self.assertIn('StringCol', result.columns)
-        self.assertEqual(result['StringCol'].dtype, pl.Utf8)
+        self.assertEqual(result['StringCol'].dtype.name, 'string')
 
     def test_stdin_input_handling(self):
         """Test handling of stdin input ('-' filename)."""
         # Create test Parquet data in memory
-        test_data = pl.DataFrame({
+        test_data = pd.DataFrame({
             'col1': [1, 2, 3],
             'col2': ['a', 'b', 'c']
         })
         
         # Convert to Parquet bytes
         parquet_buffer = io.BytesIO()
-        test_data.write_parquet(parquet_buffer)
+        test_data.to_parquet(parquet_buffer, index=False)
         parquet_bytes = parquet_buffer.getvalue()
         
         # Mock sys.stdin.buffer.read() to return our Parquet data
@@ -273,26 +274,26 @@ class TestParquetDataLoaderResilientLoading(unittest.TestCase):
             loader = ParquetDataLoader("-")
             result = loader.load()
             
-            self.assertIsInstance(result, pl.DataFrame)
+            self.assertIsInstance(result, pd.DataFrame)
             self.assertEqual(len(result), 3)
             self.assertEqual(list(result.columns), ['col1', 'col2'])
 
     def test_no_column_types_provided(self):
         """Test loading without any column type specifications."""
-        test_data = pl.DataFrame({
+        test_data = pd.DataFrame({
             'col1': [1, 2, 3],
             'col2': ['a', 'b', 'c']
         })
         
         self.temp_parquet = tempfile.NamedTemporaryFile(suffix='.parquet', delete=False)
         self.temp_parquet.close()
-        test_data.write_parquet(self.temp_parquet.name)
+        test_data.to_parquet(self.temp_parquet.name, index=False)
         
         loader = ParquetDataLoader(self.temp_parquet.name)
         result = loader.load()
         
         # Should load successfully with original Parquet types
-        self.assertIsInstance(result, pl.DataFrame)
+        self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 3)
         self.assertEqual(len(result.columns), 2)
 

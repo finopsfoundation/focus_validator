@@ -31,9 +31,8 @@ class TestCSVDataLoaderErrorHandling(unittest.TestCase):
         """Test behavior when CSV file doesn't exist."""
         loader = CSVDataLoader("nonexistent_file.csv")
         
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(FileNotFoundError):
             loader.load()
-        self.assertIn("Failed to load CSV data", str(context.exception))
 
     def test_permission_denied(self):
         """Test behavior when file exists but can't be read due to permissions."""
@@ -48,9 +47,8 @@ class TestCSVDataLoaderErrorHandling(unittest.TestCase):
                 os.chmod(temp_filename, 0o000)
                 
                 loader = CSVDataLoader(temp_filename)
-                with self.assertRaises(Exception) as context:
+                with self.assertRaises(PermissionError):
                     loader.load()
-                self.assertIn("Failed to load CSV data", str(context.exception))
             finally:
                 # Restore permissions and clean up
                 os.chmod(temp_filename, 0o644)
@@ -65,8 +63,8 @@ class TestCSVDataLoaderErrorHandling(unittest.TestCase):
         try:
             loader = CSVDataLoader(temp_file.name)
             
-            # Polars raises an exception for completely empty files
-            with self.assertRaises(Exception):  # TODO: Use appropriate Polars exception
+            # pandas raises EmptyDataError for completely empty files
+            with self.assertRaises(# # pd.errors.EmptyDataError):
                 loader.load()
         finally:
             os.unlink(temp_file.name)
@@ -99,11 +97,9 @@ class TestCSVDataLoaderErrorHandling(unittest.TestCase):
         try:
             loader = CSVDataLoader(temp_filename)
             
-            # With resilient loading, Polars can handle malformed CSV by truncating ragged lines
+            # With resilient loading, should return None instead of raising error
             result = loader.load()
-            self.assertIsInstance(result, pl.DataFrame, "Polars should successfully load malformed CSV with resilience options")
-            self.assertEqual(len(result), 2, "Should load the data rows that can be parsed")
-            self.assertEqual(len(result.columns), 3, "Should maintain the header column count")
+            self.assertIsNone(result, "Resilient loading should return None for malformed CSV data")
         finally:
             os.unlink(temp_filename)
 
@@ -200,22 +196,16 @@ class TestCSVDataLoaderErrorHandling(unittest.TestCase):
         try:
             loader = CSVDataLoader(temp_filename)
             
-            # Polars may handle binary data differently than Pandas
-            # Let's check what actually happens
-            try:
-                result = loader.load()
-                # If it loads successfully, it should be empty or minimal
-                self.assertIsInstance(result, pl.DataFrame)
-            except Exception as e:
-                # If it raises an exception, that's also acceptable
-                self.assertIsInstance(e, Exception)
+            # This should raise a UnicodeDecodeError or similar
+            with self.assertRaises((UnicodeDecodeError, # # pd.errors.ParserError)):
+                loader.load()
         finally:
             os.unlink(temp_filename)
 
-    @patch('focus_validator.data_loaders.csv_data_loader.pl.read_csv')
-    def test_polars_exception_handling(self, mock_read_csv):
-        """Test handling when pl.read_csv raises unexpected exceptions."""
-        mock_read_csv.side_effect = Exception("Unexpected polars error")
+    @patch('focus_validator.data_loaders.csv_data_loader.pd.read_csv')
+    def test_pandas_exception_handling(self, mock_read_csv):
+        """Test handling when pandas.read_csv raises unexpected exceptions."""
+        mock_read_csv.side_effect = Exception("Unexpected pandas error")
         
         loader = CSVDataLoader(self.temp_csv.name)
         
@@ -223,7 +213,7 @@ class TestCSVDataLoaderErrorHandling(unittest.TestCase):
         with self.assertRaises(Exception) as cm:
             loader.load()
         
-        self.assertIn("Unexpected polars error", str(cm.exception))
+        self.assertIn("Unexpected pandas error", str(cm.exception))
 
     def test_mixed_data_types_per_column(self):
         """Test CSV with mixed data types in columns."""
@@ -242,7 +232,7 @@ class TestCSVDataLoaderErrorHandling(unittest.TestCase):
             self.assertIsInstance(result, pl.DataFrame)
             self.assertEqual(len(result), 4)
             # pandas should handle mixed types by using object dtype
-            self.assertEqual(result['mixed_col'].dtype, pl.Utf8)  # Polars infers mixed types as string
+            self.assertEqual(result['mixed_col'].dtype, 'object')
         finally:
             os.unlink(temp_filename)
 
@@ -335,13 +325,13 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         # Should succeed and coerce invalid values to NaN
         self.assertIsInstance(result, pl.DataFrame)
         self.assertEqual(len(result), 3)
-        self.assertEqual(result['BilledCost'].dtype, pl.Float64)
+        self.assertEqual(result['BilledCost'].dtype, 'float64')
         self.assertEqual(result['BilledCost'][0], 123.45)
         self.assertTrue((result['BilledCost'][1] is None))  # Invalid number -> NaN
         self.assertEqual(result['BilledCost'][2], 67.89)
 
     def test_resilient_loading_with_invalid_datetime_data(self):
-        """Test resilient loading when datetime columns contain invalid data - columns should be dropped."""
+        """Test resilient loading when datetime columns contain invalid data."""
         # Create CSV with invalid datetime data
         self.temp_csv = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
         self.temp_csv.write("BillingPeriodStart,BillingPeriodEnd,Amount\n")
@@ -359,21 +349,19 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         
         result = loader.load()
         
-        # Should succeed but drop columns with invalid dates
+        # Should succeed and coerce invalid dates to NaT
         self.assertIsInstance(result, pl.DataFrame)
         self.assertEqual(len(result), 3)
+        self.assertEqual(str(result['BillingPeriodStart'].dtype), pl.Datetime("us", "UTC"))
+        self.assertEqual(str(result['BillingPeriodEnd'].dtype), pl.Datetime("us", "UTC"))
         
-        # Both datetime columns should be dropped due to invalid dates
-        self.assertNotIn('BillingPeriodStart', result.columns)
-        self.assertNotIn('BillingPeriodEnd', result.columns)
-        self.assertIn('BillingPeriodStart', loader.failed_columns)
-        self.assertIn('BillingPeriodEnd', loader.failed_columns)
+        # Check valid dates are preserved
+        self.assertIsInstance(result['BillingPeriodStart'][0], pl.datetime)
+        self.assertIsInstance(result['BillingPeriodEnd'][0], pl.datetime)
         
-        # Amount column should be preserved
-        self.assertIn('Amount', result.columns)
-        self.assertEqual(result['Amount'][0], 100.0)
-        self.assertEqual(result['Amount'][1], 200.0)
-        self.assertEqual(result['Amount'][2], 300.0)
+        # Check invalid dates become NaT
+        self.assertTrue((result['BillingPeriodStart'][1] is None))
+        self.assertTrue((result['BillingPeriodEnd'][2] is None))
 
     def test_resilient_loading_mixed_data_corruption(self):
         """Test resilient loading with multiple types of data corruption."""
@@ -407,10 +395,7 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         # Check that bad data is coerced to appropriate null values
         self.assertTrue((result['BilledCost'][1] is None))  # Invalid number
         self.assertTrue((result['BilledCost'][3] is None))  # Empty value
-        
-        # BillingPeriodStart column should be dropped due to invalid date (INVALID_DATE)
-        self.assertNotIn('BillingPeriodStart', result.columns)
-        self.assertIn('BillingPeriodStart', loader.failed_columns)
+        self.assertTrue((result['BillingPeriodStart'][1] is None))  # Invalid date
 
     def test_fallback_to_string_columns_when_no_types_provided(self):
         """Test fallback to hardcoded STRING_COLUMNS when no column_types provided."""
@@ -427,10 +412,10 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         
         # Should apply string typing to known FOCUS columns
         self.assertIsInstance(result, pl.DataFrame)
-        self.assertEqual(result['AvailabilityZone'].dtype, pl.Utf8)
-        self.assertEqual(result['BillingAccountId'].dtype, pl.Utf8)
-        # OtherColumn contains string values, so Polars will infer it as string
-        self.assertEqual(result['OtherColumn'].dtype, pl.Utf8)
+        self.assertEqual(result['AvailabilityZone'].dtype.name, 'string')
+        self.assertEqual(result['BillingAccountId'].dtype.name, 'string')
+        # OtherColumn should keep pandas default type
+        self.assertNotEqual(result['OtherColumn'].dtype.name, 'string')
 
     def test_failed_columns_tracking(self):
         """Test that failed column conversions are properly tracked."""
@@ -454,7 +439,7 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         self.assertEqual(len(result), 2)
         
         # Check that the good column has correct type
-        self.assertEqual(result['GoodColumn'].dtype, pl.Float64)  # Polars Float64 type
+        self.assertEqual(str(result['GoodColumn'].dtype), 'float64')
         
         # The problematic column should still be loaded but may contain NaN values
         # Failed columns tracking is reset during _load_and_convert_with_coercion
@@ -503,16 +488,18 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         column_types = {'col1': 'float64'}
         loader = CSVDataLoader(self.temp_csv.name, column_types=column_types)
         
-        # Mock the basic pl.read_csv to fail in _load_and_convert_with_coercion fallback
-        with patch('focus_validator.data_loaders.csv_data_loader.pl.read_csv', side_effect=Exception("Complete failure")):
-            # Should propagate the exception since there's no further fallback
-            with self.assertRaises(Exception) as cm:
-                loader.load()
-            self.assertIn("Failed to load CSV data", str(cm.exception))
+        # Mock both _try_load_with_types and _load_and_convert_with_coercion to fail
+        with patch.object(loader, '_try_load_with_types', side_effect=Exception("Primary failure")):
+            with patch.object(loader, '_load_and_convert_with_coercion', side_effect=Exception("Fallback failure")):
+                # Should fall back to basic pd.read_csv
+                result = loader.load()
+                
+                self.assertIsInstance(result, pl.DataFrame)
+                self.assertEqual(len(result), 2)
 
     def test_warning_logging_for_failed_conversions(self):
-        """Test that failed conversions are properly tracked."""
-        # Create CSV with data that will trigger conversion failures
+        """Test that appropriate warnings are logged for failed conversions."""
+        # Create CSV with data that will trigger coercion warnings
         self.temp_csv = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
         self.temp_csv.write("NumericCol,DateCol\n")
         self.temp_csv.write("123,2023-01-01\n")
@@ -524,16 +511,16 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
             'DateCol': pl.Datetime("us", "UTC")
         }
         
-        loader = CSVDataLoader(self.temp_csv.name, column_types=column_types)
-        result = loader.load()
-        
-        # DateCol should be in failed_columns due to BAD_DATE
-        self.assertIn('DateCol', loader.failed_columns)
-        self.assertNotIn('DateCol', result.columns)
-        
-        # NumericCol should be preserved (INVALID gets converted to null)
-        self.assertIn('NumericCol', result.columns)
-        self.assertNotIn('NumericCol', loader.failed_columns)
+        with patch('logging.getLogger') as mock_get_logger:
+            mock_logger = Mock()
+            mock_get_logger.return_value = mock_logger
+            
+            loader = CSVDataLoader(self.temp_csv.name, column_types=column_types)
+            result = loader.load()
+            
+            # Check that warning was called for failed conversions
+            warning_calls = [call for call in mock_logger.warning.call_args_list if call[0]]
+            self.assertTrue(len(warning_calls) > 0)
 
     def test_two_pass_loading_for_column_existence_check(self):
         """Test that two-pass loading correctly filters column types for existing columns."""
@@ -575,7 +562,7 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         self.assertEqual(list(result.columns), ['col1', 'col2'])
 
     def test_coercion_preserves_valid_data_types(self):
-        """Test that coercion properly preserves valid data while dropping columns with invalid dates."""
+        """Test that coercion properly preserves valid data while converting invalid data."""
         # Create CSV with mix of valid and invalid data
         self.temp_csv = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
         self.temp_csv.write("Amount,StartDate,Zone\n")
@@ -598,9 +585,10 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         self.assertEqual(result['Amount'][2], 200.75)
         self.assertTrue((result['Amount'][1] is None))  # Invalid -> NaN
         
-        # StartDate column should be dropped due to invalid date (INVALID_DATE)
-        self.assertNotIn('StartDate', result.columns)
-        self.assertIn('StartDate', loader.failed_columns)
+        # Check datetime handling
+        self.assertIsInstance(result['StartDate'][0], pl.datetime)
+        self.assertIsInstance(result['StartDate'][2], pl.datetime)
+        self.assertTrue((result['StartDate'][1] is None))  # Invalid -> NaT
         
         # String columns should all be valid
         self.assertEqual(result['Zone'][0], 'us-east-1')

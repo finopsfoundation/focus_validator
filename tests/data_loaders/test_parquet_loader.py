@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-import pandas as pd
+import polars as pl
 
 from focus_validator.data_loaders.data_loader import DataLoader
 from focus_validator.data_loaders.parquet_data_loader import ParquetDataLoader
@@ -10,7 +10,7 @@ class TestParquetLoader(TestCase):
     def test_load_parquet_file(self):
         data_loader = DataLoader(data_filename="tests/samples/sample.parquet")
         df = data_loader.load()
-        self.assertIsInstance(df, pd.DataFrame)
+        self.assertIsInstance(df, pl.DataFrame)
         self.assertEqual(
             list(df.columns), ["InvoiceIssuer", "ResourceID", "ChargeType"]
         )

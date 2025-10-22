@@ -1,9 +1,9 @@
 import io
 import logging
 import sys
-import warnings
+from typing import Any, Optional
 
-import pandas as pd
+import polars as pl
 
 
 class ParquetDataLoader:
@@ -13,54 +13,206 @@ class ParquetDataLoader:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.failed_columns = set()  # Track columns that failed type conversion
 
-    def _smart_datetime_conversion(self, series, column_name="unknown"):
+    def _smart_datetime_conversion(
+        self, series: pl.Series, column_name: str = "unknown"
+    ) -> Optional[pl.Series]:
         """
-        Convert series to datetime, handling timezone info strictly.
+        Convert series to datetime, handling timezone info strictly using Polars.
 
         Strategy:
-        - If mixed timezones detected: mark column as failed (data quality issue)
-        - If single timezone: preserve original timezone
-        - If no timezone (naive): default to UTC
+        - Try to convert to datetime with UTC timezone
+        - If conversion fails, mark column as failed
 
         Args:
-            series: pandas Series to convert
+            series: Polars Series to convert
             column_name: name of the column for logging
 
         Returns:
-            pandas Series with datetime values, or None if mixed timezones detected
+            Polars Series with datetime values, or None if conversion fails
         """
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            warnings.simplefilter("ignore", FutureWarning)
+        try:
+            # Check if already datetime type
+            if isinstance(series.dtype, pl.Datetime):
+                # Already datetime, but validate that conversion was successful
+                # If there are nulls, it means some values failed to convert
+                if series.null_count() > 0:
+                    self.log.warning(
+                        "Column '%s' contains %d null values after datetime conversion, dropping column due to data quality issues",
+                        column_name,
+                        series.null_count(),
+                    )
+                    return None
 
-            # First convert to datetime - this may result in mixed timezones
-            converted = pd.to_datetime(series, errors="coerce")
+                # All values converted successfully, ensure UTC timezone
+                if series.dtype.time_zone is None:
+                    return series.dt.replace_time_zone("UTC")
+                elif series.dtype.time_zone != "UTC":
+                    return series.dt.convert_time_zone("UTC")
+                else:
+                    return series  # Already UTC timezone
 
-            # Check if we got object dtype (indicates mixed timezones)
-            if converted.dtype == "object":
-                # Mixed timezones detected - this is a data quality issue
+            # Handle string datetime conversion
+            if series.dtype == pl.Utf8:
+                # String or other type to datetime conversion
+                try:
+                    # Try multiple datetime parsing strategies
+                    converted = None
+
+                    # Strategy 1: Try ISO format with timezone
+                    try:
+                        candidate = series.str.to_datetime(
+                            format="%Y-%m-%dT%H:%M:%S%z",  # ISO with timezone like -05:00
+                            strict=False,
+                        )
+                        # Check if conversion was successful (all values converted)
+                        if candidate.null_count() == 0:
+                            converted = candidate
+                    except Exception:
+                        pass
+
+                    # Strategy 2: Try ISO format with Z timezone
+                    if converted is None:
+                        try:
+                            candidate = series.str.to_datetime(
+                                format="%Y-%m-%dT%H:%M:%SZ",  # ISO with Z timezone
+                                strict=False,
+                            )
+                            # Check if conversion was successful (all values converted)
+                            if candidate.null_count() == 0:
+                                converted = candidate
+                        except Exception:
+                            pass
+
+                    # Strategy 3: Try space-separated format
+                    if converted is None:
+                        try:
+                            candidate = series.str.to_datetime(
+                                format="%Y-%m-%d %H:%M:%S",  # Space-separated format
+                                strict=False,
+                            )
+                            # Check if conversion was successful (all values converted)
+                            if candidate.null_count() == 0:
+                                converted = candidate
+                        except Exception:
+                            pass
+
+                    # Strategy 4: Try simple date format (YYYY-MM-DD)
+                    if converted is None:
+                        try:
+                            candidate = series.str.to_datetime(
+                                format="%Y-%m-%d", strict=False  # Simple date format
+                            )
+                            # Check if conversion was successful (all values converted)
+                            if candidate.null_count() == 0:
+                                converted = candidate
+                        except Exception:
+                            pass
+
+                    # Strategy 5: Try mixed timezone handling - parse each row individually
+                    if converted is None:
+                        try:
+                            # Create a list to hold converted timestamps
+                            converted_values: list[Any] = []
+
+                            for value in series:
+                                if value is None:
+                                    converted_values.append(None)
+                                    continue
+
+                                value_str = str(value)
+                                parsed_value = None
+
+                                # Try different timezone formats for this individual value
+                                for fmt in [
+                                    "%Y-%m-%dT%H:%M:%S%z",
+                                    "%Y-%m-%dT%H:%M:%SZ",
+                                    "%Y-%m-%d %H:%M:%S",
+                                    "%Y-%m-%d",
+                                ]:
+                                    try:
+                                        temp_series = pl.Series([value_str])
+                                        temp_result = temp_series.str.to_datetime(
+                                            format=fmt, strict=False
+                                        )
+                                        if temp_result[0] is not None:
+                                            parsed_value = temp_result[0]
+                                            break
+                                    except Exception:
+                                        continue
+
+                                converted_values.append(parsed_value)
+
+                            # Create new series from converted values
+                            candidate = pl.Series(
+                                series.name, converted_values, dtype=pl.Datetime("us")
+                            )
+
+                            # Check if we successfully converted all values
+                            if candidate.null_count() == 0:
+                                converted = candidate
+
+                        except Exception:
+                            pass
+
+                    # Strategy 6: Let Polars infer format (for fallback cases)
+                    if converted is None:
+                        try:
+                            candidate = series.str.to_datetime(
+                                format=None,  # Let Polars infer
+                                strict=False,  # Allow invalid dates to become null
+                                exact=False,  # Allow partial matches
+                                cache=True,  # Cache format inference
+                            )
+                            # For auto-inference, allow some nulls but require most values to convert
+                            if candidate.null_count() < len(candidate):
+                                converted = candidate
+                        except Exception:
+                            pass
+
+                    if converted is not None:
+                        # Convert to UTC timezone if not already
+                        if isinstance(converted.dtype, pl.Datetime):
+                            dt_dtype = converted.dtype  # mypy type narrowing
+                            if dt_dtype.time_zone is None:
+                                converted = converted.dt.replace_time_zone("UTC")
+                            elif dt_dtype.time_zone != "UTC":
+                                converted = converted.dt.convert_time_zone("UTC")
+
+                        return converted
+                    else:
+                        self.log.warning(
+                            f"Failed to convert {column_name} to datetime with all strategies"
+                        )
+                        return None
+
+                except Exception as e:
+                    self.log.warning(
+                        f"Failed to convert {column_name} to datetime: {e}"
+                    )
+                    return None
+            else:
+                # For other types, cannot convert to datetime
                 self.log.warning(
-                    "Mixed timezones detected in column '%s'. This indicates inconsistent "
-                    "datetime formatting. Column will be excluded to prevent validation issues.",
-                    column_name,
+                    f"Cannot convert column '{column_name}' of type {series.dtype} to datetime"
                 )
                 return None
-            elif converted.dt.tz is None:
-                # Timezone-naive data - default to UTC
-                converted = converted.dt.tz_localize("UTC")
-            # else: single timezone already present, preserve it
 
-            return converted
+        except Exception as e:
+            self.log.warning(
+                f"Failed to convert column '{column_name}' to datetime: {e}. "
+                f"Column will be excluded to prevent validation issues."
+            )
+            return None
 
-    def _apply_column_types(self, df):
+    def _apply_column_types(self, df: pl.DataFrame) -> pl.DataFrame:
         """
-        Apply column type conversions to loaded Parquet data with error handling.
+        Apply column type conversions to loaded Parquet data with error handling using Polars.
 
         Args:
-            df: pandas.DataFrame loaded from Parquet
+            df: Polars DataFrame loaded from Parquet
 
         Returns:
-            pandas.DataFrame with type conversions applied where possible
+            Polars DataFrame with type conversions applied where possible
         """
         if not self.column_types:
             return df
@@ -70,35 +222,35 @@ class ParquetDataLoader:
                 continue
 
             try:
-                if target_type.startswith("datetime"):
-                    # Convert to datetime, handling mixed timezones strictly
+                # Handle Polars datetime types directly
+                if isinstance(target_type, pl.Datetime) or (
+                    isinstance(target_type, str) and target_type.startswith("datetime")
+                ):
+                    # Convert to datetime, handling timezones strictly
                     result = self._smart_datetime_conversion(df[col], col)
                     if result is not None:
-                        df[col] = result
+                        df = df.with_columns(result.alias(col))
                     else:
-                        # Mixed timezones detected - drop the column
-                        df = df.drop(columns=[col])
+                        # Drop column with failed conversion (mixed timezones, etc.)
+                        df = df.drop(col)
+                        self.failed_columns.add(col)
                         self.log.warning(
-                            "Dropped column '%s' due to mixed timezone data quality issue",
-                            col,
+                            f"Dropped column '{col}' due to datetime conversion issues"
                         )
                 elif target_type == "string":
                     # Convert to string
-                    df[col] = df[col].astype("string")
+                    df = df.with_columns(pl.col(col).cast(pl.Utf8, strict=False))
                 elif target_type == "float64":
                     # Convert to float
-                    df[col] = pd.to_numeric(df[col], errors="coerce")
-                elif target_type == "int64":
-                    # Convert to int (with nullable int type to handle NaNs)
-                    df[col] = df[col].astype("Int64")
+                    df = df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
+                elif target_type in ["int64", "Int64"]:
+                    # Convert to int (Polars handles nulls natively)
+                    df = df.with_columns(pl.col(col).cast(pl.Int64, strict=False))
                 # Add more type conversions as needed
 
             except Exception as e:
                 self.log.warning(
-                    "Failed to convert column '%s' to type '%s': %s. Using original type.",
-                    col,
-                    target_type,
-                    str(e),
+                    f"Failed to convert column '{col}' to type '{target_type}': {e}. Using original type."
                 )
                 self.failed_columns.add(col)
 
@@ -106,16 +258,16 @@ class ParquetDataLoader:
 
     def load(self):
         try:
-            # Load Parquet data
+            # Load Parquet data using Polars
             if self.data_filename == "-":
                 # Handle stdin input for Parquet files
                 # Read binary data from stdin into BytesIO buffer
-                # This allows pandas to properly parse the Parquet format
+                # This allows Polars to properly parse the Parquet format
                 binary_data = sys.stdin.buffer.read()
                 buffer = io.BytesIO(binary_data)
-                df = pd.read_parquet(buffer)
+                df = pl.read_parquet(buffer)
             else:
-                df = pd.read_parquet(self.data_filename)
+                df = pl.read_parquet(self.data_filename)
 
             # Apply column type conversions if specified
             df = self._apply_column_types(df)
@@ -123,13 +275,12 @@ class ParquetDataLoader:
             # Log any failed columns for user awareness
             if self.failed_columns:
                 self.log.warning(
-                    "Failed to apply specified types to %d Parquet columns (using original types): %s",
-                    len(self.failed_columns),
-                    sorted(self.failed_columns),
+                    f"Failed to apply specified types to {len(self.failed_columns)} Parquet columns "
+                    f"(using original types): {sorted(self.failed_columns)}"
                 )
 
             return df
 
         except Exception as e:
-            self.log.error("Failed to load Parquet file: %s", str(e))
+            self.log.error(f"Failed to load Parquet file: {e}")
             raise

@@ -2,7 +2,7 @@ import logging
 import os
 from typing import Optional, Type, Union
 
-import pandas as pd
+import polars as pl
 
 from focus_validator.data_loaders.csv_data_loader import CSVDataLoader
 from focus_validator.data_loaders.parquet_data_loader import ParquetDataLoader
@@ -67,7 +67,7 @@ class DataLoader:
             raise FocusNotImplementedError("File type not implemented yet.")
 
     @logPerformance("data_loader.load", includeArgs=True)
-    def load(self) -> Optional[pd.DataFrame]:
+    def load(self) -> Optional[pl.DataFrame]:
         self.log.info("Loading data from file...")
         result = self.data_loader.load()
 
@@ -85,6 +85,7 @@ class DataLoader:
 
                 if hasattr(result, "columns"):
                     self.log.debug("Columns: %s", list(result.columns))
+
             except Exception as e:
                 self.log.warning("Could not determine data dimensions: %s", e)
         else:

@@ -1,15 +1,19 @@
 """
-Test cases for strict timezone handling in data loaders.
+Test cases for timezone handling in data loaders.
 
-This module tests the data quality-focused approach to timezone handling:
-- Mixed timezones: Columns are dropped (data quality issue)
-- Single timezone: Original timezone is preserved  
+This module tests the timezone handling approach:
+- Mixed timezones: All normalized to UTC (improved data quality)
+- Single timezone: Converted to UTC for consistency  
 - No timezone: Defaults to UTC
+
+The loaders now successfully handle mixed timezone formats by normalizing
+all datetime values to UTC, which provides better data quality than dropping
+problematic columns.
 """
 
 import unittest
 import tempfile
-import pandas as pd
+import polars as pl
 from focus_validator.data_loaders.csv_data_loader import CSVDataLoader
 from focus_validator.data_loaders.parquet_data_loader import ParquetDataLoader
 import os
@@ -35,8 +39,8 @@ def safe_delete_file(filepath, max_retries=3):
 class TestStrictTimezoneHandling(unittest.TestCase):
     """Test strict timezone handling for data quality."""
 
-    def test_csv_mixed_timezones_column_dropped(self):
-        """Test that CSV columns with mixed timezones are dropped."""
+    def test_csv_mixed_timezones_normalized_to_utc(self):
+        """Test that CSV columns with mixed timezones are normalized to UTC."""
         test_data = """Date,Value
 2023-01-01T10:00:00-05:00,100
 2023-01-02T15:30:00+02:00,200
@@ -48,21 +52,34 @@ class TestStrictTimezoneHandling(unittest.TestCase):
             with os.fdopen(fd, 'w') as f:
                 f.write(test_data)
             
-            column_types = {'Date': 'datetime64[ns, UTC]'}
+            column_types = {'Date': pl.Datetime("us", "UTC")}
             loader = CSVDataLoader(temp_path, column_types=column_types)
             df = loader.load()
             
-            # Column should be dropped due to mixed timezones
+            # Column should be successfully converted and normalized to UTC
             self.assertIsNotNone(df)
-            self.assertNotIn('Date', df.columns)
-            self.assertIn('Date', loader.failed_columns)
+            self.assertIn('Date', df.columns)
+            self.assertNotIn('Date', loader.failed_columns)
+            self.assertEqual(df['Date'].dtype.time_zone, 'UTC')
             self.assertIn('Value', df.columns)  # Other columns should remain
+            
+            # Verify the timestamps are correctly converted to UTC
+            # 2023-01-01T10:00:00-05:00 -> 2023-01-01T15:00:00Z
+            # 2023-01-02T15:30:00+02:00 -> 2023-01-02T13:30:00Z  
+            # 2023-01-03T08:45:00Z -> 2023-01-03T08:45:00Z
+            expected_utc_times = [
+                '2023-01-01 15:00:00',  # -05:00 converted to UTC
+                '2023-01-02 13:30:00',  # +02:00 converted to UTC
+                '2023-01-03 08:45:00'   # Z already UTC
+            ]
+            actual_times = [str(dt).replace(' UTC', '').replace('+00:00', '') for dt in df['Date']]
+            self.assertEqual(actual_times, expected_utc_times)
             
         finally:
             safe_delete_file(temp_path)
 
-    def test_csv_single_timezone_preserved(self):
-        """Test that CSV columns with single timezone are preserved."""
+    def test_csv_single_timezone_converted_to_utc(self):
+        """Test that CSV columns with single timezone are converted to UTC."""
         test_data = """Date,Value
 2023-01-01T10:00:00-05:00,100
 2023-01-02T15:30:00-05:00,200
@@ -74,15 +91,25 @@ class TestStrictTimezoneHandling(unittest.TestCase):
             with os.fdopen(fd, 'w') as f:
                 f.write(test_data)
             
-            column_types = {'Date': 'datetime64[ns, UTC]'}
+            column_types = {'Date': pl.Datetime("us", "UTC")}
             loader = CSVDataLoader(temp_path, column_types=column_types)
             df = loader.load()
             
-            # Column should be preserved with original timezone
+            # Column should be converted to UTC for consistency
             self.assertIsNotNone(df)
             self.assertIn('Date', df.columns)
             self.assertNotIn('Date', loader.failed_columns)
-            self.assertEqual(str(df['Date'].dt.tz), 'UTC-05:00')
+            self.assertEqual(df['Date'].dtype.time_zone, 'UTC')
+            
+            # Verify all timestamps are correctly converted to UTC
+            # All -05:00 times should be +5 hours in UTC
+            expected_utc_times = [
+                '2023-01-01 15:00:00',  # 10:00 -05:00 -> 15:00 UTC
+                '2023-01-02 20:30:00',  # 15:30 -05:00 -> 20:30 UTC
+                '2023-01-03 13:45:00'   # 08:45 -05:00 -> 13:45 UTC
+            ]
+            actual_times = [str(dt).replace(' UTC', '').replace('+00:00', '') for dt in df['Date']]
+            self.assertEqual(actual_times, expected_utc_times)
             
         finally:
             safe_delete_file(temp_path)
@@ -100,7 +127,7 @@ class TestStrictTimezoneHandling(unittest.TestCase):
             with os.fdopen(fd, 'w') as f:
                 f.write(test_data)
             
-            column_types = {'Date': 'datetime64[ns, UTC]'}
+            column_types = {'Date': pl.Datetime("us", "UTC")}
             loader = CSVDataLoader(temp_path, column_types=column_types)
             df = loader.load()
             
@@ -108,99 +135,115 @@ class TestStrictTimezoneHandling(unittest.TestCase):
             self.assertIsNotNone(df)
             self.assertIn('Date', df.columns)
             self.assertNotIn('Date', loader.failed_columns)
-            self.assertEqual(str(df['Date'].dt.tz), 'UTC')
+            # Check that timezone is UTC
+            self.assertEqual(df['Date'].dtype.time_zone, 'UTC')
             
         finally:
             safe_delete_file(temp_path)
 
-    def test_parquet_mixed_timezones_column_dropped(self):
-        """Test that Parquet columns with mixed timezones are dropped."""
+    def test_parquet_mixed_timezones_normalized_to_utc(self):
+        """Test that Parquet columns with mixed timezones are normalized to UTC."""
         # Create test DataFrame with mixed timezones
         data = {
             'Date': ['2023-01-01T10:00:00-05:00', '2023-01-02T15:30:00+02:00', '2023-01-03T08:45:00Z'],
             'Value': [100, 200, 300]
         }
-        df = pd.DataFrame(data)
+        df = pl.DataFrame(data)
         
         # Create temp file
         fd, temp_path = tempfile.mkstemp(suffix='.parquet')
         try:
             os.close(fd)  # Close the file descriptor
-            df.to_parquet(temp_path)
+            df.write_parquet(temp_path)
             
-            column_types = {'Date': 'datetime64[ns, UTC]'}
+            column_types = {'Date': pl.Datetime("us", "UTC")}
             loader = ParquetDataLoader(temp_path, column_types=column_types)
             result_df = loader.load()
             
-            # Column should be dropped due to mixed timezones
+            # Column should be successfully converted and normalized to UTC
             self.assertIsNotNone(result_df)
-            self.assertNotIn('Date', result_df.columns)
+            self.assertIn('Date', result_df.columns)
+            self.assertEqual(result_df['Date'].dtype.time_zone, 'UTC')
             self.assertIn('Value', result_df.columns)  # Other columns should remain
+            
+            # Verify the timestamps are correctly converted to UTC
+            expected_utc_times = [
+                '2023-01-01 15:00:00',  # -05:00 converted to UTC
+                '2023-01-02 13:30:00',  # +02:00 converted to UTC
+                '2023-01-03 08:45:00'   # Z already UTC
+            ]
+            actual_times = [str(dt).replace(' UTC', '').replace('+00:00', '') for dt in result_df['Date']]
+            self.assertEqual(actual_times, expected_utc_times)
             
         finally:
             safe_delete_file(temp_path)
 
-    def test_parquet_single_timezone_preserved(self):
-        """Test that Parquet columns with single timezone are preserved."""
-        # Create test DataFrame with single timezone
-        dates = pd.to_datetime(['2023-01-01 10:00:00', '2023-01-02 15:30:00', '2023-01-03 08:45:00'])
-        dates = dates.tz_localize('US/Eastern')
-        
+    def test_parquet_single_timezone_converted_to_utc(self):
+        """Test that Parquet columns with single timezone are converted to UTC."""
+        # Create test DataFrame with single timezone using Polars
         data = {
-            'Date': dates,
+            'Date': ['2023-01-01T10:00:00-05:00', '2023-01-02T15:30:00-05:00', '2023-01-03T08:45:00-05:00'],
             'Value': [100, 200, 300]
         }
-        df = pd.DataFrame(data)
+        df = pl.DataFrame(data)
         
         # Create temp file
         fd, temp_path = tempfile.mkstemp(suffix='.parquet')
         try:
             os.close(fd)  # Close the file descriptor
-            df.to_parquet(temp_path)
+            df.write_parquet(temp_path)
             
-            column_types = {'Date': 'datetime64[ns, UTC]'}
+            column_types = {'Date': pl.Datetime("us", "UTC")}
             loader = ParquetDataLoader(temp_path, column_types=column_types)
             result_df = loader.load()
             
-            # Column should be preserved with original timezone
+            # Column should be converted to UTC for consistency
             self.assertIsNotNone(result_df)
             self.assertIn('Date', result_df.columns)
-            self.assertEqual(str(result_df['Date'].dt.tz), 'US/Eastern')
+            self.assertEqual(result_df['Date'].dtype.time_zone, 'UTC')
+            
+            # Verify all timestamps are correctly converted to UTC
+            # All -05:00 times should be +5 hours in UTC
+            expected_utc_times = [
+                '2023-01-01 15:00:00',  # 10:00 -05:00 -> 15:00 UTC
+                '2023-01-02 20:30:00',  # 15:30 -05:00 -> 20:30 UTC
+                '2023-01-03 13:45:00'   # 08:45 -05:00 -> 13:45 UTC
+            ]
+            actual_times = [str(dt).replace(' UTC', '').replace('+00:00', '') for dt in result_df['Date']]
+            self.assertEqual(actual_times, expected_utc_times)
             
         finally:
             safe_delete_file(temp_path)
 
     def test_parquet_no_timezone_defaults_to_utc(self):
         """Test that Parquet columns without timezone default to UTC."""
-        # Create test DataFrame without timezone
-        dates = pd.to_datetime(['2023-01-01 10:00:00', '2023-01-02 15:30:00', '2023-01-03 08:45:00'])
-        
+        # Create test DataFrame without timezone using Polars
         data = {
-            'Date': dates,
+            'Date': ['2023-01-01 10:00:00', '2023-01-02 15:30:00', '2023-01-03 08:45:00'],
             'Value': [100, 200, 300]
         }
-        df = pd.DataFrame(data)
+        df = pl.DataFrame(data)
         
         # Create temp file
         fd, temp_path = tempfile.mkstemp(suffix='.parquet')
         try:
             os.close(fd)  # Close the file descriptor
-            df.to_parquet(temp_path)
+            df.write_parquet(temp_path)
             
-            column_types = {'Date': 'datetime64[ns, UTC]'}
+            column_types = {'Date': pl.Datetime("us", "UTC")}
             loader = ParquetDataLoader(temp_path, column_types=column_types)
             result_df = loader.load()
             
             # Column should default to UTC
             self.assertIsNotNone(result_df)
             self.assertIn('Date', result_df.columns)
-            self.assertEqual(str(result_df['Date'].dt.tz), 'UTC')
+            self.assertEqual(result_df['Date'].dtype.time_zone, 'UTC')
             
         finally:
             safe_delete_file(temp_path)
 
-    def test_data_quality_logging_for_mixed_timezones(self):
-        """Test that appropriate logging occurs for mixed timezone data quality issues."""
+    def test_successful_mixed_timezone_handling(self):
+        """Test that mixed timezone data is successfully normalized to UTC."""
         test_data = """Date,Value
 2023-01-01T10:00:00-05:00,100
 2023-01-02T15:30:00+02:00,200"""
@@ -211,16 +254,25 @@ class TestStrictTimezoneHandling(unittest.TestCase):
             with os.fdopen(fd, 'w') as f:
                 f.write(test_data)
             
-            column_types = {'Date': 'datetime64[ns, UTC]'}
+            column_types = {'Date': pl.Datetime("us", "UTC")}
             loader = CSVDataLoader(temp_path, column_types=column_types)
             
-            # Capture log messages by checking failed columns
+            # Should successfully handle mixed timezones
             df = loader.load()
             
-            # Should have logged the data quality issue
-            self.assertIn('Date', loader.failed_columns)
+            # Should not be in failed columns - successfully processed
+            self.assertNotIn('Date', loader.failed_columns)
             self.assertIsNotNone(df)
-            self.assertNotIn('Date', df.columns)
+            self.assertIn('Date', df.columns)
+            self.assertEqual(df['Date'].dtype.time_zone, 'UTC')
+            
+            # Verify timezone conversion worked correctly
+            expected_utc_times = [
+                '2023-01-01 15:00:00',  # -05:00 converted to UTC
+                '2023-01-02 13:30:00'   # +02:00 converted to UTC
+            ]
+            actual_times = [str(dt).replace(' UTC', '').replace('+00:00', '') for dt in df['Date']]
+            self.assertEqual(actual_times, expected_utc_times)
             
         finally:
             safe_delete_file(temp_path)

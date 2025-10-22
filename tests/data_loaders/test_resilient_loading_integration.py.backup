@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import Mock, patch, MagicMock
 import tempfile
 import os
-import polars as pl
+import pandas as pd
 import io
 from datetime import datetime
 
@@ -42,7 +42,7 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         # Simulate column types extracted from FOCUS rules
         extracted_column_types = {
             'BilledCost': 'float64',  # TypeDecimal from Function "Type"
-            'BillingPeriodStart': pl.Datetime("us", "UTC"),  # TypeDateTime from Function "Type"
+            'BillingPeriodStart': 'datetime64[ns, UTC]',  # TypeDateTime from Function "Type"
             'AvailabilityZone': 'string',  # TypeString from Function "Type"
             'Tags': 'string'  # TypeString from Function "Type"
         }
@@ -51,29 +51,27 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         result = loader.load()
         
         # Should successfully load with proper type conversions and coercion
-        self.assertIsInstance(result, pl.DataFrame)
+        self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 3)
         
         # Check type conversions worked
-        self.assertEqual(result['BilledCost'].dtype, pl.Float64)
-        # BillingPeriodStart should be dropped due to invalid dates
-        self.assertNotIn('BillingPeriodStart', result.columns)
-        self.assertIn('BillingPeriodStart', loader.failed_columns)
-        self.assertEqual(result['AvailabilityZone'].dtype, pl.Utf8)
-        self.assertEqual(result['Tags'].dtype, pl.Utf8)
+        self.assertEqual(result['BilledCost'].dtype, 'float64')
+        self.assertEqual(str(result['BillingPeriodStart'].dtype), 'datetime64[ns, UTC]')
+        self.assertEqual(result['AvailabilityZone'].dtype.name, 'string')
+        self.assertEqual(result['Tags'].dtype.name, 'string')
         
         # Check that invalid values were coerced appropriately
-        self.assertTrue((result['BilledCost'][1] is None))  # INVALID_COST -> NaN
-        # BillingPeriodStart column was dropped due to invalid dates
+        self.assertTrue(pd.isna(result['BilledCost'].iloc[1]))  # INVALID_COST -> NaN
+        self.assertTrue(pd.isna(result['BillingPeriodStart'].iloc[1]))  # BAD_DATE -> NaT
         
         # Check valid values preserved
-        self.assertEqual(result['BilledCost'][0], 123.45)
-        self.assertEqual(result['BilledCost'][2], 67.89)
+        self.assertEqual(result['BilledCost'].iloc[0], 123.45)
+        self.assertEqual(result['BilledCost'].iloc[2], 67.89)
 
     def test_parquet_loader_with_focus_extracted_column_types(self):
         """Test Parquet loader using column types extracted from FOCUS rules."""
         # Create Parquet with FOCUS-like data
-        test_data = pl.DataFrame({
+        test_data = pd.DataFrame({
             'BilledCost': ['123.45', 'INVALID', '67.89'],  # String data to be converted
             'BillingPeriodStart': ['2023-01-01T00:00:00Z', 'BAD_DATE', '2023-03-01T00:00:00Z'],
             'AvailabilityZone': ['us-east-1a', 'eu-west-1b', 'ap-south-1c'],
@@ -82,12 +80,12 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         
         self.temp_parquet = tempfile.NamedTemporaryFile(suffix='.parquet', delete=False)
         self.temp_parquet.close()
-        test_data.write_parquet(self.temp_parquet.name)
+        test_data.to_parquet(self.temp_parquet.name, index=False)
         
         # Simulate column types extracted from FOCUS rules
         extracted_column_types = {
             'BilledCost': 'float64',  # TypeDecimal from Function "Type"
-            'BillingPeriodStart': pl.Datetime("us", "UTC"),  # TypeDateTime from Function "Type"
+            'BillingPeriodStart': 'datetime64[ns, UTC]',  # TypeDateTime from Function "Type"
             'AvailabilityZone': 'string',  # TypeString from Function "Type"
             'ServiceCategory': 'string'  # TypeString from Function "Type"
         }
@@ -96,21 +94,19 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         result = loader.load()
         
         # Should successfully load with proper type conversions and coercion
-        self.assertIsInstance(result, pl.DataFrame)
+        self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 3)
         
         # Check type conversions worked
-        self.assertEqual(result['BilledCost'].dtype, pl.Float64)
-        # BillingPeriodStart should be dropped due to invalid dates
-        self.assertNotIn('BillingPeriodStart', result.columns)
-        self.assertIn('BillingPeriodStart', loader.failed_columns)
-        self.assertEqual(result['AvailabilityZone'].dtype, pl.Utf8)
-        self.assertEqual(result['ServiceCategory'].dtype, pl.Utf8)
+        self.assertEqual(result['BilledCost'].dtype, 'float64')
+        self.assertEqual(str(result['BillingPeriodStart'].dtype), 'datetime64[ns, UTC]')
+        self.assertEqual(result['AvailabilityZone'].dtype.name, 'string')
+        self.assertEqual(result['ServiceCategory'].dtype.name, 'string')
         
         # Check coercion results
-        self.assertEqual(result['BilledCost'][0], 123.45)
-        self.assertTrue((result['BilledCost'][1] is None))  # INVALID -> NaN
-        self.assertEqual(result['BilledCost'][2], 67.89)
+        self.assertEqual(result['BilledCost'].iloc[0], 123.45)
+        self.assertTrue(pd.isna(result['BilledCost'].iloc[1]))  # INVALID -> NaN
+        self.assertEqual(result['BilledCost'].iloc[2], 67.89)
 
     def test_data_loader_integration_with_column_types(self):
         """Test DataLoader class integration with column types parameter."""
@@ -125,7 +121,7 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         extracted_column_types = {
             'ResourceId': 'string',
             'BilledCost': 'float64',
-            'BillingPeriodStart': pl.Datetime("us", "UTC")
+            'BillingPeriodStart': 'datetime64[ns, UTC]'
         }
         
         # Test that DataLoader can be initialized with column types
@@ -133,15 +129,13 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         csv_loader = CSVDataLoader(self.temp_csv.name, column_types=extracted_column_types)
         result = csv_loader.load()
         
-        self.assertIsInstance(result, pl.DataFrame)
+        self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 2)
         
         # Verify types applied correctly
-        self.assertEqual(result['ResourceId'].dtype, pl.Utf8)
-        self.assertEqual(result['BilledCost'].dtype, pl.Float64)
-        # BillingPeriodStart should be dropped due to invalid dates
-        self.assertNotIn('BillingPeriodStart', result.columns)
-        self.assertIn('BillingPeriodStart', csv_loader.failed_columns)
+        self.assertEqual(result['ResourceId'].dtype.name, 'string')
+        self.assertEqual(result['BilledCost'].dtype, 'float64')
+        self.assertEqual(str(result['BillingPeriodStart'].dtype), 'datetime64[ns, UTC]')
 
     def test_comprehensive_focus_column_type_mapping(self):
         """Test comprehensive mapping of FOCUS column types to pandas types."""
@@ -161,7 +155,7 @@ class TestResilientLoadingIntegration(unittest.TestCase):
             'BilledCost': 'float64',
             'CommitmentDiscountQuantity': 'float64',
             # TypeDateTime -> datetime64[ns, UTC]
-            'BillingPeriodStart': pl.Datetime("us", "UTC"),
+            'BillingPeriodStart': 'datetime64[ns, UTC]',
             # TypeInteger -> int64 (if such type exists in FOCUS)
             'PricingQuantity': 'int64'
         }
@@ -170,23 +164,21 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         result = loader.load()
         
         # Verify all type conversions worked
-        self.assertIsInstance(result, pl.DataFrame)
+        self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 3)
         
-        # Check all expected types (Note: Polars dtypes are different from pandas)
-        self.assertEqual(result['ResourceId'].dtype, pl.Utf8)
-        self.assertEqual(result['BilledCost'].dtype, pl.Float64)
-        self.assertEqual(result['CommitmentDiscountQuantity'].dtype, pl.Float64)
-        # BillingPeriodStart should be dropped due to invalid dates
-        self.assertNotIn('BillingPeriodStart', result.columns)
-        self.assertIn('BillingPeriodStart', loader.failed_columns)
-        self.assertEqual(result['PricingQuantity'].dtype, pl.Int64)
+        # Check all expected types
+        self.assertEqual(result['ResourceId'].dtype.name, 'string')
+        self.assertEqual(result['BilledCost'].dtype, 'float64')
+        self.assertEqual(result['CommitmentDiscountQuantity'].dtype, 'float64')
+        self.assertEqual(str(result['BillingPeriodStart'].dtype), 'datetime64[ns, UTC]')
+        self.assertEqual(str(result['PricingQuantity'].dtype), 'Int64')  # Nullable int for NaN handling
         
         # Check coercion of invalid values
-        self.assertTrue((result['BilledCost'][1] is None))
-        self.assertTrue((result['CommitmentDiscountQuantity'][1] is None))
-        # BillingPeriodStart column was dropped due to invalid dates
-        self.assertTrue((result['PricingQuantity'][1] is None))
+        self.assertTrue(pd.isna(result['BilledCost'].iloc[1]))
+        self.assertTrue(pd.isna(result['CommitmentDiscountQuantity'].iloc[1]))
+        self.assertTrue(pd.isna(result['BillingPeriodStart'].iloc[1]))
+        self.assertTrue(pd.isna(result['PricingQuantity'].iloc[1]))
 
     def test_partial_column_type_extraction_scenario(self):
         """Test scenario where only some columns have types extracted from FOCUS rules."""
@@ -208,18 +200,17 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         result = loader.load()
         
         # Should work with partial column type specification
-        self.assertIsInstance(result, pl.DataFrame)
+        self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 2)
         
         # FOCUS columns should have specified types
-        self.assertEqual(result['BilledCost'].dtype, pl.Float64)
-        self.assertEqual(result['AvailabilityZone'].dtype, pl.Utf8)
+        self.assertEqual(result['BilledCost'].dtype, 'float64')
+        self.assertEqual(result['AvailabilityZone'].dtype.name, 'string')
         
-        # Non-FOCUS columns should keep Polars default inference
-        # CustomColumn1 contains strings, so should be inferred as string
-        self.assertEqual(result['CustomColumn1'].dtype, pl.Utf8)
-        # CustomColumn2 contains numbers, so should be inferred as integer (not float64 as specified for FOCUS)
-        self.assertEqual(result['CustomColumn2'].dtype, pl.Int64)
+        # Non-FOCUS columns should keep pandas default inference
+        # (exact type depends on pandas inference, but should not be the specified types)
+        self.assertNotEqual(result['CustomColumn1'].dtype.name, 'string')
+        self.assertNotEqual(result['CustomColumn2'].dtype, 'float64')
 
     def test_error_recovery_with_problematic_columns(self):
         """Test error recovery when some columns fail type conversion completely."""
@@ -232,27 +223,27 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         
         column_types = {
             'GoodColumn': 'float64',
-            'ProblematicColumn': pl.Datetime("us", "UTC"),  # Will fail - can't convert text to datetime
-            'AnotherGoodColumn': pl.Datetime("us", "UTC")
+            'ProblematicColumn': 'datetime64[ns, UTC]',  # Will fail - can't convert text to datetime
+            'AnotherGoodColumn': 'datetime64[ns, UTC]'
         }
         
         loader = CSVDataLoader(self.temp_csv.name, column_types=column_types)
         result = loader.load()
         
         # Should still load successfully despite problematic column
-        self.assertIsInstance(result, pl.DataFrame)
+        self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 2)
         
         # Good columns should be converted
-        self.assertEqual(result['GoodColumn'].dtype, pl.Float64)
-        self.assertEqual(result['AnotherGoodColumn'].dtype, pl.Datetime('us', 'UTC'))
+        self.assertEqual(result['GoodColumn'].dtype, 'float64')
+        self.assertEqual(str(result['AnotherGoodColumn'].dtype), 'datetime64[ns, UTC]')
         
-        # Problematic column should be dropped due to invalid datetime data
-        self.assertNotIn('ProblematicColumn', result.columns)
-        self.assertIn('ProblematicColumn', loader.failed_columns)
+        # Problematic column should be converted to datetime with NaT values for invalid data
+        self.assertEqual(str(result['ProblematicColumn'].dtype), 'datetime64[ns, UTC]')
+        self.assertTrue(result['ProblematicColumn'].isna().all())  # All values should be NaT
         
-        # At least one column failed
-        self.assertTrue(len(loader.failed_columns) > 0)
+        # Failed columns should be empty since coercion handles all problems gracefully
+        self.assertEqual(len(loader.failed_columns), 0)
 
     def test_datetime_timezone_handling(self):
         """Test proper handling of datetime columns with timezone specifications."""
@@ -264,26 +255,26 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         self.temp_csv.close()
         
         column_types = {
-            'UTCDateTime': pl.Datetime("us", "UTC"),  # With timezone
+            'UTCDateTime': 'datetime64[ns, UTC]',  # With timezone
             'LocalDateTime': 'datetime64[ns]',  # Without timezone
-            'BadDateTime': pl.Datetime("us", "UTC")  # Will have invalid values
+            'BadDateTime': 'datetime64[ns, UTC]'  # Will have invalid values
         }
         
         loader = CSVDataLoader(self.temp_csv.name, column_types=column_types)
         result = loader.load()
         
         # Should handle timezone specifications correctly
-        self.assertIsInstance(result, pl.DataFrame)
+        self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 2)
         
         # Check timezone handling
-        self.assertEqual(result['UTCDateTime'].dtype, pl.Datetime('us', 'UTC'))
-        self.assertIsInstance(result['LocalDateTime'].dtype, pl.Datetime)
-        # BadDateTime should be dropped due to invalid dates
-        self.assertNotIn('BadDateTime', result.columns)
-        self.assertIn('BadDateTime', loader.failed_columns)
+        self.assertEqual(str(result['UTCDateTime'].dtype), 'datetime64[ns, UTC]')
+        self.assertTrue(str(result['LocalDateTime'].dtype).startswith('datetime64'))
+        self.assertEqual(str(result['BadDateTime'].dtype), 'datetime64[ns, UTC]')
         
-        # BadDateTime column was dropped due to invalid dates
+        # Check that invalid dates were coerced to NaT
+        self.assertTrue(pd.isna(result['BadDateTime'].iloc[0]))
+        self.assertTrue(pd.isna(result['BadDateTime'].iloc[1]))
 
     def test_large_dataset_resilient_loading(self):
         """Test resilient loading with larger dataset containing scattered errors."""
@@ -310,7 +301,7 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         
         column_types = {
             'BilledCost': 'float64',
-            'BillingPeriodStart': pl.Datetime("us", "UTC"),
+            'BillingPeriodStart': 'datetime64[ns, UTC]',
             'AvailabilityZone': 'string'
         }
         
@@ -318,27 +309,27 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         result = loader.load()
         
         # Should successfully load all 100 rows
-        self.assertIsInstance(result, pl.DataFrame)
+        self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 100)
         
         # Check that types were applied correctly
-        self.assertEqual(result['BilledCost'].dtype, pl.Float64)
-        # BillingPeriodStart should be dropped due to invalid dates
-        self.assertNotIn('BillingPeriodStart', result.columns)
-        self.assertIn('BillingPeriodStart', loader.failed_columns)
-        self.assertEqual(result['AvailabilityZone'].dtype, pl.Utf8)
+        self.assertEqual(result['BilledCost'].dtype, 'float64')
+        self.assertEqual(str(result['BillingPeriodStart'].dtype), 'datetime64[ns, UTC]')
+        self.assertEqual(result['AvailabilityZone'].dtype.name, 'string')
         
         # Check that bad data was coerced appropriately
         # Should have exactly 10 NaN values in BilledCost (rows 3, 13, 23, ...)
-        nan_count = result['BilledCost'].is_null().sum()
+        nan_count = result['BilledCost'].isna().sum()
         self.assertEqual(nan_count, 10)
         
-        # BillingPeriodStart column was dropped due to invalid dates
+        # Should have exactly 10 NaT values in BillingPeriodStart (rows 7, 17, 27, ...)
+        nat_count = result['BillingPeriodStart'].isna().sum()
+        self.assertEqual(nat_count, 10)
 
     def test_mixed_file_types_consistency(self):
         """Test that CSV and Parquet loaders handle column types consistently."""
         # Create identical test data for both CSV and Parquet
-        test_data = pl.DataFrame({
+        test_data = pd.DataFrame({
             'BilledCost': ['123.45', 'INVALID', '67.89'],
             'BillingPeriodStart': ['2023-01-01T00:00:00Z', 'BAD_DATE', '2023-03-01T00:00:00Z'],
             'AvailabilityZone': ['us-east-1a', 'eu-west-1b', 'ap-south-1c']
@@ -347,16 +338,16 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         # Save as CSV
         self.temp_csv = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
         self.temp_csv.close()
-        test_data.write_csv(self.temp_csv.name)
+        test_data.to_csv(self.temp_csv.name, index=False)
         
         # Save as Parquet
         self.temp_parquet = tempfile.NamedTemporaryFile(suffix='.parquet', delete=False)
         self.temp_parquet.close()
-        test_data.write_parquet(self.temp_parquet.name)
+        test_data.to_parquet(self.temp_parquet.name, index=False)
         
         column_types = {
             'BilledCost': 'float64',
-            'BillingPeriodStart': pl.Datetime("us", "UTC"),
+            'BillingPeriodStart': 'datetime64[ns, UTC]',
             'AvailabilityZone': 'string'
         }
         
@@ -373,16 +364,12 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         
         # Types should be consistent
         self.assertEqual(csv_result['BilledCost'].dtype, parquet_result['BilledCost'].dtype)
-        # BillingPeriodStart should be dropped in both cases due to invalid dates
-        self.assertNotIn('BillingPeriodStart', csv_result.columns)
-        self.assertNotIn('BillingPeriodStart', parquet_result.columns)
-        self.assertIn('BillingPeriodStart', csv_loader.failed_columns)
-        self.assertIn('BillingPeriodStart', parquet_loader.failed_columns)
-        self.assertEqual(csv_result['AvailabilityZone'].dtype, parquet_result['AvailabilityZone'].dtype)
+        self.assertEqual(str(csv_result['BillingPeriodStart'].dtype), str(parquet_result['BillingPeriodStart'].dtype))
+        self.assertEqual(csv_result['AvailabilityZone'].dtype.name, parquet_result['AvailabilityZone'].dtype.name)
         
-        # Coercion results should be consistent for columns that were successfully converted
-        self.assertEqual(csv_result['BilledCost'].is_null().sum(), parquet_result['BilledCost'].is_null().sum())
-        # BillingPeriodStart was dropped due to invalid dates in both cases
+        # Coercion results should be consistent
+        self.assertEqual(csv_result['BilledCost'].isna().sum(), parquet_result['BilledCost'].isna().sum())
+        self.assertEqual(csv_result['BillingPeriodStart'].isna().sum(), parquet_result['BillingPeriodStart'].isna().sum())
 
 
 if __name__ == '__main__':
