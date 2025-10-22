@@ -211,7 +211,27 @@ def main() -> None:
         "--transpile",
         type=str,
         default=None,
-        help="In explain mode, transpile SQL queries to the specified target dialect (e.g., postgres, mysql, snowflake, bigquery). Only works with --explain-mode.",
+        choices=[
+            "bigquery",
+            "clickhouse",
+            "databricks",
+            "drill",
+            "duckdb",
+            "hive",
+            "mysql",
+            "oracle",
+            "postgres",
+            "presto",
+            "redshift",
+            "snowflake",
+            "spark",
+            "sqlite",
+            "starrocks",
+            "tableau",
+            "teradata",
+            "trino",
+        ],
+        help="In explain mode, transpile SQL queries to the specified target dialect. Only works with --explain-mode.",
     )
 
     args = parser.parse_args()
