@@ -7,10 +7,12 @@ from focus_validator.rules.spec_rules import ValidationResults
 
 
 class Outputter:
-    def __init__(self, output_type, output_destination):
+    def __init__(self, output_type, output_destination, show_violations=False):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         if output_type == "console":
-            self.outputter = ConsoleOutputter(output_destination=output_destination)
+            self.outputter = ConsoleOutputter(
+                output_destination=output_destination, show_violations=show_violations
+            )
         elif output_type == "unittest":
             self.outputter = UnittestOutputter(output_destination=output_destination)
         else:

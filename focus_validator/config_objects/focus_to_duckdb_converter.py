@@ -192,6 +192,7 @@ class DuckDBColumnCheck:
         self.force_fail_due_to_upstream: Optional[Dict[str, Any]] = (
             None  # For upstream dependency failures
         )
+        self.sample_sql: Optional[str] = None  # For --show-violations feature
 
 
 class DuckDBCheckGenerator(ABC):
@@ -324,6 +325,11 @@ class DuckDBCheckGenerator(ABC):
         # 6) Transfer generator-specific attributes to the check object
         if hasattr(self, "force_fail_due_to_upstream"):
             chk.force_fail_due_to_upstream = self.force_fail_due_to_upstream
+
+        # Transfer sample_sql for --show-violations feature
+        # Note: sample_limit is now centralized in FocusToDuckDBSchemaConverter.DEFAULT_SAMPLE_LIMIT
+        if hasattr(self, "sample_sql"):
+            chk.sample_sql = self.sample_sql
 
         return chk
 
@@ -766,12 +772,168 @@ class FormatCurrencyGenerator(DuckDBCheckGenerator):
         return "national_currency"
 
 
-class FormatUnitGenerator(SkippedCheck):
+class FormatUnitGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
 
-    def __init__(self, rule, rule_id: str, **kwargs: Any) -> None:
-        super().__init__(rule, rule_id, **kwargs)
-        self.errorMessage = "Rule skipped - unit validation requires dynamic lookup and cannot be pre-generated"
+    def _generate_unit_format_regex(self) -> str:
+        """
+        Generate the complete regex pattern for FOCUS Unit Format validation.
+
+        Returns:
+            str: Combined regex pattern for all valid FOCUS unit formats
+        """
+        # Data Size Unit Names (both decimal and binary) - these are standardized
+        data_size_units = [
+            # Bits (decimal)
+            "b",
+            "Kb",
+            "Mb",
+            "Gb",
+            "Tb",
+            "Pb",
+            "Eb",
+            # Bytes (decimal)
+            "B",
+            "KB",
+            "MB",
+            "GB",
+            "TB",
+            "PB",
+            "EB",
+            # Bits (binary)
+            "Kib",
+            "Mib",
+            "Gib",
+            "Tib",
+            "Pib",
+            "Eib",
+            # Bytes (binary)
+            "KiB",
+            "MiB",
+            "GiB",
+            "TiB",
+            "PiB",
+            "EiB",
+        ]
+
+        # Time-based Unit Names (must match exactly) - these are standardized
+        time_units_singular = ["Year", "Month", "Day", "Hour", "Minute", "Second"]
+        time_units_plural = ["Years", "Months", "Days", "Hours", "Minutes", "Seconds"]
+
+        # Build regex patterns for each valid format according to FOCUS
+        patterns = []
+
+        # Data size unit pattern (exact match for standardized units)
+        data_size_pattern = "|".join(data_size_units)
+
+        # Time unit patterns (exact match for standardized units)
+        time_singular_pattern = "|".join(time_units_singular)
+        time_plural_pattern = "|".join(time_units_plural)
+
+        # Count-based units pattern (flexible - matches alphanumeric words with optional spaces)
+        # This captures any reasonable count unit like "Request", "API Request", "vCPU", "WriteCapacityUnit", etc.
+        count_unit_pattern = r"[A-Za-z][A-Za-z0-9]*(?:\s+[A-Za-z][A-Za-z0-9]*)*"
+
+        # Pattern 1: Standalone units
+        # - Data size units: "GB", "KB", etc.
+        # - Time units: "Year", "Hours", etc.
+        # - Count units: "Request", "API Request", "vCPU", etc.
+        patterns.append(
+            f"^({data_size_pattern}|{time_singular_pattern}|{time_plural_pattern}|{count_unit_pattern})$"
+        )
+
+        # Pattern 2: <unit>-<plural-time-units> – "GB-Hours", "Request-Days", "API Request-Months"
+        # Any unit (data size or count) combined with plural time units
+        patterns.append(
+            f"^({data_size_pattern}|{count_unit_pattern})-({time_plural_pattern})$"
+        )
+
+        # Pattern 3: <unit>/<singular-time-unit> – "GB/Hour", "Request/Day", "API Request/Second"
+        # Any unit (data size or count) as a rate per time unit
+        patterns.append(
+            f"^({data_size_pattern}|{count_unit_pattern}|{time_plural_pattern})/({time_singular_pattern})$"
+        )
+
+        # Pattern 4: <quantity> <units> – "1000 Requests", "5000 API Requests"
+        # Numeric quantity followed by any unit
+        patterns.append(
+            f"^[0-9]+ ({data_size_pattern}|{time_singular_pattern}|{time_plural_pattern}|{count_unit_pattern})$"
+        )
+
+        # Pattern 5: <units>/<interval> <plural-time-units> – "Requests/3 Months", "API Requests/5 Days"
+        # Units per interval of time
+        patterns.append(
+            f"^({data_size_pattern}|{count_unit_pattern}|{time_plural_pattern})/[0-9]+ ({time_plural_pattern})$"
+        )
+
+        # Combine all patterns with OR
+        return "|".join(f"({pattern})" for pattern in patterns)
+
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        message = (
+            self.errorMessage
+            or f"Column '{col}' values SHOULD follow the FOCUS Unit Format specification."
+        )
+        self.errorMessage = message
+
+        # Get the combined regex pattern
+        combined_pattern = self._generate_unit_format_regex()
+
+        # SQL for checking format compliance
+        # Structure similar to other format generators - return violation count
+        condition = (
+            f"{col} IS NOT NULL AND NOT regexp_matches({col}, '{combined_pattern}')"
+        )
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {condition}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN 'Column ''{col}'' contains values that do not match FOCUS Unit Format specification' END AS error_message
+        FROM invalid
+        """
+
+        # Predicate SQL (for condition mode)
+        predicate_sql = (
+            f"{col} IS NOT NULL AND regexp_matches({col}, '{combined_pattern}')"
+        )
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
+
+    def get_sample_sql(self) -> str:
+        """Return SQL to fetch sample violating rows for display"""
+        col = self.params.ColumnName
+
+        # Use the same centralized regex pattern generation
+        combined_pattern = self._generate_unit_format_regex()
+
+        # SQL to return violating rows with the column value
+        condition = (
+            f"{col} IS NOT NULL AND NOT regexp_matches({col}, '{combined_pattern}')"
+        )
+        condition = self._apply_condition(condition)
+
+        return f"""
+        SELECT {col}
+        FROM {{table_name}}
+        WHERE {condition}
+        """
+
+    # Make sample_sql accessible as a property for the infrastructure
+    @property
+    def sample_sql(self) -> str:
+        return self.get_sample_sql()
+
+    def getCheckType(self) -> str:
+        return "format_unit"
 
 
 class FormatJSONGenerator(DuckDBCheckGenerator):
@@ -861,6 +1023,32 @@ class CheckValueGenerator(DuckDBCheckGenerator):
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate
         )
 
+    def get_sample_sql(self) -> str:
+        """Return SQL to fetch sample violating rows for display"""
+        col = self.params.ColumnName
+        value = self.params.Value
+
+        # Build condition to find violating rows
+        if value is None:
+            condition = f"{col} IS NOT NULL"
+        else:
+            val_escaped = str(value).replace("'", "''")
+            condition = f"{col} != '{val_escaped}'"
+
+        # Apply conditional logic if present
+        condition = self._apply_condition(condition)
+
+        return f"""
+        SELECT {col}
+        FROM {{table_name}}
+        WHERE {condition}
+        """
+
+    # Make sample_sql accessible as a property for the infrastructure
+    @property
+    def sample_sql(self) -> str:
+        return self.get_sample_sql()
+
     def getCheckType(self) -> str:
         return "check_value"
 
@@ -915,6 +1103,32 @@ class CheckNotValueGenerator(DuckDBCheckGenerator):
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate
         )
 
+    def get_sample_sql(self) -> str:
+        """Return SQL to fetch sample violating rows for display"""
+        col = self.params.ColumnName
+        value = self.params.Value
+
+        # Build condition to find violating rows
+        if value is None:
+            condition = f"{col} IS NULL"
+        else:
+            val_escaped = str(value).replace("'", "''")
+            condition = f"({col} IS NOT NULL AND {col} = '{val_escaped}')"
+
+        # Apply conditional logic if present
+        condition = self._apply_condition(condition)
+
+        return f"""
+        SELECT {col}
+        FROM {{table_name}}
+        WHERE {condition}
+        """
+
+    # Make sample_sql accessible as a property for the infrastructure
+    @property
+    def sample_sql(self) -> str:
+        return self.get_sample_sql()
+
     def getCheckType(self) -> str:
         return "check_not_value"
 
@@ -962,6 +1176,28 @@ class CheckSameValueGenerator(DuckDBCheckGenerator):
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
         )
 
+    def get_sample_sql(self) -> str:
+        """Return SQL to fetch sample violating rows for display"""
+        col_a = self.params.ColumnAName
+        col_b = self.params.ColumnBName
+
+        # Build condition to find violating rows (where columns are NOT the same)
+        condition = (
+            f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} <> {col_b}"
+        )
+        condition = self._apply_condition(condition)
+
+        return f"""
+        SELECT {col_a}, {col_b}
+        FROM {{table_name}}
+        WHERE {condition}
+        """
+
+    # Make sample_sql accessible as a property for the infrastructure
+    @property
+    def sample_sql(self) -> str:
+        return self.get_sample_sql()
+
     def getCheckType(self) -> str:
         return "column_comparison_equals"
 
@@ -1008,6 +1244,26 @@ class CheckNotSameValueGenerator(DuckDBCheckGenerator):
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
         )
+
+    def get_sample_sql(self) -> str:
+        """Return SQL to fetch sample violating rows for display"""
+        col_a = self.params.ColumnAName
+        col_b = self.params.ColumnBName
+
+        # Build condition to find violating rows (where columns ARE the same but shouldn't be)
+        condition = f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} = {col_b}"
+        condition = self._apply_condition(condition)
+
+        return f"""
+        SELECT {col_a}, {col_b}
+        FROM {{table_name}}
+        WHERE {condition}
+        """
+
+    # Make sample_sql accessible as a property for the infrastructure
+    @property
+    def sample_sql(self) -> str:
+        return self.get_sample_sql()
 
     def getCheckType(self) -> str:
         return "column_comparison_not_equals"
@@ -1103,6 +1359,26 @@ class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
         )
+
+    def get_sample_sql(self) -> str:
+        """Return SQL to fetch sample violating rows for display"""
+        col = self.params.ColumnName
+        val = self.params.Value
+
+        # Build condition to find violating rows (values less than the required minimum)
+        condition = f"{col} IS NOT NULL AND {col} < {val}"
+        condition = self._apply_condition(condition)
+
+        return f"""
+        SELECT {col}
+        FROM {{table_name}}
+        WHERE {condition}
+        """
+
+    # Make sample_sql accessible as a property for the infrastructure
+    @property
+    def sample_sql(self) -> str:
+        return self.get_sample_sql()
 
     def getCheckType(self) -> str:
         return "check_greater_equal"
@@ -1668,6 +1944,9 @@ class CompositeORRuleGenerator(CompositeBaseRuleGenerator):
 
 
 class FocusToDuckDBSchemaConverter:
+    # Central configuration for sample violation data collection
+    DEFAULT_SAMPLE_LIMIT = 2  # Number of sample violation rows to collect when --show-violations is enabled
+
     # Central registry for all check types with both generators and check object factories
     CHECK_GENERATORS: dict[str, Dict[str, Any]] = {
         "ColumnPresent": {
@@ -1770,6 +2049,7 @@ class FocusToDuckDBSchemaConverter:
         explain_mode: bool = False,
         validated_applicability_criteria: Optional[List[str]] = None,
         transpile_dialect: Optional[str] = None,
+        show_violations: bool = False,
     ) -> None:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.conn: duckdb.DuckDBPyConnection | None = None
@@ -1781,6 +2061,7 @@ class FocusToDuckDBSchemaConverter:
         self.transpile_dialect = (
             transpile_dialect  # Target dialect for SQL transpilation
         )
+        self.show_violations = show_violations
         # Example caches (optional)
         self._prepared: Dict[str, Any] = {}
         self._views: Dict[str, str] = {}  # rule_id -> temp view name
@@ -2222,11 +2503,14 @@ class FocusToDuckDBSchemaConverter:
         }
 
         # Optional: sample rows if provided by the generator and the check failed
+        # Only execute sample SQL when --show-violations is enabled for performance
         sample_sql = getattr(check, "sample_sql", None)
-        sample_limit = getattr(check, "sample_limit", 50)
-        if (not ok) and sample_sql:
+
+        if (not ok) and sample_sql and self.show_violations:
             try:
-                sql_sample = _sub_table(sample_sql) + f" LIMIT {int(sample_limit)}"
+                sql_sample = (
+                    _sub_table(sample_sql) + f" LIMIT {self.DEFAULT_SAMPLE_LIMIT}"
+                )
                 leaf_details["failure_cases"] = self.conn.execute(sql_sample).fetchdf()
             except Exception as e:
                 leaf_details["sample_error"] = str(e)

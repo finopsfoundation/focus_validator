@@ -36,6 +36,7 @@ class Validator:
         applicability_criteria: Optional[str] = None,
         explain_mode: bool = False,
         transpile_dialect: Optional[str] = None,
+        show_violations: bool = False,
     ) -> None:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.data_filename = data_filename
@@ -43,6 +44,7 @@ class Validator:
         self.focus_data = None
         self.explain_mode = explain_mode
         self.transpile_dialect = transpile_dialect
+        self.show_violations = show_violations
 
         # Log validator initialization
         self.log.info("Initializing FOCUS Validator")
@@ -124,7 +126,9 @@ class Validator:
                 self.applicability_criteria_list
             )
         self.outputter = Outputter(
-            output_type=output_type, output_destination=output_destination
+            output_type=output_type,
+            output_destination=output_destination,
+            show_violations=show_violations,
         )
 
         self.log.debug("Validator initialization completed")
@@ -206,7 +210,9 @@ class Validator:
 
         # Validate
         self.log.debug("Executing rule validation...")
-        results = self.spec_rules.validate(self.focus_data)
+        results = self.spec_rules.validate(
+            self.focus_data, show_violations=self.show_violations
+        )
 
         # Output results
         self.log.debug("Writing validation results...")

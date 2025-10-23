@@ -274,6 +274,7 @@ class SpecRules:
         *,
         connection: Optional[duckdb.DuckDBPyConnection] = None,
         stop_on_first_error: bool = False,
+        show_violations: bool = False,
     ) -> ValidationResults:
         """
         Execute the loaded ValidationPlan using DuckDB.
@@ -296,6 +297,7 @@ class SpecRules:
             focus_data=focus_data,
             validated_applicability_criteria=self.applicability_criteria_list,
             transpile_dialect=self.transpile_dialect,
+            show_violations=show_violations,
         )
         # 1) Let the converter prepare schemas, UDFs, temp views, etc.
         if connection is None:
@@ -416,6 +418,7 @@ class SpecRules:
             explain_mode=True,
             validated_applicability_criteria=self.applicability_criteria_list,
             transpile_dialect=self.transpile_dialect,
+            show_violations=False,  # Not relevant for explain mode
         )
 
         # Create a minimal connection for explain mode (converter needs it for initialization)

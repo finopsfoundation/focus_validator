@@ -211,6 +211,7 @@ class SpecRulesFromData:
         converter = FocusToDuckDBSchemaConverter(
             focus_data=focus_data,
             validated_applicability_criteria=self._get_validated_criteria(),
+            show_violations=False,  # Default for tests
         )
         # Always create a fresh connection to avoid test interference
         # Force connection to None to ensure fresh connection

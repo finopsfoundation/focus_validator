@@ -233,6 +233,12 @@ def main() -> None:
         ],
         help="In explain mode, transpile SQL queries to the specified target dialect. Only works with --explain-mode.",
     )
+    parser.add_argument(
+        "--show-violations",
+        action="store_true",
+        default=False,
+        help="Include up to 2 sample lines of violations in the console output",
+    )
 
     args = parser.parse_args()
 
@@ -291,6 +297,7 @@ def main() -> None:
         applicability_criteria=args.applicability_criteria,
         explain_mode=args.explain_mode,
         transpile_dialect=args.transpile,
+        show_violations=args.show_violations,
     )
     if args.supported_versions:
         log.info("Retrieving supported versions...")

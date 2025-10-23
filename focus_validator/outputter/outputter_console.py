@@ -56,10 +56,11 @@ def _line_for_rule(rule_id: str, entry: Dict[str, Any]) -> str:
 
 
 class ConsoleOutputter:
-    def __init__(self, output_destination):
+    def __init__(self, output_destination, show_violations=False):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.output_destination = output_destination
         self.result_set = None
+        self.show_violations = show_violations
 
     def write(self, results) -> None:
         """
@@ -113,3 +114,19 @@ class ConsoleOutputter:
 
                 print(f"- {rule_id}: violations={vio}; {msg}")
                 print(f"  MustSatisfy: {must_satisfy}")
+
+                # Show sample violation data if --show-violations is enabled and data exists
+                if self.show_violations and "failure_cases" in d:
+                    failure_cases = d["failure_cases"]
+                    if hasattr(failure_cases, "shape") and failure_cases.shape[0] > 0:
+                        print("  Sample violations:")
+                        # Show up to 2 sample rows
+                        for i in range(min(2, failure_cases.shape[0])):
+                            row_data = failure_cases.iloc[i]
+                            # Display each column value in the violating row
+                            violation_values = []
+                            for col_name, value in row_data.items():
+                                violation_values.append(f"{col_name}='{value}'")
+                            print(f"    {', '.join(violation_values)}")
+                elif self.show_violations and "sample_error" in d:
+                    print(f"  Sample violation error: {d['sample_error']}")
