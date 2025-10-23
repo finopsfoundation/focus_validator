@@ -298,6 +298,7 @@ class SpecRules:
             validated_applicability_criteria=self.applicability_criteria_list,
             transpile_dialect=self.transpile_dialect,
             show_violations=show_violations,
+            rules_version=self.rules_version,
         )
         # 1) Let the converter prepare schemas, UDFs, temp views, etc.
         if connection is None:
@@ -419,6 +420,7 @@ class SpecRules:
             validated_applicability_criteria=self.applicability_criteria_list,
             transpile_dialect=self.transpile_dialect,
             show_violations=False,  # Not relevant for explain mode
+            rules_version=self.rules_version,
         )
 
         # Create a minimal connection for explain mode (converter needs it for initialization)

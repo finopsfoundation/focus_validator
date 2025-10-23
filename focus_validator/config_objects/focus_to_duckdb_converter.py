@@ -1947,8 +1947,9 @@ class FocusToDuckDBSchemaConverter:
     # Central configuration for sample violation data collection
     DEFAULT_SAMPLE_LIMIT = 2  # Number of sample violation rows to collect when --show-violations is enabled
 
-    # Central registry for all check types with both generators and check object factories
-    CHECK_GENERATORS: dict[str, Dict[str, Any]] = {
+    # Default registry for all check types with both generators and check object factories
+    # This serves as the base mapping that all versions inherit from
+    _DEFAULT_CHECK_GENERATORS: dict[str, Dict[str, Any]] = {
         "ColumnPresent": {
             "generator": ColumnPresentCheckGenerator,
             "factory": lambda args: "ColumnName",
@@ -2040,6 +2041,108 @@ class FocusToDuckDBSchemaConverter:
         },
     }
 
+    # Version-specific overrides: each version only defines what changes from previous versions
+    # Format: {"version": {"CheckFunction": {"generator": ..., "factory": ...}}}
+    _VERSION_OVERRIDES: dict[str, dict[str, Dict[str, Any]]] = {
+        # Future versions can be added here with only the changes needed
+        # Example:
+        # "1.3": {
+        #     "NewCheckFunction": {
+        #         "generator": NewCheckGenerator,
+        #         "factory": lambda args: "ColumnName",
+        #     },
+        #     "FormatUnit": {
+        #         "generator": FormatUnitV13Generator,  # hypothetical updated generator
+        #         "factory": lambda args: "ColumnName",
+        #     },
+        # },
+    }
+
+    @classmethod
+    def _parse_version(cls, version_str: str) -> Tuple[int, ...]:
+        """Parse a version string like '1.2' into a tuple of integers for comparison."""
+        try:
+            return tuple(int(x) for x in version_str.split("."))
+        except ValueError:
+            # If parsing fails, treat as a very low version
+            return (0,)
+
+    @classmethod
+    def _find_best_version(cls, target_version: Optional[str]) -> Optional[str]:
+        """
+        Find the best available version for the given target version.
+        Returns exact match if available, otherwise the highest version that's <= target_version.
+        If no target_version is provided, returns None (use defaults).
+        """
+        if not target_version:
+            return None
+
+        available_versions = list(cls._VERSION_OVERRIDES.keys())
+        if not available_versions:
+            return None
+
+        target_parsed = cls._parse_version(target_version)
+
+        # Check for exact match first
+        if target_version in available_versions:
+            return target_version
+
+        # Find the highest version that's <= target_version
+        candidates = []
+        for v in available_versions:
+            v_parsed = cls._parse_version(v)
+            if v_parsed <= target_parsed:
+                candidates.append((v_parsed, v))
+
+        if candidates:
+            # Sort by version tuple and return the highest
+            candidates.sort(key=lambda x: x[0])
+            return candidates[-1][1]
+
+        return None
+
+    @classmethod
+    def _build_check_generators_for_version(
+        cls, version: Optional[str]
+    ) -> dict[str, Dict[str, Any]]:
+        """
+        Build the effective CHECK_GENERATORS mapping for the given version.
+        Uses defaultdict to inherit from defaults and applies version-specific overrides.
+        """
+        # Start with defaults
+        effective_generators: Dict[str, Dict[str, Any]] = {}
+        effective_generators.update(cls._DEFAULT_CHECK_GENERATORS)
+
+        if not version:
+            # No version specified, use defaults only
+            return effective_generators
+
+        best_version = cls._find_best_version(version)
+        if not best_version:
+            # No suitable version found, use defaults
+            return effective_generators
+
+        # Apply overrides for the best version and all versions leading up to it
+        available_versions = list(cls._VERSION_OVERRIDES.keys())
+        best_parsed = cls._parse_version(best_version)
+
+        # Get all versions <= best_version, sorted
+        applicable_versions = []
+        for v in available_versions:
+            v_parsed = cls._parse_version(v)
+            if v_parsed <= best_parsed:
+                applicable_versions.append((v_parsed, v))
+
+        # Sort by version and apply overrides in order
+        applicable_versions.sort(key=lambda x: x[0])
+
+        for _, v in applicable_versions:
+            overrides = cls._VERSION_OVERRIDES.get(v, {})
+            for check_function, config in overrides.items():
+                effective_generators[check_function] = config
+
+        return effective_generators
+
     def __init__(
         self,
         *,
@@ -2050,6 +2153,7 @@ class FocusToDuckDBSchemaConverter:
         validated_applicability_criteria: Optional[List[str]] = None,
         transpile_dialect: Optional[str] = None,
         show_violations: bool = False,
+        rules_version: Optional[str] = None,
     ) -> None:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.conn: duckdb.DuckDBPyConnection | None = None
@@ -2062,12 +2166,25 @@ class FocusToDuckDBSchemaConverter:
             transpile_dialect  # Target dialect for SQL transpilation
         )
         self.show_violations = show_violations
+        self.rules_version = rules_version
+
+        # Build the effective CHECK_GENERATORS mapping for this version
+        self.CHECK_GENERATORS = self._build_check_generators_for_version(rules_version)
+
         # Example caches (optional)
         self._prepared: Dict[str, Any] = {}
         self._views: Dict[str, str] = {}  # rule_id -> temp view name
         self.explain_mode = explain_mode
         # Global results registry for dependency failure propagation
         self._global_results_by_idx: Dict[int, Dict[str, Any]] = {}
+
+    def get_rules_version(self) -> Optional[str]:
+        """Get the FOCUS rules version being used for validation.
+
+        Returns:
+            The validation version (e.g., "1.2", "1.3") or None if not set
+        """
+        return self.rules_version
 
     def _should_include_rule(
         self, rule: Any, parent_edges: Optional[Tuple[Any, ...]] = None
@@ -2153,6 +2270,30 @@ class FocusToDuckDBSchemaConverter:
 
         if self.pragma_threads:
             self.conn.execute(f"PRAGMA threads={int(self.pragma_threads)}")
+
+        # Log the validation version for reference
+        if self.rules_version:
+            best_version = self._find_best_version(self.rules_version)
+            if best_version == self.rules_version:
+                self.log.debug(
+                    "FocusToDuckDBSchemaConverter initialized with FOCUS version: %s (exact match)",
+                    self.rules_version,
+                )
+            elif best_version:
+                self.log.debug(
+                    "FocusToDuckDBSchemaConverter initialized with FOCUS version: %s (using fallback version %s)",
+                    self.rules_version,
+                    best_version,
+                )
+            else:
+                self.log.debug(
+                    "FocusToDuckDBSchemaConverter initialized with FOCUS version: %s (using default mappings)",
+                    self.rules_version,
+                )
+        else:
+            self.log.debug(
+                "FocusToDuckDBSchemaConverter initialized with default CHECK_GENERATORS (no version specified)"
+            )
 
         # TODO:
         # - register pandas/arrow tables or file paths
