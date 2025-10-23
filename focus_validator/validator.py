@@ -87,6 +87,7 @@ class Validator:
             allow_prerelease_releases=allow_prerelease_releases,
             column_namespace=column_namespace,
             applicability_criteria_list=None,  # Will be set later
+            transpile_dialect=self.transpile_dialect,
         )
 
         # Process applicability criteria after SpecRules is created

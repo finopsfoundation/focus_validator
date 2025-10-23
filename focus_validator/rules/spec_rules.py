@@ -46,6 +46,7 @@ class SpecRules:
         allow_prerelease_releases,
         column_namespace,
         applicability_criteria_list=None,
+        transpile_dialect=None,
     ):
         self.rule_set_path = rule_set_path
         self.rules_file_prefix = rules_file_prefix
@@ -54,6 +55,7 @@ class SpecRules:
         self.focus_dataset = focus_dataset
         self.filter_rules = filter_rules
         self.applicability_criteria_list = applicability_criteria_list or []
+        self.transpile_dialect = transpile_dialect
         self.json_rule_file = os.path.join(
             self.rule_set_path,
             f"{self.rules_file_prefix}{self.rules_version}{self.rules_file_suffix}",
@@ -293,6 +295,7 @@ class SpecRules:
         converter = FocusToDuckDBSchemaConverter(
             focus_data=focus_data,
             validated_applicability_criteria=self.applicability_criteria_list,
+            transpile_dialect=self.transpile_dialect,
         )
         # 1) Let the converter prepare schemas, UDFs, temp views, etc.
         if connection is None:
@@ -412,6 +415,7 @@ class SpecRules:
             focus_data=None,  # No data needed for explain mode
             explain_mode=True,
             validated_applicability_criteria=self.applicability_criteria_list,
+            transpile_dialect=self.transpile_dialect,
         )
 
         # Create a minimal connection for explain mode (converter needs it for initialization)

@@ -81,8 +81,8 @@ class TestColumnPresence(unittest.TestCase):
         # Assert that the rule was skipped due to missing applicability criteria
         self.assertTrue(rule_result.get("details", {}).get("skipped", False), 
                        f"Rule should be skipped when no applicability criteria provided but got: {rule_result}")
-        self.assertEqual(rule_result.get("details", {}).get("reason"), "non applicable rule",
-                        f"Expected 'non applicable rule' reason but got: {rule_result}")
+        self.assertEqual(rule_result.get("details", {}).get("reason"), "Rule skipped - not applicable to current dataset or configuration",
+                        f"Expected 'Rule skipped - not applicable to current dataset or configuration' reason but got: {rule_result}")
 
     def test_rule_pass_without_applicability_scenario2(self):
         """Test pass."""
@@ -106,8 +106,8 @@ class TestColumnPresence(unittest.TestCase):
         # Assert that the rule was skipped due to missing applicability criteria
         self.assertTrue(rule_result.get("details", {}).get("skipped", False), 
                        f"Rule should be skipped when no applicability criteria provided but got: {rule_result}")
-        self.assertEqual(rule_result.get("details", {}).get("reason"), "non applicable rule",
-                        f"Expected 'non applicable rule' reason but got: {rule_result}")
+        self.assertEqual(rule_result.get("details", {}).get("reason"), "Rule skipped - not applicable to current dataset or configuration",
+                        f"Expected 'Rule skipped - not applicable to current dataset or configuration' reason but got: {rule_result}")
 
     def test_rule_fail_scenario(self):
         """Test failure."""

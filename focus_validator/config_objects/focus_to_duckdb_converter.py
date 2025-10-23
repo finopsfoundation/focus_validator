@@ -9,6 +9,8 @@ from types import MappingProxyType, SimpleNamespace
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple, Union
 
 import duckdb  # type: ignore[import-untyped]
+import sqlglot  # type: ignore[import-untyped]
+import sqlglot.expressions as exp  # type: ignore[import-untyped]
 
 from focus_validator.exceptions import InvalidRuleException
 from focus_validator.utils.download_currency_codes import get_currency_codes
@@ -24,6 +26,136 @@ def _compact_json(data: dict, max_len: int = 600) -> str:
     if len(s) <= max_len:
         return s
     return s[:max_len] + " ... (truncated)"
+
+
+# --- SQLGlot Integration -------------------------------------------------
+
+
+class SQLQuery:
+    """
+    Enhanced SQL wrapper supporting both requirement and predicate modes with cross-database transpilation.
+
+    This class bridges the existing dual-mode architecture (generateSql/generatePredicate) with SQLGlot's
+    cross-database capabilities, maintaining full backward compatibility while enabling transpilation.
+    """
+
+    def __init__(self, requirement_sql: str, predicate_sql: Optional[str] = None):
+        """
+        Initialize with requirement SQL and optional predicate SQL.
+
+        Args:
+            requirement_sql: SQL for finding violations (SELECT ... AS violations)
+            predicate_sql: Boolean predicate for WHERE clause filtering (optional)
+        """
+        self.requirement_sql = requirement_sql.strip() if requirement_sql else ""
+        self.predicate_sql = predicate_sql.strip() if predicate_sql else None
+
+        # Lazy parsing - only parse when transpilation is needed
+        self._requirement_parsed = None
+        self._predicate_parsed = None
+        self._parse_error = None
+
+    @property
+    def requirement_parsed(self):
+        """Lazily parse the requirement SQL"""
+        if self._requirement_parsed is None and self.requirement_sql:
+            try:
+                # Replace template placeholders with dummy values for parsing
+                sql_for_parsing = self.requirement_sql.replace(
+                    "{table_name}", "dummy_table"
+                )
+                self._requirement_parsed = sqlglot.parse_one(
+                    sql_for_parsing, dialect="duckdb"
+                )
+            except Exception as e:
+                self._parse_error = f"Failed to parse requirement SQL: {e}"
+                log.warning(f"SQLGlot parsing failed for requirement SQL: {e}")
+        return self._requirement_parsed
+
+    @property
+    def predicate_parsed(self):
+        """Lazily parse the predicate SQL if available"""
+        if self.predicate_sql and self._predicate_parsed is None:
+            try:
+                # Parse as a conditional expression by wrapping in a SELECT
+                wrapper_sql = f"SELECT * FROM dummy WHERE {self.predicate_sql}"
+                full_parsed = sqlglot.parse_one(wrapper_sql, dialect="duckdb")
+                where_clause = full_parsed.find(exp.Where)
+                if where_clause:
+                    self._predicate_parsed = where_clause.this
+            except Exception as e:
+                self._parse_error = f"Failed to parse predicate SQL: {e}"
+                log.warning(f"SQLGlot parsing failed for predicate SQL: {e}")
+        return self._predicate_parsed
+
+    def transpile_requirement(self, target_dialect: str) -> str:
+        """
+        Transpile the requirement SQL to target dialect.
+        Falls back to original SQL if transpilation fails.
+        """
+        if not self.requirement_sql:
+            return ""
+
+        if target_dialect.lower() == "duckdb":
+            return self.requirement_sql
+
+        parsed = self.requirement_parsed
+        if parsed is None:
+            log.warning(
+                f"Cannot transpile requirement SQL to {target_dialect}, using original"
+            )
+            return self.requirement_sql
+
+        try:
+            # Transpile and restore template placeholders
+            transpiled = parsed.sql(dialect=target_dialect)
+            transpiled = transpiled.replace("dummy_table", "{table_name}")
+            return transpiled
+        except Exception as e:
+            log.warning(f"Failed to transpile requirement SQL to {target_dialect}: {e}")
+            return self.requirement_sql
+
+    def transpile_predicate(self, target_dialect: str) -> Optional[str]:
+        """
+        Transpile the predicate SQL to target dialect.
+        Falls back to original predicate if transpilation fails.
+        """
+        if not self.predicate_sql:
+            return None
+
+        if target_dialect.lower() == "duckdb":
+            return self.predicate_sql
+
+        parsed = self.predicate_parsed
+        if parsed is None:
+            log.warning(
+                f"Cannot transpile predicate SQL to {target_dialect}, using original"
+            )
+            return self.predicate_sql
+
+        try:
+            return parsed.sql(dialect=target_dialect)
+        except Exception as e:
+            log.warning(f"Failed to transpile predicate SQL to {target_dialect}: {e}")
+            return self.predicate_sql
+
+    def get_requirement_sql(self, dialect: str = "duckdb") -> str:
+        """Get requirement SQL for the specified dialect"""
+        return self.transpile_requirement(dialect)
+
+    def get_predicate_sql(self, dialect: str = "duckdb") -> Optional[str]:
+        """Get predicate SQL for the specified dialect"""
+        return self.transpile_predicate(dialect)
+
+    @property
+    def has_parsing_error(self) -> bool:
+        """Check if there were any parsing errors"""
+        return self._parse_error is not None
+
+    @property
+    def parsing_error(self) -> Optional[str]:
+        """Get the parsing error message if any"""
+        return self._parse_error
 
 
 # --- DuckDB check generators -------------------------------------------------
@@ -101,8 +233,9 @@ class DuckDBCheckGenerator(ABC):
         self.params = SimpleNamespace(**merged)
 
     @abstractmethod
-    def generateSql(self) -> str:
+    def generateSql(self) -> Union[str, SQLQuery]:
         # Generate the SQL query for this check type
+        # Can return either a string (backward compatibility) or SQLQuery object
         pass
 
     @abstractmethod
@@ -118,7 +251,18 @@ class DuckDBCheckGenerator(ABC):
         - For special/reference checks: special_executor/exec_mode can be set by the generator.
         """
         # 1) Build own SQL (for leaf) or composite shell (composite often still returns trivial sql)
-        sql = self.generateSql()
+        sql_result = self.generateSql()
+
+        # Handle both SQLQuery and string returns for backward compatibility
+        if isinstance(sql_result, SQLQuery):
+            # Extract the requirement SQL for execution
+            sql = sql_result.get_requirement_sql()
+            # Store the SQLQuery object for potential transpilation
+            setattr(self, "_sql_query", sql_result)
+        else:
+            # Legacy string return
+            sql = sql_result
+            setattr(self, "_sql_query", None)
 
         # 2) Normalize nested checks: keep existing DuckDBColumnCheck objects as-is,
         #    otherwise wrap minimal structure (rare; depends on how child_builder returns)
@@ -140,7 +284,7 @@ class DuckDBCheckGenerator(ABC):
                         )
                         or "",
                         error_message=getattr(chk, "errorMessage", None)
-                        or "No error message",
+                        or f"Validation rule {getattr(chk, 'rule_id', 'unknown')} failed - no specific error message available",
                         nested_checks=getattr(chk, "nestedChecks", None),
                         nested_check_handler=getattr(chk, "nestedCheckHandler", None),
                         meta=getattr(chk, "meta", None),
@@ -163,7 +307,8 @@ class DuckDBCheckGenerator(ABC):
             rule=self.rule,
             check_type=self.getCheckType(),
             check_sql=sql,
-            error_message=getattr(self, "errorMessage", None) or "No error message",
+            error_message=getattr(self, "errorMessage", None)
+            or f"Validation rule {self.rule_id} failed - no specific error message available",
             nested_checks=child_checks or None,
             nested_check_handler=getattr(self, "nestedCheckHandler", None),
             meta=meta,
@@ -172,7 +317,11 @@ class DuckDBCheckGenerator(ABC):
             referenced_rule_id=getattr(self, "referenced_rule_id", None),
         )
 
-        # 5) Transfer generator-specific attributes to the check object
+        # 5) Transfer SQLQuery object to the check if available
+        if hasattr(self, "_sql_query"):
+            setattr(chk, "_sql_query", getattr(self, "_sql_query"))
+
+        # 6) Transfer generator-specific attributes to the check object
         if hasattr(self, "force_fail_due_to_upstream"):
             chk.force_fail_due_to_upstream = self.force_fail_due_to_upstream
 
@@ -198,9 +347,18 @@ class DuckDBCheckGenerator(ABC):
     def generatePredicate(self) -> str | None:
         """
         Return a SQL boolean expression (no SELECT), suitable for WHERE filters.
-        Default: None (generator not usable as a condition).
-        Subclasses that support conditions should override.
+
+        Enhanced to work with SQLQuery objects:
+        1. If generator returns SQLQuery with predicate_sql, use that
+        2. Otherwise, fall back to subclass override (existing behavior)
+        3. Default: None (generator not usable as a condition)
         """
+        # Check if we have a SQLQuery object with predicate SQL
+        sql_result = self.generateSql()
+        if isinstance(sql_result, SQLQuery) and sql_result.predicate_sql:
+            return sql_result.get_predicate_sql()
+
+        # Fall back to existing behavior - subclasses can still override
         return None
 
 
@@ -211,7 +369,9 @@ class SkippedCheck(DuckDBCheckGenerator):
         return True, {"skipped": True, "reason": self.errorMessage, "violations": 0}
 
     def generateSql(self):
-        self.errorMessage = "FormatUnit check is dynamic"
+        self.errorMessage = (
+            self.errorMessage or "Rule skipped - cannot be validated statically"
+        )
         return None
 
     def getCheckType(self) -> str:
@@ -221,25 +381,30 @@ class SkippedCheck(DuckDBCheckGenerator):
 class SkippedDynamicCheck(SkippedCheck):
     def __init__(self, rule, rule_id: str, **kwargs: Any) -> None:
         super().__init__(rule, rule_id, **kwargs)
-        self.errorMessage = "dynamic rule"
+        self.errorMessage = (
+            "Rule skipped - validation is dynamic and cannot be pre-generated"
+        )
 
 
 class SkippedNonApplicableCheck(SkippedCheck):
     def __init__(self, rule, rule_id: str, **kwargs: Any) -> None:
         super().__init__(rule, rule_id, **kwargs)
-        self.errorMessage = "non applicable rule"
+        self.errorMessage = (
+            "Rule skipped - not applicable to current dataset or configuration"
+        )
 
 
 class ColumnPresentCheckGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
 
-    def generateSql(self) -> str:
+    def generateSql(self) -> SQLQuery:
         col = self.params.ColumnName
         message = self.errorMessage or f"Column '{col}' MUST be present in the table."
         self.errorMessage = message  # <-- make sure run_check can see it
         msg_sql = message.replace("'", "''")
 
-        return f"""
+        # Requirement SQL (finds violations)
+        requirement_sql = f"""
         WITH col_check AS (
             SELECT COUNT(*) AS found
             FROM information_schema.columns
@@ -252,6 +417,14 @@ class ColumnPresentCheckGenerator(DuckDBCheckGenerator):
         FROM col_check
         """
 
+        # Note: Column presence checks don't have meaningful predicates for row-level filtering
+        # since they operate at the schema level, not the data level
+        predicate_sql = None
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
+
     def getCheckType(self) -> str:
         return "column_presence"
 
@@ -260,26 +433,33 @@ class TypeStringCheckGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
 
     # Generate type string validation check
-    def generateSql(self) -> str:
-        message = (
-            self.errorMessage
-            or f"{self.params.ColumnName} MUST be of type VARCHAR (string)."
-        )
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        message = self.errorMessage or f"{col} MUST be of type VARCHAR (string)."
         msg_sql = message.replace("'", "''")
-        col = f"{self.params.ColumnName}"
 
-        return f"""
+        # Requirement SQL (finds violations)
+        condition = f"{col} IS NOT NULL AND typeof({col}) != 'VARCHAR'"
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
-            WHERE {col} IS NOT NULL
-              AND typeof({col}) != 'VARCHAR'
+            WHERE {condition}
         )
         SELECT
             COUNT(*) AS violations,
             CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
         FROM invalid
         """
+
+        # Predicate SQL (for condition mode)
+        predicate_sql = f"{col} IS NOT NULL AND typeof({col}) = 'VARCHAR'"
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
 
     def getCheckType(self) -> str:
         return "type_string"
@@ -289,26 +469,39 @@ class TypeDecimalCheckGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
 
     # Generate type decimal validation check
-    def generateSql(self) -> str:
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
         message = (
-            self.errorMessage
-            or f"{self.params.ColumnName} MUST be of type DECIMAL, DOUBLE, or FLOAT."
+            self.errorMessage or f"{col} MUST be of type DECIMAL, DOUBLE, or FLOAT."
         )
         msg_sql = message.replace("'", "''")
-        col = f"{self.params.ColumnName}"
 
-        return f"""
+        # Requirement SQL (finds violations)
+        condition = (
+            f"{col} IS NOT NULL AND typeof({col}) NOT IN ('DECIMAL', 'DOUBLE', 'FLOAT')"
+        )
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
-            WHERE {col} IS NOT NULL
-              AND typeof({col}) NOT IN ('DECIMAL', 'DOUBLE', 'FLOAT')
+            WHERE {condition}
         )
         SELECT
             COUNT(*) AS violations,
             CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
         FROM invalid
         """
+
+        # Predicate SQL (for condition mode)
+        predicate_sql = (
+            f"{col} IS NOT NULL AND typeof({col}) IN ('DECIMAL', 'DOUBLE', 'FLOAT')"
+        )
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
 
     def getCheckType(self) -> str:
         return "type_decimal"
@@ -318,30 +511,47 @@ class TypeDateTimeGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
 
     # Validate the *type* is datetime-like:
-    # - Accept native DATE, TIMESTAMP, TIMESTAMP WITH TIME ZONE
+    # - Accept native DATE, TIMESTAMP, TIMESTAMP_NS, TIMESTAMP WITH TIME ZONE
     # - Also accept ISO 8601 UTC text: YYYY-MM-DDTHH:mm:ssZ
-    def generateSql(self) -> str:
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
         message = (
             self.errorMessage
-            or f"{self.params.ColumnName} MUST be a DATE/TIMESTAMP (with/without TZ) "
+            or f"{col} MUST be a DATE/TIMESTAMP (with/without TZ) "
             f"or an ISO 8601 UTC string (YYYY-MM-DDTHH:mm:ssZ)."
         )
         msg_sql = message.replace("'", "''")
-        col = f"{self.params.ColumnName}"
 
-        return f"""
+        # Requirement SQL (finds violations)
+        condition = (
+            f"{col} IS NOT NULL "
+            f"AND typeof({col}) NOT IN ('TIMESTAMP', 'TIMESTAMP_NS', 'TIMESTAMP WITH TIME ZONE', 'DATE') "
+            f"AND NOT ({col}::TEXT ~ '^[0-9]{{4}}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z$')"
+        )
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
-            WHERE {col} IS NOT NULL
-              AND typeof({col}) NOT IN ('TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'DATE')
-              AND NOT ({col}::TEXT ~ '^[0-9]{{4}}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z$')
+            WHERE {condition}
         )
         SELECT
             COUNT(*) AS violations,
             CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
         FROM invalid
         """
+
+        # Predicate SQL (for condition mode)
+        predicate_sql = (
+            f"{col} IS NOT NULL "
+            f"AND (typeof({col}) IN ('TIMESTAMP', 'TIMESTAMP_NS', 'TIMESTAMP WITH TIME ZONE', 'DATE') "
+            f"OR ({col}::TEXT ~ '^[0-9]{{4}}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z$'))"
+        )
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
 
     def getCheckType(self) -> str:
         return "type_datetime"
@@ -351,28 +561,38 @@ class FormatNumericGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
 
     # Generate numeric format validation check
-    def generateSql(self) -> str:
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
         message = (
             self.errorMessage
-            or f"{self.params.ColumnName} MUST be a numeric value (optional +/- sign, optional decimal)."
+            or f"{col} MUST be a numeric value (optional +/- sign, optional decimal)."
         )
         msg_sql = message.replace("'", "''")
-        col = f"{self.params.ColumnName}"
 
-        return f"""
+        # Requirement SQL (finds violations)
+        condition = f"{col} IS NOT NULL AND NOT (TRIM({col}::TEXT) ~ '^[+-]?([0-9]*[.])?[0-9]+$')"
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
-            WHERE {col} IS NOT NULL
-              AND NOT (
-                TRIM({col}::TEXT) ~ '^[+-]?([0-9]*[.])?[0-9]+$'
-              )
+            WHERE {condition}
         )
         SELECT
             COUNT(*) AS violations,
             CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
         FROM invalid
         """
+
+        # Predicate SQL (for condition mode)
+        predicate_sql = (
+            f"{col} IS NOT NULL AND (TRIM({col}::TEXT) ~ '^[+-]?([0-9]*[.])?[0-9]+$')"
+        )
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
 
     def getCheckType(self) -> str:
         return "format_numeric"
@@ -382,26 +602,33 @@ class FormatStringGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
 
     # Generate string format validation check for ASCII characters
-    def generateSql(self) -> str:
-        message = (
-            self.errorMessage
-            or f"{self.params.ColumnName} MUST contain only ASCII characters."
-        )
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        message = self.errorMessage or f"{col} MUST contain only ASCII characters."
         msg_sql = message.replace("'", "''")
-        col = f"{self.params.ColumnName}"
 
-        return f"""
+        # Requirement SQL (finds violations)
+        condition = f"{col} IS NOT NULL AND NOT ({col}::TEXT ~ '^[\\x00-\\x7F]*$')"
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
         WITH invalid AS (
             SELECT {col}::TEXT AS value
             FROM {{table_name}}
-            WHERE {col} IS NOT NULL
-              AND NOT ({col}::TEXT ~ '^[\\x00-\\x7F]*$')  -- Only ASCII characters (0-127)
+            WHERE {condition}
         )
         SELECT
             COUNT(*) AS violations,
             CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
         FROM invalid
         """
+
+        # Predicate SQL (for condition mode)
+        predicate_sql = f"{col} IS NOT NULL AND ({col}::TEXT ~ '^[\\x00-\\x7F]*$')"
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
 
     def getCheckType(self) -> str:
         return "format_string"
@@ -410,29 +637,46 @@ class FormatStringGenerator(DuckDBCheckGenerator):
 class FormatDateTimeGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
 
-    # Generate datetime format validation check for ISO 8601 extended format with UTC (YYYY-MM-DDTHH:mm:ssZ)
-    def generateSql(self) -> str:
-        message = (
-            self.errorMessage
-            or f"{self.params.ColumnName} MUST be in ISO 8601 UTC format: YYYY-MM-DDTHH:mm:ssZ"
-        )
+    # Generate datetime validation check for valid UTC datetime values
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        message = self.errorMessage or f"{col} MUST be a valid DateTime in UTC format"
         msg_sql = message.replace("'", "''")
-        col = f"{self.params.ColumnName}"
 
-        return f"""
+        # Requirement SQL (finds violations)
+        # Check for valid datetime types (TIMESTAMP, TIMESTAMP_NS, TIMESTAMP WITH TIME ZONE, DATE)
+        # or valid ISO 8601 UTC strings that can be parsed as datetime
+        condition = (
+            f"{col} IS NOT NULL "
+            f"AND typeof({col}) NOT IN ('TIMESTAMP', 'TIMESTAMP_NS', 'TIMESTAMP WITH TIME ZONE', 'DATE') "
+            f"AND NOT (typeof({col}) = 'VARCHAR' AND {col}::TEXT ~ '^[0-9]{{4}}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z?$' "
+            f"AND TRY_CAST({col} AS TIMESTAMP) IS NOT NULL)"
+        )
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
-            WHERE {col} IS NOT NULL
-              AND NOT (
-                {col}::TEXT ~ '^[0-9]{{4}}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z$'
-              )
+            WHERE {condition}
         )
         SELECT
             COUNT(*) AS violations,
             CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
         FROM invalid
         """
+
+        # Predicate SQL (for condition mode)
+        predicate_sql = (
+            f"{col} IS NOT NULL "
+            f"AND (typeof({col}) IN ('TIMESTAMP', 'TIMESTAMP_NS', 'TIMESTAMP WITH TIME ZONE', 'DATE') "
+            f"OR (typeof({col}) = 'VARCHAR' AND {col}::TEXT ~ '^[0-9]{{4}}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z?$' "
+            f"AND TRY_CAST({col} AS TIMESTAMP) IS NOT NULL))"
+        )
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
 
     def getCheckType(self) -> str:
         return "format_datetime"
@@ -441,13 +685,13 @@ class FormatDateTimeGenerator(DuckDBCheckGenerator):
 class FormatBillingCurrencyCodeGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
 
-    def generateSql(self) -> str:
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
         message = (
             self.errorMessage
-            or f"{self.params.ColumnName} MUST be a valid ISO 4217 currency code (e.g., USD, EUR)."
+            or f"{col} MUST be a valid ISO 4217 currency code (e.g., USD, EUR)."
         )
         msg_sql = message.replace("'", "''")
-        col = f"{self.params.ColumnName}"
 
         # Get valid currency codes from CSV file
         valid_codes = get_currency_codes(
@@ -456,12 +700,15 @@ class FormatBillingCurrencyCodeGenerator(DuckDBCheckGenerator):
         # Create SQL IN clause with properly quoted currency codes
         codes_list = "', '".join(sorted(valid_codes))
 
-        return f"""
+        # Requirement SQL (finds violations)
+        condition = f"{col} IS NOT NULL AND TRIM({col}::TEXT) NOT IN ('{codes_list}')"
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
-            WHERE {col} IS NOT NULL
-              AND TRIM({col}::TEXT) NOT IN ('{codes_list}')
+            WHERE {condition}
         )
         SELECT
             COUNT(*) AS violations,
@@ -469,60 +716,51 @@ class FormatBillingCurrencyCodeGenerator(DuckDBCheckGenerator):
         FROM invalid
         """
 
+        # Predicate SQL (for condition mode)
+        predicate_sql = f"{col} IS NOT NULL AND TRIM({col}::TEXT) IN ('{codes_list}')"
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
+
     def getCheckType(self) -> str:
         return "format_currency_code"
-
-
-class FormatKeyValueGenerator(DuckDBCheckGenerator):
-    REQUIRED_KEYS = {"ColumnName"}
-
-    # Generate key-value format validation check for JSON-like structures
-    def generateSql(self) -> str:
-        col = self.params.ColumnName
-        self.required_columns = [col]  # NEW
-        # Your desired message:
-        self.errorMessage = "Format not in key value"
-
-        # Example predicate: invalid if non-null and not key=value;key=value...
-        # Adjust to your accepted separators/pattern.
-        # DuckDB supports regexp via ~ / !~ operators.
-        pattern = r"^[^=;]+=[^=;]+(?:;[^=;]+=[^=;]+)*$"
-        cond = f"{col} IS NOT NULL AND NOT ({col} ~ '{pattern}')"
-
-        return f"""
-            SELECT
-            COUNT(*) FILTER (WHERE {cond}) AS violations
-            FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "format_key_value"
 
 
 class FormatCurrencyGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
 
     # Generate national currency code validation check (ISO 4217)
-    def generateSql(self) -> str:
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
         message = (
             self.errorMessage
-            or f"{self.params.ColumnName} MUST be a valid ISO 4217 currency code (3 uppercase letters, e.g. USD, EUR)."
+            or f"{col} MUST be a valid ISO 4217 currency code (3 uppercase letters, e.g. USD, EUR)."
         )
         msg_sql = message.replace("'", "''")
-        col = f"{self.params.ColumnName}"
 
-        return f"""
+        # Requirement SQL (finds violations)
+        condition = f"{col} IS NOT NULL AND NOT (TRIM({col}::TEXT) ~ '^[A-Z]{{3}}$')"
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
-            WHERE {col} IS NOT NULL
-              AND NOT (TRIM({col}::TEXT) ~ '^[A-Z]{{3}}$')
+            WHERE {condition}
         )
         SELECT
             COUNT(*) AS violations,
             CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
         FROM invalid
         """
+
+        # Predicate SQL (for condition mode)
+        predicate_sql = f"{col} IS NOT NULL AND (TRIM({col}::TEXT) ~ '^[A-Z]{{3}}$')"
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
 
     def getCheckType(self) -> str:
         return "national_currency"
@@ -533,30 +771,30 @@ class FormatUnitGenerator(SkippedCheck):
 
     def __init__(self, rule, rule_id: str, **kwargs: Any) -> None:
         super().__init__(rule, rule_id, **kwargs)
-        self.errorMessage = "FormatUnit rule is dynamic"
+        self.errorMessage = "Rule skipped - unit validation requires dynamic lookup and cannot be pre-generated"
 
 
-class CheckValueGenerator(DuckDBCheckGenerator):
-    REQUIRED_KEYS = {"ColumnName", "Value"}
+class FormatJSONGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName"}
 
-    def generateSql(self) -> str:
-        if self.params.Value is None:
-            message = self.errorMessage or f"{self.params.ColumnName} MUST be NULL."
-            condition = f"{self.params.ColumnName} IS NOT NULL"
-        else:
-            val = str(self.params.Value).replace("'", "''")
-            message = (
-                self.errorMessage
-                or f"{self.params.ColumnName} MUST equal '{self.params.Value}'."
-            )
-            condition = f"{self.params.ColumnName} != '{val}'"
-
-        # Apply conditional logic if present
-        condition = self._apply_condition(condition)
-
+    # Generate JSON format validation check for valid JSON structures
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        message = self.errorMessage or f"{col} MUST be valid JSON format"
         msg_sql = message.replace("'", "''")
 
-        return f"""
+        # Requirement SQL (finds violations)
+        # Check if column is not null and either:
+        # 1. Cannot be cast to JSON, or
+        # 2. Is not a valid JSON string when treated as text
+        condition = (
+            f"{col} IS NOT NULL "
+            f"AND (TRY_CAST({col} AS JSON) IS NULL "
+            f"OR (typeof({col}) = 'VARCHAR' AND NOT json_valid({col}::TEXT)))"
+        )
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
@@ -567,62 +805,101 @@ class CheckValueGenerator(DuckDBCheckGenerator):
             CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
         FROM invalid
         """
+
+        # Predicate SQL (for condition mode)
+        predicate_sql = (
+            f"{col} IS NOT NULL "
+            f"AND (TRY_CAST({col} AS JSON) IS NOT NULL "
+            f"OR (typeof({col}) = 'VARCHAR' AND json_valid({col}::TEXT)))"
+        )
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
+
+    def getCheckType(self) -> str:
+        return "format_json"
+
+
+class CheckValueGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName", "Value"}
+
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        value = self.params.Value
+
+        # Build requirement SQL (finds violations)
+        if value is None:
+            message = self.errorMessage or f"{col} MUST be NULL."
+            condition = f"{col} IS NOT NULL"
+            predicate = f"{col} IS NULL"  # Condition: rows where requirement applies
+        else:
+            val_escaped = str(value).replace("'", "''")
+            message = self.errorMessage or f"{col} MUST equal '{value}'."
+            condition = f"{col} != '{val_escaped}'"
+            predicate = (
+                f"{col} = '{val_escaped}'"  # Condition: rows where requirement applies
+            )
+
+        # Apply conditional logic if present (for requirement SQL)
+        condition = self._apply_condition(condition)
+        msg_sql = message.replace("'", "''")
+
+        requirement_sql = f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {condition}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate
+        )
 
     def getCheckType(self) -> str:
         return "check_value"
 
     def generatePredicate(self) -> str | None:
         """
-        Condition mode: return a boolean predicate that selects rows where
-        ColumnName == Value (or IS NULL when Value is None).
+        Backward compatibility: extract predicate from SQLQuery
         """
         if getattr(self, "exec_mode", "requirement") != "condition":
             return None
 
-        col = self.params.ColumnName
-        v = self.params.Value
-
-        # use base literalizer if present; fall back to a simple one
-        _lit = getattr(self, "_lit", None)
-        if _lit is None:
-
-            def _lit(x):
-                if x is None:
-                    return "NULL"
-                if isinstance(x, (int, float)) and not isinstance(x, bool):
-                    return str(x)
-                return "'" + str(x).replace("'", "''") + "'"
-
-        if v is None:
-            return f"{col} IS NULL"
-        else:
-            return f"{col} = {_lit(v)}"
+        sql_query = self.generateSql()
+        return sql_query.get_predicate_sql()
 
 
 class CheckNotValueGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName", "Value"}
 
-    def generateSql(self) -> str:
-        # Default error message if none provided
-        if self.params.Value is None:
-            message = self.errorMessage or f"{self.params.ColumnName} MUST NOT be NULL."
-            condition = f"{self.params.ColumnName} IS NULL"
-        else:
-            message = (
-                self.errorMessage
-                or f"{self.params.ColumnName} MUST NOT be '{self.params.Value}'."
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        value = self.params.Value
+
+        # Build requirement SQL (finds violations)
+        if value is None:
+            message = self.errorMessage or f"{col} MUST NOT be NULL."
+            condition = f"{col} IS NULL"
+            predicate = (
+                f"{col} IS NOT NULL"  # Condition: rows where requirement applies
             )
-            # escape single quotes in Value for SQL literal safety
-            val = str(self.params.Value).replace("'", "''")
-            # Fix: Use <> (not equals) and handle NULLs properly for CheckNotValue
-            condition = f"({self.params.ColumnName} IS NOT NULL AND {self.params.ColumnName} = '{val}')"
+        else:
+            val_escaped = str(value).replace("'", "''")
+            message = self.errorMessage or f"{col} MUST NOT be '{value}'."
+            condition = f"({col} IS NOT NULL AND {col} = '{val_escaped}')"
+            predicate = f"({col} IS NOT NULL AND {col} <> '{val_escaped}')"
 
         # Apply conditional logic if present
         condition = self._apply_condition(condition)
-
         msg_sql = message.replace("'", "''")
 
-        return f"""
+        requirement_sql = f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
@@ -633,42 +910,38 @@ class CheckNotValueGenerator(DuckDBCheckGenerator):
             CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
         FROM invalid
         """
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate
+        )
 
     def getCheckType(self) -> str:
         return "check_not_value"
 
     def generatePredicate(self) -> str | None:
+        """Backward compatibility wrapper"""
         if self.exec_mode != "condition":
             return None
-        col = self.params.ColumnName
-        val = self.params.Value
-        # CONDITION predicate: rows where requirement applies
-        # For "CheckNotValue", the natural condition is: col IS NOT NULL (if Value is NULL) or col <> Value
-        if val is None:
-            return f"{col} IS NOT NULL"
-        else:
-            return f"({col} IS NOT NULL AND {col} <> {self._lit(val)})"
+        sql_query = self.generateSql()
+        return sql_query.get_predicate_sql()
 
 
 class CheckSameValueGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnAName", "ColumnBName"}
 
-    def generateSql(self) -> str:
-        message = (
-            self.errorMessage
-            or f"{self.params.ColumnAName} and {self.params.ColumnBName} MUST have the same value."
-        )
+    def generateSql(self) -> SQLQuery:
+        col_a = self.params.ColumnAName
+        col_b = self.params.ColumnBName
+        message = self.errorMessage or f"{col_a} and {col_b} MUST have the same value."
         msg_sql = message.replace("'", "''")
-        col_a = f"{self.params.ColumnAName}"
-        col_b = f"{self.params.ColumnBName}"
 
+        # Requirement SQL (finds violations)
         condition = (
             f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} <> {col_b}"
         )
-        # Apply conditional logic if present
         condition = self._apply_condition(condition)
 
-        return f"""
+        requirement_sql = f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
@@ -679,39 +952,43 @@ class CheckSameValueGenerator(DuckDBCheckGenerator):
             CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
         FROM invalid
         """
+
+        # Predicate SQL (for condition mode)
+        predicate_sql = (
+            f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} = {col_b}"
+        )
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
 
     def getCheckType(self) -> str:
         return "column_comparison_equals"
 
     def generatePredicate(self) -> str | None:
-        """
-        Condition mode: select rows where both columns are non-null and equal.
-        """
+        """Backward compatibility wrapper"""
         if getattr(self, "exec_mode", "requirement") != "condition":
             return None
-
-        col_a = self.params.ColumnAName
-        col_b = self.params.ColumnBName
-        return f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} = {col_b}"
+        sql_query = self.generateSql()
+        return sql_query.get_predicate_sql()
 
 
 class CheckNotSameValueGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnAName", "ColumnBName"}
 
-    def generateSql(self) -> str:
+    def generateSql(self) -> SQLQuery:
+        col_a = self.params.ColumnAName
+        col_b = self.params.ColumnBName
         message = (
-            self.errorMessage
-            or f"{self.params.ColumnAName} and {self.params.ColumnBName} MUST NOT have the same value."
+            self.errorMessage or f"{col_a} and {col_b} MUST NOT have the same value."
         )
         msg_sql = message.replace("'", "''")
-        col_a = f"{self.params.ColumnAName}"
-        col_b = f"{self.params.ColumnBName}"
 
+        # Requirement SQL (finds violations)
         condition = f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} = {col_b}"
-        # Apply conditional logic if present
         condition = self._apply_condition(condition)
 
-        return f"""
+        requirement_sql = f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
@@ -722,84 +999,50 @@ class CheckNotSameValueGenerator(DuckDBCheckGenerator):
             CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
         FROM invalid
         """
+
+        # Predicate SQL (for condition mode)
+        predicate_sql = (
+            f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} <> {col_b}"
+        )
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
 
     def getCheckType(self) -> str:
         return "column_comparison_not_equals"
 
     def generatePredicate(self) -> str | None:
-        """
-        Condition mode: select rows where both columns are non-null and not equal.
-        """
+        """Backward compatibility wrapper"""
         if getattr(self, "exec_mode", "requirement") != "condition":
             return None
-
-        col_a = self.params.ColumnAName
-        col_b = self.params.ColumnBName
-        return f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} <> {col_b}"
+        sql_query = self.generateSql()
+        return sql_query.get_predicate_sql()
 
 
 class CheckDecimalValueGenerator(SkippedCheck):
     def __init__(self, rule, rule_id: str, **kwargs: Any) -> None:
         super().__init__(rule, rule_id, **kwargs)
-        self.errorMessage = "no defined check rule"
+        self.errorMessage = (
+            "Rule skipped - CheckDecimalValue validation is not yet implemented"
+        )
 
 
 class ColumnByColumnEqualsColumnValueGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnAName", "ColumnBName", "ResultColumnName"}
 
-    def generateSql(self) -> str:
+    def generateSql(self) -> SQLQuery:
         a = self.params.ColumnAName
         b = self.params.ColumnBName
         r = self.params.ResultColumnName
-        self.errorMessage = f"Expected {r} = {a} * {b}"
-
-        condition = f"{a} IS NOT NULL AND {b} IS NOT NULL AND {r} IS NOT NULL AND ({a} * {b}) <> {r}"
-        # Apply conditional logic if present
-        condition = self._apply_condition(condition)
-
-        return f"""
-        SELECT
-          COUNT(*) FILTER (
-            WHERE {condition}
-          ) AS violations
-        FROM {{table_name}}
-        """
-
-    def getCheckType(self) -> str:
-        return "column_by_column_equals_column_value"
-
-    def generatePredicate(self) -> str | None:
-        """
-        Condition mode: select rows where all three columns are non-null
-        AND the equality holds: (a * b) = r
-        """
-        if getattr(self, "exec_mode", "requirement") != "condition":
-            return None
-
-        a = self.params.ColumnAName
-        b = self.params.ColumnBName
-        r = self.params.ResultColumnName
-
-        return f"{a} IS NOT NULL AND {b} IS NOT NULL AND {r} IS NOT NULL AND ({a} * {b}) = {r}"
-
-
-class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
-    REQUIRED_KEYS = {"ColumnName", "Value"}
-
-    def generateSql(self) -> str:
-        message = (
-            self.errorMessage
-            or f"{self.params.ColumnName} MUST be greater than or equal to {self.params.Value}."
-        )
+        message = self.errorMessage or f"Expected {r} = {a} * {b}"
         msg_sql = message.replace("'", "''")
-        col = f"{self.params.ColumnName}"
-        val = self.params.Value
 
-        condition = f"{col} IS NOT NULL AND {col} < {val}"
-        # Apply conditional logic if present
+        # Requirement SQL (finds violations)
+        condition = f"{a} IS NOT NULL AND {b} IS NOT NULL AND {r} IS NOT NULL AND ({a} * {b}) <> {r}"
         condition = self._apply_condition(condition)
 
-        return f"""
+        requirement_sql = f"""
         WITH invalid AS (
             SELECT 1
             FROM {{table_name}}
@@ -811,40 +1054,73 @@ class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
         FROM invalid
         """
 
+        # Predicate SQL (for condition mode)
+        predicate_sql = f"{a} IS NOT NULL AND {b} IS NOT NULL AND {r} IS NOT NULL AND ({a} * {b}) = {r}"
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
+
+    def getCheckType(self) -> str:
+        return "column_by_column_equals_column_value"
+
+    def generatePredicate(self) -> str | None:
+        """Backward compatibility wrapper"""
+        if getattr(self, "exec_mode", "requirement") != "condition":
+            return None
+        sql_query = self.generateSql()
+        return sql_query.get_predicate_sql()
+
+
+class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName", "Value"}
+
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        val = self.params.Value
+        message = self.errorMessage or f"{col} MUST be greater than or equal to {val}."
+        msg_sql = message.replace("'", "''")
+
+        # Requirement SQL (finds violations)
+        condition = f"{col} IS NOT NULL AND {col} < {val}"
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {condition}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+        # Predicate SQL (for condition mode)
+        predicate_sql = f"{col} IS NOT NULL AND {col} >= {self._lit(val)}"
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
+
     def getCheckType(self) -> str:
         return "check_greater_equal"
 
     def generatePredicate(self) -> str | None:
-        """
-        Condition mode: select rows where the requirement applies, i.e., col >= value.
-        """
+        """Backward compatibility wrapper"""
         if getattr(self, "exec_mode", "requirement") != "condition":
             return None
-
-        col = self.params.ColumnName
-        v = self.params.Value
-        _lit = getattr(self, "_lit", None)
-        if _lit is None:
-
-            def _lit(x):
-                if x is None:
-                    return "NULL"
-                if isinstance(x, (int, float)) and not isinstance(x, bool):
-                    return str(x)
-                return "'" + str(x).replace("'", "''") + "'"
-
-        val_sql = _lit(v)
-
-        # rows satisfying the condition (non-null and >= value)
-        return f"{col} IS NOT NULL AND {col} >= {val_sql}"
+        sql_query = self.generateSql()
+        return sql_query.get_predicate_sql()
 
 
 class CheckDistinctCountGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnAName", "ColumnBName", "ExpectedCount"}
 
-    def generateSql(self) -> str:
-        a = f"{self.params.ColumnAName}"
-        b = f"{self.params.ColumnBName}"
+    def generateSql(self) -> SQLQuery:
+        a = self.params.ColumnAName
+        b = self.params.ColumnBName
         n = self.params.ExpectedCount
 
         message = (
@@ -853,7 +1129,8 @@ class CheckDistinctCountGenerator(DuckDBCheckGenerator):
         )
         msg_sql = message.replace("'", "''")
 
-        return f"""
+        # Requirement SQL (finds violations)
+        requirement_sql = f"""
         WITH counts AS (
             SELECT {a} AS grp, COUNT(DISTINCT {b}) AS distinct_count
             FROM {{table_name}}
@@ -870,6 +1147,14 @@ class CheckDistinctCountGenerator(DuckDBCheckGenerator):
         FROM invalid
         """
 
+        # Note: This is a complex aggregation check that doesn't naturally translate
+        # to a simple predicate for row-level filtering. Setting predicate_sql to None.
+        predicate_sql = None
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
+
     def getCheckType(self) -> str:
         return "distinct_count"
 
@@ -880,12 +1165,13 @@ class CheckModelRuleGenerator(DuckDBCheckGenerator):
     def getCheckType(self) -> str:
         return "model_rule_reference"
 
-    def generateSql(self) -> str:
+    def generateSql(self) -> SQLQuery:
         # Won’t be executed; we’ll attach a special executor instead.
         self.errorMessage = f"Conformance reference to {self.params.ModelRuleId}"
-        return "SELECT 0 AS violations"
+        requirement_sql = "SELECT 0 AS violations"
+        return SQLQuery(requirement_sql=requirement_sql.strip(), predicate_sql=None)
 
-    def generateCheck(self):
+    def generateCheck(self) -> DuckDBColumnCheck:
         # Let the base create the DuckDBColumnCheck (with errorMessage, type, sql)
         chk = super().generateCheck()
 
@@ -969,7 +1255,7 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
     COMPOSITE_NAME = "COMPOSITE"
     HANDLER = staticmethod(all)  # override in subclasses
 
-    def generateSql(self) -> str:
+    def generateSql(self) -> SQLQuery:
         if not callable(self.child_builder):
             raise RuntimeError(f"{self.__class__.__name__} requires child_builder")
 
@@ -1193,7 +1479,16 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
         self.errorMessage = (
             self.p.get("Message") or f"{self.rule_id}: {self.COMPOSITE_NAME} failed"
         )
-        return "SELECT 0 AS violations"
+
+        # For composites, requirement SQL is typically trivial since logic is in nested checks
+        requirement_sql = "SELECT 0 AS violations"
+
+        # Predicate SQL is built by combining child predicates (handled in generatePredicate)
+        predicate_sql = (
+            self.generatePredicate() if self.exec_mode == "condition" else None
+        )
+
+        return SQLQuery(requirement_sql=requirement_sql, predicate_sql=predicate_sql)
 
     def getCheckType(self) -> str:
         return "composite"
@@ -1408,7 +1703,7 @@ class FocusToDuckDBSchemaConverter:
             "factory": lambda args: "ColumnName",
         },
         "FormatKeyValue": {
-            "generator": FormatKeyValueGenerator,
+            "generator": FormatJSONGenerator,
             "factory": lambda args: "ColumnName",
         },
         "FormatCurrency": {
@@ -1474,6 +1769,7 @@ class FocusToDuckDBSchemaConverter:
         pragma_threads: int | None = None,
         explain_mode: bool = False,
         validated_applicability_criteria: Optional[List[str]] = None,
+        transpile_dialect: Optional[str] = None,
     ) -> None:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.conn: duckdb.DuckDBPyConnection | None = None
@@ -1482,6 +1778,9 @@ class FocusToDuckDBSchemaConverter:
         self.focus_data = focus_data
         self.table_name = focus_table_name
         self.validated_applicability_criteria = validated_applicability_criteria or []
+        self.transpile_dialect = (
+            transpile_dialect  # Target dialect for SQL transpilation
+        )
         # Example caches (optional)
         self._prepared: Dict[str, Any] = {}
         self._views: Dict[str, str] = {}  # rule_id -> temp view name
@@ -1798,12 +2097,24 @@ class FocusToDuckDBSchemaConverter:
                 getattr(check, "checkType", None) or getattr(check, "check_type", None),
             )
             return ok, details
+        # ---- leaf SQL execution ------------------------------------------------
         sql = getattr(check, "checkSql", None)
         if not sql:
             raise InvalidRuleException(
                 f"Leaf check has no SQL to execute (rule_id={getattr(check, 'rule_id', None)})"
             )
-        sql_final = _sub_table(sql)
+
+        # Handle SQLQuery objects with transpilation support
+        sql_query = getattr(check, "_sql_query", None)
+        if sql_query and isinstance(sql_query, SQLQuery):
+            # Use transpiled SQL if target dialect is specified
+            target_dialect = getattr(self, "transpile_dialect", None) or "duckdb"
+            sql_to_execute = sql_query.get_requirement_sql(target_dialect)
+        else:
+            # Legacy string SQL
+            sql_to_execute = sql
+
+        sql_final = _sub_table(sql_to_execute)
 
         t0 = time.perf_counter()
         try:
@@ -1872,14 +2183,39 @@ class FocusToDuckDBSchemaConverter:
             )
 
         ok = violations == 0
+
+        # Extract error message from SQL result if available
+        sql_error_message = None
+        if "error_message" in df.columns and not ok:
+            sql_error_msg = df.at[0, "error_message"]
+            if sql_error_msg is not None and str(sql_error_msg).strip():
+                sql_error_message = str(sql_error_msg)
+
+        # Determine final message with preference for SQL-embedded error messages
+        if ok:
+            # Success case: check for successMessage on generator
+            success_msg = getattr(check, "successMessage", None)
+            final_message = (
+                success_msg
+                if isinstance(success_msg, str) and success_msg.strip()
+                else None
+            )
+        else:
+            # Failure case: prefer SQL error message, then generator errorMessage, then fallback
+            if sql_error_message:
+                final_message = sql_error_message
+            else:
+                generator_error_msg = getattr(check, "errorMessage", None)
+                if isinstance(generator_error_msg, str) and generator_error_msg.strip():
+                    final_message = generator_error_msg
+                else:
+                    final_message = (
+                        f"{getattr(check, 'rule_id', '<rule>')}: check failed"
+                    )
+
         leaf_details: Dict[str, Any] = {
             "violations": violations,
-            "message": _msg_for_outcome(
-                check,
-                ok,
-                fallback_fail=f"{getattr(check, 'rule_id', '<rule>')}: check failed",
-                fallback_ok=None,  # or f"{getattr(check,'rule_id','<rule>')}: OK"
-            ),
+            "message": final_message,
             "timing_ms": elapsed_ms,
             "check_type": getattr(check, "checkType", None)
             or getattr(check, "check_type", None),
@@ -2496,6 +2832,37 @@ class FocusToDuckDBSchemaConverter:
         # Leaf with SQL
         sql = getattr(check, "checkSql", None) or getattr(check, "check_sql", None)
 
+        # Handle SQLQuery objects with transpilation support
+        sql_query = getattr(check, "_sql_query", None)
+        transpilation_info = {}
+
+        if sql_query and isinstance(sql_query, SQLQuery):
+            # Get SQL for current dialect
+            target_dialect = getattr(self, "transpile_dialect", None) or "duckdb"
+            sql_to_show = sql_query.get_requirement_sql(target_dialect)
+
+            # Add transpilation information for explain mode
+            transpilation_info = {
+                "original_dialect": "duckdb",
+                "target_dialect": target_dialect,
+                "predicate_sql": sql_query.get_predicate_sql(target_dialect),
+                "supports_transpilation": True,
+                "parsing_error": sql_query.parsing_error,
+            }
+
+            # Show transpilation examples if not already in target dialect
+            if target_dialect.lower() != "duckdb":
+                transpilation_info["duckdb_sql"] = self._subst_table(
+                    sql_query.get_requirement_sql("duckdb")
+                )
+        else:
+            # Legacy string SQL
+            sql_to_show = sql
+            transpilation_info = {
+                "supports_transpilation": False,
+                "note": "Legacy string SQL - SQLQuery migration needed for transpilation",
+            }
+
         # Check if this is a Dynamic entity rule that ended up in the leaf branch
         rule_entity_type = getattr(getattr(check, "rule", None), "entity_type", None)
         generator_name = meta.get("generator")
@@ -2503,16 +2870,21 @@ class FocusToDuckDBSchemaConverter:
         if rule_entity_type == "Dynamic" and generator_name is None:
             generator_name = "None due to dynamic rule"
 
-        return {
+        result = {
             "rule_id": rid,
             "type": "leaf",
             "check_type": ctype,
             "generator": generator_name,
             "row_condition_sql": meta.get("row_condition_sql"),
-            "sql": self._subst_table(sql) if sql else None,
+            "sql": self._subst_table(sql_to_show) if sql_to_show else None,
             "message": getattr(check, "errorMessage", None),
             "must_satisfy": must_satisfy,
         }
+
+        # Add transpilation info
+        result.update(transpilation_info)
+
+        return result
 
     def _subst_table(self, sql: str) -> str:
         if not hasattr(self, "table_name") or not self.table_name:

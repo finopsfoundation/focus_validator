@@ -17,6 +17,7 @@ from focus_validator.config_objects.focus_to_duckdb_converter import (
     # Core classes
     DuckDBColumnCheck,
     DuckDBCheckGenerator,
+    SQLQuery,  # Add SQLQuery import
     
     # Type generators
     TypeDecimalCheckGenerator,
@@ -28,7 +29,7 @@ from focus_validator.config_objects.focus_to_duckdb_converter import (
     FormatStringGenerator,
     FormatDateTimeGenerator,
     FormatBillingCurrencyCodeGenerator,
-    FormatKeyValueGenerator,
+    FormatJSONGenerator,
     FormatCurrencyGenerator,
     
     # Value check generators
@@ -50,6 +51,13 @@ from focus_validator.config_objects.focus_to_duckdb_converter import (
     _compact_json
 )
 from focus_validator.config_objects.rule import ModelRule, ValidationCriteria
+
+
+def _extract_sql(sql_result):
+    """Helper function to extract SQL from both string and SQLQuery returns."""
+    if isinstance(sql_result, SQLQuery):
+        return sql_result.get_requirement_sql()
+    return sql_result
 
 
 class TestDuckDBColumnCheck(unittest.TestCase):
@@ -151,7 +159,8 @@ class TestTypeDecimalGenerator(unittest.TestCase):
     
     def test_type_decimal_sql_generation(self):
         """Test SQL generation for TypeDecimal check."""
-        sql = self.generator.generateSql()
+        sql_result = self.generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         # Verify SQL structure
         self.assertIn("WITH invalid AS", sql)
@@ -173,7 +182,8 @@ class TestTypeDecimalGenerator(unittest.TestCase):
     def test_type_decimal_with_custom_error_message(self):
         """Test TypeDecimal with custom error message."""
         self.generator.errorMessage = "Custom decimal validation failed"
-        sql = self.generator.generateSql()
+        sql_result = self.generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         self.assertIn("Custom decimal validation failed", sql)
         
@@ -198,7 +208,8 @@ class TestTypeStringGenerator(unittest.TestCase):
         
     def test_type_string_sql_generation(self):
         """Test SQL generation for TypeString check."""
-        sql = self.generator.generateSql()
+        sql_result = self.generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         # Verify SQL structure for string type validation
         self.assertIn("WITH invalid AS", sql)
@@ -229,7 +240,8 @@ class TestCheckValueGenerator(unittest.TestCase):
             Value="USD"
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         self.assertIn("WITH invalid AS", sql)
         self.assertIn("Currency != 'USD'", sql)
@@ -244,7 +256,8 @@ class TestCheckValueGenerator(unittest.TestCase):
             Value=None
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         self.assertIn("OptionalField IS NOT NULL", sql)
         self.assertIn("OptionalField MUST be NULL", sql)
@@ -258,7 +271,8 @@ class TestCheckValueGenerator(unittest.TestCase):
             Value=1.0
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         self.assertIn("Version != '1.0'", sql)
         self.assertIn("Version MUST equal ''1.0''", sql)
@@ -272,7 +286,8 @@ class TestCheckValueGenerator(unittest.TestCase):
             Value="O'Reilly"
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         # Single quotes should be escaped
         self.assertIn("O''Reilly", sql)
@@ -292,7 +307,8 @@ class TestFormatGenerators(unittest.TestCase):
             ColumnName="Amount"
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         self.assertIn("WITH invalid AS", sql)
         self.assertIn("Amount IS NOT NULL", sql)
@@ -309,7 +325,8 @@ class TestFormatGenerators(unittest.TestCase):
             ColumnName="BillingPeriodStart"
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         self.assertIn("WITH invalid AS", sql)
         self.assertIn("BillingPeriodStart IS NOT NULL", sql)
@@ -326,7 +343,8 @@ class TestFormatGenerators(unittest.TestCase):
             ColumnName="BillingCurrency"
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         self.assertIn("WITH invalid AS", sql)
         self.assertIn("BillingCurrency IS NOT NULL", sql)
@@ -348,7 +366,8 @@ class TestComparisonGenerators(unittest.TestCase):
             Value=0
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         self.assertIn("WITH invalid AS", sql)
         self.assertIn("UsageQuantity < 0", sql)
@@ -366,7 +385,8 @@ class TestComparisonGenerators(unittest.TestCase):
             Value="Invalid"
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         # Fixed: CheckNotValue should find violations where Status IS NOT NULL AND Status = 'Invalid'
         self.assertIn("Status IS NOT NULL AND Status = 'Invalid'", sql)
@@ -385,7 +405,8 @@ class TestComparisonGenerators(unittest.TestCase):
             Value="Correction"
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         # Should only find violations where ChargeClass is NOT NULL and equals 'Correction'
         # This will exclude NULL values (which should not be violations)
@@ -409,7 +430,8 @@ class TestComparisonGenerators(unittest.TestCase):
             ResultColumnName="ExpectedCost"
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         self.assertIn("(EffectiveCost * BilledCost)", sql)
         
@@ -430,7 +452,8 @@ class TestAdvancedGenerators(unittest.TestCase):
             ExpectedCount=1
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         self.assertIn("GROUP BY BillingAccountId", sql)
         self.assertIn("COUNT(DISTINCT BillingAccountName)", sql)
@@ -468,7 +491,8 @@ class TestSQLGenerationPatterns(unittest.TestCase):
         
         for generator in generators:
             
-            sql = generator.generateSql()
+            sql_result = generator.generateSql()
+            sql = _extract_sql(sql_result)
             
             # All generators should follow CTE pattern
             self.assertIn("WITH invalid AS", sql, f"Generator {type(generator)} missing CTE pattern")
@@ -518,7 +542,8 @@ class TestRuleIntegration(unittest.TestCase):
         )
         
         # Generate SQL
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         # Validate generated SQL matches expected structure
         self.assertIn("ListUnitPrice", sql)
@@ -560,7 +585,8 @@ class TestRuleIntegration(unittest.TestCase):
                 **case["params"]
             )
             
-            sql = generator.generateSql()
+            sql_result = generator.generateSql()
+            sql = _extract_sql(sql_result)
             
             # Check expected patterns exist
             for pattern in case["expected_patterns"]:
@@ -653,16 +679,18 @@ class TestGeneratePredicateFunctionality(unittest.TestCase):
         mock_rule = Mock(spec=ModelRule)
         mock_rule.rule_id = "TEST-PREDICATE-005"
         
-        # TypeDecimal generator doesn't support condition mode
+        # TypeDecimal generator now supports predicate generation  
         type_generator = TypeDecimalCheckGenerator(
             rule=mock_rule,
             rule_id="TEST-PREDICATE-005",
             ColumnName="Amount"
         )
         
-        # Should return None when not in condition mode
+        # Should return predicate when requested
         predicate = type_generator.generatePredicate()
-        self.assertIsNone(predicate)
+        self.assertIsNotNone(predicate)
+        self.assertIn("Amount IS NOT NULL", predicate)
+        self.assertIn("typeof(Amount) IN", predicate)
         
     def test_predicate_vs_sql_difference(self):
         """Test the difference between generatePredicate() and generateSql()."""
@@ -687,7 +715,8 @@ class TestGeneratePredicateFunctionality(unittest.TestCase):
         )
         
         # Requirement mode: full SQL query for violation detection
-        requirement_sql = requirement_generator.generateSql()
+        requirement_sql_result = requirement_generator.generateSql()
+        requirement_sql = _extract_sql(requirement_sql_result)
         self.assertIn("SELECT", requirement_sql)
         self.assertIn("COUNT(*) AS violations", requirement_sql)
         self.assertIn("Status != 'Active'", requirement_sql)
@@ -750,7 +779,8 @@ class TestConditionalRules(unittest.TestCase):
             Value=0
         )
         
-        sql = requirement_generator.generateSql()
+        sql_result = requirement_generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         # Verify SQL structure for BilledCost = 0 check
         self.assertIn("WITH invalid AS", sql)
@@ -768,7 +798,8 @@ class TestConditionalRules(unittest.TestCase):
             ColumnBName="InvoiceIssuerName"
         )
         
-        sql = condition_generator.generateSql()
+        sql_result = condition_generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         # Verify SQL structure for column comparison
         self.assertIn("WITH invalid AS", sql)
@@ -796,8 +827,10 @@ class TestConditionalRules(unittest.TestCase):
         )
         
         # Generate SQL for both parts
-        requirement_sql = requirement_gen.generateSql()
-        condition_sql = condition_gen.generateSql()
+        requirement_sql_result = requirement_gen.generateSql()
+        requirement_sql = _extract_sql(requirement_sql_result)
+        condition_sql_result = condition_gen.generateSql()
+        condition_sql = _extract_sql(condition_sql_result)
         
         # Both should be valid SQL with proper structure
         for sql in [requirement_sql, condition_sql]:
@@ -826,7 +859,8 @@ class TestConditionalRules(unittest.TestCase):
         )
         requirement_gen.errorMessage = "BilledCost MUST be 0 for marketplace transactions where payments are received by a third party"
         
-        sql = requirement_gen.generateSql()
+        sql_result = requirement_gen.generateSql()
+        sql = _extract_sql(sql_result)
         
         # Verify the custom error message is included
         self.assertIn("marketplace transactions", sql)
@@ -851,7 +885,8 @@ class TestConditionalRules(unittest.TestCase):
             ColumnBName="InvoiceIssuerName"  # Referenced in dependency
         )
         
-        sql = condition_gen.generateSql()
+        sql_result = condition_gen.generateSql()
+        sql = _extract_sql(sql_result)
         
         # SQL should reference both dependent columns
         self.assertIn("ProviderName", sql)
@@ -918,7 +953,8 @@ class TestAdvancedConditionalScenarios(unittest.TestCase):
                     **scenario["params"]
                 )
                 
-                sql = generator.generateSql()
+                sql_result = generator.generateSql()
+                sql = _extract_sql(sql_result)
                 
                 # Verify basic SQL structure
                 self.assertIn("WITH invalid AS", sql)
@@ -961,14 +997,18 @@ class TestAdvancedConditionalScenarios(unittest.TestCase):
         
         # All should generate valid SQL that could be combined
         for generator in [service_condition, charge_condition, quantity_requirement]:
-            sql = generator.generateSql()
+            sql_result = generator.generateSql()
+            sql = _extract_sql(sql_result)
             self.assertIn("WITH invalid AS", sql)
             self.assertIn("FROM {table_name}", sql)
             
         # Verify specific logic for each component
-        service_sql = service_condition.generateSql()
-        charge_sql = charge_condition.generateSql() 
-        quantity_sql = quantity_requirement.generateSql()
+        service_sql_result = service_condition.generateSql()
+        service_sql = _extract_sql(service_sql_result)
+        charge_sql_result = charge_condition.generateSql()
+        charge_sql = _extract_sql(charge_sql_result)
+        quantity_sql_result = quantity_requirement.generateSql()
+        quantity_sql = _extract_sql(quantity_sql_result)
         
         self.assertIn("ServiceCategory", service_sql)
         self.assertIn("ChargeCategory", charge_sql)
@@ -998,7 +1038,8 @@ class TestErrorHandling(unittest.TestCase):
             ColumnName=""
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         # Should still generate valid SQL structure
         self.assertIn("WITH invalid AS", sql)
         
@@ -1014,7 +1055,8 @@ class TestErrorHandling(unittest.TestCase):
             Value="test"
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         # Should handle column names with spaces
         self.assertIn("Column With Spaces", sql)
@@ -1050,7 +1092,8 @@ class TestFOCUSRuleScenarios(unittest.TestCase):
             ColumnName="BillingCurrency"
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         # Should validate against ISO currency codes
         self.assertIn("WITH invalid AS", sql)
@@ -1069,7 +1112,8 @@ class TestFOCUSRuleScenarios(unittest.TestCase):
             Value=0
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         # Should check for non-negative values
         self.assertIn("UsageQuantity IS NOT NULL", sql)
@@ -1088,7 +1132,8 @@ class TestFOCUSRuleScenarios(unittest.TestCase):
             ResultColumnName="EffectiveCost"
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         # Should validate calculation
         self.assertIn("ListUnitPrice IS NOT NULL", sql)
@@ -1109,7 +1154,8 @@ class TestFOCUSRuleScenarios(unittest.TestCase):
             ExpectedCount=1
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         
         # Should group by account ID and count distinct names
         self.assertIn("GROUP BY BillingAccountId", sql)
@@ -1139,7 +1185,8 @@ class TestSQLSafetyAndPerformance(unittest.TestCase):
                 Value=dangerous_value
             )
             
-            sql = generator.generateSql()
+            sql_result = generator.generateSql()
+            sql = _extract_sql(sql_result)
             
             # Should properly escape quotes to prevent SQL injection
             escaped_value = dangerous_value.replace("'", "''")
@@ -1161,7 +1208,8 @@ class TestSQLSafetyAndPerformance(unittest.TestCase):
         ]
         
         for generator in generators:
-            sql = generator.generateSql()
+            sql_result = generator.generateSql()
+            sql = _extract_sql(sql_result)
             
             # All generators should handle NULL appropriately
             self.assertIn("NULL", sql)
@@ -1183,7 +1231,8 @@ class TestSQLSafetyAndPerformance(unittest.TestCase):
             Value=large_number
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         self.assertIn(str(large_number), sql)
         
         # Test very long string
@@ -1195,7 +1244,8 @@ class TestSQLSafetyAndPerformance(unittest.TestCase):
             Value=long_string
         )
         
-        sql = generator.generateSql()
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
         self.assertIn(long_string, sql)
         
     def test_unicode_and_special_characters(self):
@@ -1220,7 +1270,8 @@ class TestSQLSafetyAndPerformance(unittest.TestCase):
                 Value=unicode_value
             )
             
-            sql = generator.generateSql()
+            sql_result = generator.generateSql()
+            sql = _extract_sql(sql_result)
             
             # Should handle Unicode properly
             self.assertIn("WITH invalid AS", sql)
