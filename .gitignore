@@ -175,3 +175,7 @@ focus_validator/rules/model-*.json
 *.dot
 *.svg
 tests/samples/focus_sample_10000.csv
+profiling_data_fake_focuses2000.csv
+*.dot
+focus_validator_detailed.log
+focus_validator_detailed.log.*
