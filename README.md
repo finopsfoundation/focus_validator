@@ -443,6 +443,126 @@ Extensible data loading framework supporting multiple file formats:
 - Memory-efficient processing for large datasets
 - Extensible architecture for additional formats
 
+#### CSV Data Loading with Schema Inference
+
+The CSV data loader uses Polars with `infer_schema_length=10000` to analyze the first 10,000 rows for data type detection. This provides a good balance between accuracy and performance for most datasets.
+
+**Understanding Schema Inference:**
+
+The `infer_schema_length` parameter determines how many rows Polars examines to infer column data types:
+
+- **Default: 10,000 rows** - Suitable for most FOCUS datasets
+- **Higher values** - More accurate type detection but slower loading
+- **Lower values** - Faster loading but may miss type patterns
+
+**Handling Datasets with Many Null Values:**
+
+If your dataset has more than 10,000 rows of null values at the beginning, you may encounter data type inference issues. Here are several solutions:
+
+##### Option 1: Specify Column Types Explicitly
+
+When loading CSV data programmatically, provide explicit column types:
+
+```python
+from focus_validator.data_loaders.csv_data_loader import CSVDataLoader
+import polars as pl
+
+# Define column types for problematic columns
+column_types = {
+    "BilledCost": pl.Float64(),
+    "EffectiveCost": pl.Float64(),
+    "ListCost": pl.Float64(),
+    "BillingPeriodStart": pl.Datetime("us", "UTC"),
+    "BillingPeriodEnd": pl.Datetime("us", "UTC"),
+    "AccountId": pl.Utf8(),
+    "ResourceId": pl.Utf8(),
+    # Add other columns as needed
+}
+
+loader = CSVDataLoader("your_data.csv", column_types=column_types)
+df = loader.load()
+```
+
+##### Option 2: Clean Your Data
+
+Pre-process your CSV file to move non-null data towards the beginning:
+
+```bash
+# Sort CSV by a column that has early non-null values
+head -1 your_data.csv > header.csv
+tail -n +2 your_data.csv | sort -t',' -k1,1 > sorted_data.csv
+cat header.csv sorted_data.csv > cleaned_data.csv
+```
+
+##### Option 3: Increase Schema Inference Length
+
+For very large datasets with sparse data, you can modify the inference length by extending the CSV loader. Create a custom loader:
+
+```python
+import polars as pl
+
+# Load with increased inference length
+df = pl.read_csv(
+    "your_data.csv",
+    infer_schema_length=50000,  # Analyze first 50,000 rows
+    try_parse_dates=True,
+    null_values=["", "NULL", "INVALID", "INVALID_COST", "BAD_DATE"]
+)
+```
+
+##### Option 4: Two-Pass Loading
+
+For extremely challenging datasets, use a two-pass approach:
+
+```python
+import polars as pl
+
+# First pass: scan the entire file to understand data patterns
+schema_sample = pl.scan_csv("your_data.csv").sample(n=10000).collect()
+
+# Analyze the sample to determine appropriate types
+inferred_types = {}
+for col in schema_sample.columns:
+    non_null_values = schema_sample[col].drop_nulls()
+    if len(non_null_values) > 0:
+        # Determine appropriate type based on sample
+        if non_null_values.dtype == pl.Utf8:
+            # Try to infer if it should be numeric or datetime
+            try:
+                pl.Series(non_null_values.to_list()).cast(pl.Float64)
+                inferred_types[col] = pl.Float64()
+            except:
+                try:
+                    pl.Series(non_null_values.to_list()).str.strptime(pl.Datetime)
+                    inferred_types[col] = pl.Datetime("us", "UTC")
+                except:
+                    inferred_types[col] = pl.Utf8()
+
+# Second pass: load with determined schema
+df = pl.read_csv("your_data.csv", schema_overrides=inferred_types)
+```
+
+**Common Signs of Schema Inference Issues:**
+
+- Numeric columns loaded as strings (Utf8) when they should be Float64
+- Date columns not parsed as datetime types
+- Validation failures for type-checking rules
+- Unexpected null value counts in validation output
+
+**Best Practices for Large Datasets:**
+
+1. **Validate Your Data First**: Use tools like `head`, `tail`, and `wc -l` to understand your data structure
+2. **Check for Empty Rows**: Ensure the beginning of your file contains representative data
+3. **Use Consistent Null Representations**: Stick to standard null values like empty strings or "NULL"
+4. **Test with Sample Data**: Validate schema inference with a smaller sample before processing full datasets
+5. **Monitor Loading Logs**: The CSV loader provides detailed logging about type conversion attempts and failures
+
+**Performance Considerations:**
+
+- Higher `infer_schema_length` values increase loading time but improve accuracy
+- For very large files (>1GB), consider processing in chunks or using Parquet format instead
+- The CSV loader includes automatic fallback mechanisms for problematic columns
+
 ### 5. Validation Rules Engine (`rules/`)
 
 The core validation execution engine:

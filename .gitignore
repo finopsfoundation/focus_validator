@@ -179,3 +179,4 @@ profiling_data_fake_focuses2000.csv
 *.dot
 focus_validator_detailed.log
 focus_validator_detailed.log.*
+*.html

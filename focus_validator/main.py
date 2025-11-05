@@ -143,7 +143,7 @@ def main() -> None:
         "--output-type",
         default="console",
         help="What type of output you would like",
-        choices=["console", "unittest"],
+        choices=["console", "unittest", "web"],
     )
     parser.add_argument(
         "--output-destination",

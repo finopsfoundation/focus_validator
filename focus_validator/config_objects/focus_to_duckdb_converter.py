@@ -303,13 +303,24 @@ class DuckDBCheckGenerator(ABC):
         }
 
         # 4) Create the final check object
+        # For composite rules (with nested checks), don't set fallback error message
+        # to allow runtime detailed message generation
+        has_nested_checks = bool(
+            child_checks or getattr(self, "nestedCheckHandler", None)
+        )
+        error_msg = getattr(self, "errorMessage", None)
+        if not error_msg and not has_nested_checks:
+            error_msg = f"Validation rule {self.rule_id} failed - no specific error message available"
+        elif not error_msg:
+            # For composite rules, provide a fallback but allow runtime override
+            error_msg = f"Validation rule {self.rule_id} failed"
+
         chk = DuckDBColumnCheck(
             rule_id=self.rule_id,
             rule=self.rule,
             check_type=self.getCheckType(),
             check_sql=sql,
-            error_message=getattr(self, "errorMessage", None)
-            or f"Validation rule {self.rule_id} failed - no specific error message available",
+            error_message=error_msg,
             nested_checks=child_checks or None,
             nested_check_handler=getattr(self, "nestedCheckHandler", None),
             meta=meta,
@@ -1531,7 +1542,7 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
     COMPOSITE_NAME = "COMPOSITE"
     HANDLER = staticmethod(all)  # override in subclasses
 
-    def generateSql(self) -> SQLQuery:
+    def generateSql(self) -> SQLQuery:  # noqa: C901
         if not callable(self.child_builder):
             raise RuntimeError(f"{self.__class__.__name__} requires child_builder")
 
@@ -1752,9 +1763,12 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
         self.nestedCheckHandler = (
             self.HANDLER.__func__ if hasattr(self.HANDLER, "__func__") else self.HANDLER
         )
-        self.errorMessage = (
-            self.p.get("Message") or f"{self.rule_id}: {self.COMPOSITE_NAME} failed"
-        )
+
+        # Don't set a static errorMessage for composites - let runtime logic provide detailed failure info
+        # Only set errorMessage if explicitly provided in the rule specification
+        if self.p.get("Message"):
+            self.errorMessage = self.p.get("Message")
+        # Otherwise, errorMessage will be None and _msg_for_outcome will use the detailed fallback_fail message
 
         # For composites, requirement SQL is typically trivial since logic is in nested checks
         requirement_sql = "SELECT 0 AS violations"
@@ -1885,6 +1899,39 @@ class CompositeORRuleGenerator(CompositeBaseRuleGenerator):
                 # OR passes if ANY child passes
                 overall_ok = any(child_oks)
 
+                # Collect information about failed rule IDs for detailed error message
+                failed_rule_ids = []
+                passed_rule_ids = []
+                for i, (child, child_ok) in enumerate(
+                    zip(original_nested_checks, child_oks)
+                ):
+                    child_rule_id = getattr(child, "rule_id", None)
+                    child_check_type = getattr(child, "checkType", None) or getattr(
+                        child, "check_type", None
+                    )
+
+                    # For CheckModelRule references, try to get the actual ModelRuleId
+                    referenced_rule_id = getattr(child, "referenced_rule_id", None)
+
+                    # Build meaningful description for each child
+                    if referenced_rule_id:
+                        child_desc = referenced_rule_id
+                    elif (
+                        child_check_type
+                        and child_rule_id
+                        and child_check_type != child_rule_id
+                    ):
+                        child_desc = f"{child_check_type}#{i + 1}"
+                    elif child_rule_id:
+                        child_desc = f"{child_rule_id}#{i + 1}"
+                    else:
+                        child_desc = f"child#{i + 1}"
+
+                    if child_ok:
+                        passed_rule_ids.append(child_desc)
+                    else:
+                        failed_rule_ids.append(child_desc)
+
                 # For the composite level, if OR fails, report the actual number of failing rows
                 # This is the original violation count from any child (they should all be the same)
                 composite_violations = 0
@@ -1903,13 +1950,22 @@ class CompositeORRuleGenerator(CompositeBaseRuleGenerator):
                     if composite_violations == 0:  # Fallback
                         composite_violations = 1
 
+                # Build detailed message for OR composite
+                rule_id = getattr(check, "rule_id", "<rule>")
+                if overall_ok:
+                    message = f"{rule_id}: OR passed - satisfied by rules: [{', '.join(passed_rule_ids)}]"
+                else:
+                    message = f"{rule_id}: OR failed - all child rules failed: [{', '.join(failed_rule_ids)}]"
+
                 details = {
                     "children": child_details,
                     "aggregated": "any",
-                    "message": f"{getattr(check, 'rule_id', '<rule>')}: {'OR passed' if overall_ok else 'OR failed'}",
+                    "message": message,
                     "violations": composite_violations,
                     "check_type": "composite",
                     "or_semantic_adjustment": True,
+                    "failed_rule_ids": failed_rule_ids,
+                    "passed_rule_ids": passed_rule_ids,
                 }
 
                 return overall_ok, details
@@ -2355,7 +2411,7 @@ class FocusToDuckDBSchemaConverter:
         )
         return check_obj
 
-    def run_check(self, check: Any) -> Tuple[bool, Dict[str, Any]]:
+    def run_check(self, check: Any) -> Tuple[bool, Dict[str, Any]]:  # noqa: C901
         """
         Execute a DuckDBColumnCheck (leaf or composite) or a SkippedCheck.
         Ensures details always include: violations:int, message:str.
@@ -2488,18 +2544,71 @@ class FocusToDuckDBSchemaConverter:
                 )
 
             agg_ok = bool(handler(oks))
+
+            # Collect information about failed and passed children for detailed error messages
+            failed_child_ids = []
+            passed_child_ids = []
+            for i, (child, child_ok) in enumerate(zip(nested, oks)):
+                child_rule_id = getattr(child, "rule_id", None)
+                child_check_type = getattr(child, "checkType", None) or getattr(
+                    child, "check_type", None
+                )
+
+                # For CheckModelRule references, try to get the actual ModelRuleId
+                referenced_rule_id = getattr(child, "referenced_rule_id", None)
+
+                # Build meaningful description for each child
+                if referenced_rule_id:
+                    child_desc = referenced_rule_id
+                elif (
+                    child_check_type
+                    and child_rule_id
+                    and child_check_type != child_rule_id
+                ):
+                    child_desc = f"{child_check_type}#{i + 1}"
+                elif child_rule_id:
+                    child_desc = f"{child_rule_id}#{i + 1}"
+                else:
+                    child_desc = f"child#{i + 1}"
+
+                if child_ok:
+                    passed_child_ids.append(child_desc)
+                else:
+                    failed_child_ids.append(child_desc)
+
+            # Build detailed message based on composite type and outcome
+            composite_rule_id = getattr(check, "rule_id", "<rule>")
+            composite_type = handler.__name__ if handler else "composite"
+
+            if agg_ok:
+                if composite_type == "all":  # AND composite
+                    fallback_message = f"{composite_rule_id}: AND passed - all child rules succeeded: [{', '.join(passed_child_ids)}]"
+                elif composite_type == "any":  # OR composite
+                    fallback_message = f"{composite_rule_id}: OR passed - satisfied by rules: [{', '.join(passed_child_ids)}]"
+                else:
+                    fallback_message = f"{composite_rule_id}: {composite_type} passed"
+            else:
+                if composite_type == "all":  # AND composite
+                    fallback_message = f"{composite_rule_id}: AND failed - failed child rules: [{', '.join(failed_child_ids)}]"
+                elif composite_type == "any":  # OR composite
+                    fallback_message = f"{composite_rule_id}: OR failed - all child rules failed: [{', '.join(failed_child_ids)}]"
+                else:
+                    fallback_message = f"{composite_rule_id}: {composite_type} failed - failed children: [{', '.join(failed_child_ids)}]"
+
             normal_details = {
                 "children": normal_child_details,
                 "aggregated": handler.__name__,
                 "message": _msg_for_outcome(
                     check,
                     agg_ok,
-                    fallback_fail=f"{getattr(check, 'rule_id', '<rule>')}: composite failed",
-                    fallback_ok=None,  # or f"{getattr(check,'rule_id','<rule>')}: OK"
+                    fallback_fail=fallback_message,
+                    fallback_ok=fallback_message if agg_ok else None,
                 ),
                 "violations": 0 if agg_ok else 1,
                 "check_type": getattr(check, "checkType", None)
                 or getattr(check, "check_type", None),
+                "failed_child_ids": failed_child_ids,
+                "passed_child_ids": passed_child_ids,
             }
             return agg_ok, normal_details
 

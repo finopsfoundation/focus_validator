@@ -42,6 +42,7 @@ class Validator:
         self.data_filename = data_filename
         self.data_format = data_format
         self.focus_data = None
+        self.focus_dataset = focus_dataset
         self.explain_mode = explain_mode
         self.transpile_dialect = transpile_dialect
         self.show_violations = show_violations
@@ -129,6 +130,7 @@ class Validator:
             output_type=output_type,
             output_destination=output_destination,
             show_violations=show_violations,
+            focus_dataset=self.focus_dataset,
         )
 
         self.log.debug("Validator initialization completed")
