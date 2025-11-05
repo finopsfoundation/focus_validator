@@ -180,25 +180,32 @@ class UnittestOutputter:
                 rule = None
 
             details = entry.get("details", {})
+            
+            # Extract column/entity name from rule reference
+            column_id = "Unknown"
+            friendly_name = rule_id
+            check_type_friendly_name = "Unknown"
+            
+            if rule:
+                # Use rule reference as column_id (this is the entity being validated)
+                column_id = getattr(rule, "reference", "Unknown")
+                # Create a friendly name using rule function and reference
+                function = getattr(rule, "function", "Unknown")
+                reference = getattr(rule, "reference", "Unknown")
+                friendly_name = f"{function} check for {reference}"
+                # Use rule function as check type friendly name
+                check_type_friendly_name = getattr(rule, "function", "Unknown")
 
             return {
                 "check_name": rule_id,
                 "status": type(
                     "MockStatus", (), {"value": status}
                 )(),  # Mock status object
-                "column_id": (
-                    getattr(rule, "column_id", "Unknown") if rule else "Unknown"
-                ),
-                "friendly_name": (
-                    getattr(rule, "friendly_name", rule_id) if rule else rule_id
-                ),
-                "error": details.get("message") if status == "failed" else None,
+                "column_id": column_id,
+                "friendly_name": friendly_name,
+                "error": details.get("message") if status in ["failed", "errored"] else None,
                 "rule_ref": {
-                    "check_type_friendly_name": (
-                        getattr(rule, "check_type_friendly_name", "Unknown")
-                        if rule
-                        else "Unknown"
-                    )
+                    "check_type_friendly_name": check_type_friendly_name
                 },
             }
 
