@@ -68,7 +68,7 @@ class WebOutputter:
         This method preprocesses all rule statuses in Python to ensure consistency
         between entity and rule views. Rules are marked as:
         - MAY rules (Dataset level): Always 'skipped' (optional capabilities)
-        - MAY rules (Column level): 'skipped' when passed, 'failed' when failed or entity missing
+        - MAY rules (Column level): Always 'skipped' (optional capabilities)
         - Dynamic rules: 'skipped' when passed, 'failed' when failed or entity missing
         - Static rules: 'passed' when passed, 'failed' when failed
         """
@@ -166,13 +166,9 @@ class WebOutputter:
             # Dataset-level MAY rules: ALWAYS skipped regardless of pass/fail (optional capabilities)
             final_status = "skipped"
         elif rule_keyword == "MAY":
-            # Column-level MAY rules: skipped when passed and entity exists, failed when entity missing or explicitly failed
-            if entity_missing or is_explicitly_failed:
-                final_status = "failed"
-                if entity_missing:
-                    processed_entry["ok"] = False  # Ensure entry reflects failure
-            else:
-                final_status = "skipped"  # MAY rules default to skipped when passed
+            # Column-level MAY rules: ALWAYS skipped regardless of pass/fail (optional capabilities)
+            # MAY rules represent optional features and should never be marked as "failed"
+            final_status = "skipped"
         elif rule_type == "Dynamic":
             # Dynamic rules: skipped when passed and not explicitly failed, failed when entity missing or failed
             if entity_missing or is_explicitly_failed:
@@ -1209,7 +1205,7 @@ class WebOutputter:
                             <label for="shouldFilter">SHOULD</label>
                         </div>
                         <div class="checkbox-item">
-                            <input type="checkbox" id="mayFilter" checked>
+                            <input type="checkbox" id="mayFilter">
                             <label for="mayFilter">MAY</label>
                         </div>
                     </div>
@@ -1254,7 +1250,40 @@ class WebOutputter:
                 </div>
             </div>
 
-            <!-- Row 5: Groups Operations -->
+            <!-- Row 5: Function Filters (Entity View Only) -->
+            <div class="filter-row" id="functionFilterRow">
+                <div class="filter-group">
+                    <label class="filter-label">Filter by function type:</label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="presenceFilter" checked>
+                            <label for="presenceFilter">Presence</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="typeFilter" checked>
+                            <label for="typeFilter">Type</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="formatFilter" checked>
+                            <label for="formatFilter">Format</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="validationFilter" checked>
+                            <label for="validationFilter">Validation</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="compositeFilter" checked>
+                            <label for="compositeFilter">Composite</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="nullabilityFilter" checked>
+                            <label for="nullabilityFilter">Nullability</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 6: Groups Operations -->
             <div class="filter-row">
                 <div class="filter-group">
                     <label class="filter-label">Groups:</label>
@@ -1265,7 +1294,7 @@ class WebOutputter:
                 </div>
             </div>
 
-            <!-- Row 6: Entities Operations -->
+            <!-- Row 7: Entities Operations -->
             <div class="filter-row">
                 <div id="entitiesFilter" class="filter-group">
                     <label class="filter-label">Entities:</label>
@@ -1448,6 +1477,9 @@ class WebOutputter:
 
             // Show the Rule Status filter row in entity view
             document.getElementById('ruleStatusRow').style.display = 'block';
+
+            // Show the Function filter row in entity view
+            document.getElementById('functionFilterRow').style.display = 'block';
         }}
 
         function renderRuleFilters() {{
@@ -1464,6 +1496,9 @@ class WebOutputter:
 
             // Hide the Rule Status filter row in rule view
             document.getElementById('ruleStatusRow').style.display = 'none';
+
+            // Hide the Function filter row in rule view
+            document.getElementById('functionFilterRow').style.display = 'none';
         }}
 
         function renderColumns(columns) {{
@@ -1492,7 +1527,7 @@ class WebOutputter:
                         </div>
                         <div class="requirements">
                             ${{column.requirements.map(req => `
-                                <div class="requirement ${{req.ruleType.toLowerCase()}}-rule" data-rule-type="${{req.rule}}" data-entity-type="${{req.entityType}}" data-execution-type="${{req.ruleType}}">
+                                <div class="requirement ${{req.ruleType.toLowerCase()}}-rule" data-rule-type="${{req.rule}}" data-entity-type="${{req.entityType}}" data-execution-type="${{req.ruleType}}" data-function="${{req.function}}">
                                     <div class="requirement-icon ${{req.status === 'skipped' ? 'skipped' : (req.passed ? 'passed' : 'failed')}}">
                                         ${{req.status === 'skipped' ? '⏭️' : (req.passed ? '✅' : '❌')}}
                                     </div>
@@ -1562,7 +1597,7 @@ class WebOutputter:
                                     </div>
                                     <div class="requirements">
                                         ${{entity.requirements.map(req => `
-                                            <div class="requirement ${{req.ruleType.toLowerCase()}}-rule" data-rule-type="${{req.rule}}" data-entity-type="${{req.entityType}}" data-execution-type="${{req.ruleType}}">
+                                            <div class="requirement ${{req.ruleType.toLowerCase()}}-rule" data-rule-type="${{req.rule}}" data-entity-type="${{req.entityType}}" data-execution-type="${{req.ruleType}}" data-function="${{req.function}}">
                                                 <div class="requirement-icon ${{req.status === 'skipped' ? 'skipped' : (req.passed ? 'passed' : 'failed')}}">
                                                     ${{req.status === 'skipped' ? '⏭️' : (req.passed ? '✅' : '❌')}}
                                                 </div>
@@ -1690,6 +1725,15 @@ class WebOutputter:
                 const showPass = passFilter.checked;
                 const showFailed = failedFilter.checked;
                 const showSkipped = skippedFilter.checked;
+
+                // Function filter values
+                const showPresence = document.getElementById('presenceFilter').checked;
+                const showType = document.getElementById('typeFilter').checked;
+                const showFormat = document.getElementById('formatFilter').checked;
+                const showValidation = document.getElementById('validationFilter').checked;
+                const showComposite = document.getElementById('compositeFilter').checked;
+                const showNullability = document.getElementById('nullabilityFilter').checked;
+
                 const currentView = window.focusValidatorState.currentView;
 
                 const requirementFilters = {{
@@ -1700,12 +1744,44 @@ class WebOutputter:
                     showDynamic: showDynamic,
                     showPass: showPass,
                     showFailed: showFailed,
-                    showSkipped: showSkipped
+                    showSkipped: showSkipped,
+                    showPresence: showPresence,
+                    showType: showType,
+                    showFormat: showFormat,
+                    showValidation: showValidation,
+                    showComposite: showComposite,
+                    showNullability: showNullability
                 }};
 
                 if (currentView === 'rule') {{
-                    // Handle rule view filtering through centralized system
-                    handleFilterChange('requirement', statusValue, requirementFilters);
+                    // For rule view, determine if this is a requirement filter change or status filter change
+                    // Initialize previous state if not exists
+                    if (!window.focusValidatorState.lastRuleRequirementFilters) {{
+                        window.focusValidatorState.lastRuleRequirementFilters = {{
+                            showMust: true, showShould: true, showMay: true,
+                            showStatic: true, showDynamic: true
+                        }};
+                    }}
+
+                    const prevRuleState = window.focusValidatorState.lastRuleRequirementFilters;
+                    const isRuleRequirementChange = prevRuleState.showMust !== showMust ||
+                                                  prevRuleState.showShould !== showShould ||
+                                                  prevRuleState.showMay !== showMay ||
+                                                  prevRuleState.showStatic !== showStatic ||
+                                                  prevRuleState.showDynamic !== showDynamic;
+
+                    // Store current state for next comparison (only the filters that affect totals)
+                    window.focusValidatorState.lastRuleRequirementFilters = {{
+                        showMust: showMust,
+                        showShould: showShould,
+                        showMay: showMay,
+                        showStatic: showStatic,
+                        showDynamic: showDynamic
+                    }};
+
+                    // Determine filter type - only MUST/SHOULD/MAY and Static/Dynamic changes are 'requirement'
+                    const filterType = isRuleRequirementChange ? 'requirement' : 'status';
+                    handleFilterChange(filterType, statusValue, requirementFilters);
                     return;
                 }}
 
@@ -1749,6 +1825,14 @@ class WebOutputter:
             passFilter.addEventListener('change', filterColumns);
             failedFilter.addEventListener('change', filterColumns);
             skippedFilter.addEventListener('change', filterColumns);
+
+            // Function filter event listeners
+            document.getElementById('presenceFilter').addEventListener('change', filterColumns);
+            document.getElementById('typeFilter').addEventListener('change', filterColumns);
+            document.getElementById('formatFilter').addEventListener('change', filterColumns);
+            document.getElementById('validationFilter').addEventListener('change', filterColumns);
+            document.getElementById('compositeFilter').addEventListener('change', filterColumns);
+            document.getElementById('nullabilityFilter').addEventListener('change', filterColumns);
         }}
 
         // Legacy function for compatibility - now just calls the centralized system
@@ -1850,7 +1934,8 @@ class WebOutputter:
          * - Support status: Calculated from preprocessed rule statuses
          */
         function applyEntityViewFiltering(statusValue, requirementFilters) {{
-            const {{ showMust, showShould, showMay, showStatic, showDynamic, showPass, showFailed, showSkipped }} = requirementFilters;
+            const {{ showMust, showShould, showMay, showStatic, showDynamic, showPass, showFailed, showSkipped,
+                     showPresence, showType, showFormat, showValidation, showComposite, showNullability }} = requirementFilters;
 
             // Helper functions for categorizing rule types
             function getRuleTypeCategory(ruleType) {{
@@ -1871,12 +1956,17 @@ class WebOutputter:
                 const requirements = card.querySelectorAll('.requirement');
                 let ruleTypeMatch = false;
                 let matchingRequirements = [];
+                let hasVisibleRequirements = false;
+
+                // Store original entity status to preserve it from function filtering
+                const originalStatus = card.dataset.status || 'not';
 
                 // Process each requirement for filtering
                 requirements.forEach(req => {{
                     const ruleType = req.dataset.ruleType;
                     const entityType = req.dataset.entityType;
                     const executionType = req.dataset.executionType;
+                    const functionType = req.dataset.function;
                     const category = getRuleTypeCategory(ruleType);
                     const execCategory = getExecutionTypeCategory(executionType);
 
@@ -1888,6 +1978,14 @@ class WebOutputter:
                     const executionTypeVisible = (execCategory === 'static' && showStatic) ||
                                                  (execCategory === 'dynamic' && showDynamic);
 
+                    // Check function type filters
+                    const functionVisible = (functionType === 'Presence' && showPresence) ||
+                                           (functionType === 'Type' && showType) ||
+                                           (functionType === 'Format' && showFormat) ||
+                                           (functionType === 'Validation' && showValidation) ||
+                                           (functionType === 'Composite' && showComposite) ||
+                                           (functionType === 'Nullability' && showNullability);
+
                     // Check rule status filters
                     const icon = req.querySelector('.requirement-icon');
                     const passed = icon && icon.classList.contains('passed');
@@ -1898,19 +1996,25 @@ class WebOutputter:
                                          (failed && showFailed) ||
                                          (skipped && showSkipped);
 
-                    if (ruleTypeVisible && executionTypeVisible && statusVisible) {{
+                    // Only use requirement type and execution type filters for determining ruleTypeMatch
+                    // Function and status filters are display-only and don't affect entity status calculation
+                    if (ruleTypeVisible && executionTypeVisible) {{
                         ruleTypeMatch = true;
                         matchingRequirements.push({{ passed: passed, skipped: skipped }});
+                    }}
 
-                        // Show requirement
+                    // Show/hide requirements based on ALL filters (including function and status)
+                    const requirementVisible = ruleTypeVisible && executionTypeVisible && functionVisible && statusVisible;
+                    if (requirementVisible) {{
                         req.style.display = 'flex';
+                        hasVisibleRequirements = true;
                     }} else {{
-                        // Hide requirement not matching filters
                         req.style.display = 'none';
                     }}
                 }});
 
-                // Calculate entity status from preprocessed rule statuses
+                // Calculate entity status only from requirement type and execution type filters
+                // Function and status filters should not affect the entity status
                 let entityStatus = 'not';
                 if (matchingRequirements.length > 0) {{
                     const passedCount = matchingRequirements.filter(req => req.passed).length;
@@ -1924,7 +2028,7 @@ class WebOutputter:
                     }}
                 }}
 
-                // Update visual status badge
+                // Keep original status badge and requirement counts - don't recalculate when only display filters change
                 const statusBadge = card.querySelector('.status-badge');
                 if (statusBadge) {{
                     statusBadge.className = `status-badge status-${{entityStatus}}`;
@@ -1935,9 +2039,9 @@ class WebOutputter:
                 // Update card data-status for consistent status-based filtering
                 card.dataset.status = entityStatus;
 
-                // Control entity visibility based on status filter
+                // Control entity visibility based on status filter AND whether any requirements are visible
                 const statusMatch = statusValue === 'all' || entityStatus === statusValue;
-                const shouldShowCard = statusMatch && ruleTypeMatch;
+                const shouldShowCard = statusMatch && ruleTypeMatch && hasVisibleRequirements;
                 card.style.display = shouldShowCard ? 'block' : 'none';
             }});
         }}
@@ -1957,10 +2061,45 @@ class WebOutputter:
             }};
 
             if (currentView === 'rule') {{
-                // Count visible rules by their current status
+                // For rule view: Count ALL rules based on requirement type filters, not visibility
+                // This ensures totals represent the filtered rule set, not just what's currently visible
+                const showMust = document.getElementById('mustFilter').checked;
+                const showShould = document.getElementById('shouldFilter').checked;
+                const showMay = document.getElementById('mayFilter').checked;
+                const showStatic = document.getElementById('staticFilter').checked;
+                const showDynamic = document.getElementById('dynamicFilter').checked;
+
+                function getRuleTypeCategory(ruleType) {{
+                    if (ruleType === 'MUST' || ruleType === 'MUST NOT') return 'must';
+                    if (ruleType === 'SHOULD' || ruleType === 'SHOULD NOT' ||
+                        ruleType === 'RECOMMENDED' || ruleType === 'NOT RECOMMENDED') return 'should';
+                    if (ruleType === 'MAY' || ruleType === 'OPTIONAL') return 'may';
+                    return 'other';
+                }}
+
+                function getExecutionTypeCategory(executionType) {{
+                    if (executionType === 'Static') return 'static';
+                    if (executionType === 'Dynamic') return 'dynamic';
+                    return 'other';
+                }}
+
                 const allRules = document.querySelectorAll('.rule-item');
                 allRules.forEach(rule => {{
-                    if (rule.style.display !== 'none') {{
+                    // Check if rule should be included based on requirement filters only
+                    const ruleType = rule.dataset.ruleType;
+                    const executionType = rule.dataset.executionType;
+                    const category = getRuleTypeCategory(ruleType);
+                    const execCategory = getExecutionTypeCategory(executionType);
+
+                    const ruleTypeVisible = (category === 'must' && showMust) ||
+                                           (category === 'should' && showShould) ||
+                                           (category === 'may' && showMay);
+
+                    const executionTypeVisible = (execCategory === 'static' && showStatic) ||
+                                                 (execCategory === 'dynamic' && showDynamic);
+
+                    // Only count rules that match the requirement filters
+                    if (ruleTypeVisible && executionTypeVisible) {{
                         const status = rule.dataset.status;
                         counts.totalColumns++;
 
