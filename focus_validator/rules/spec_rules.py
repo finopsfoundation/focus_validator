@@ -29,6 +29,11 @@ class ValidationResults:
     by_idx: Dict[int, Dict[str, Any]]
     by_rule_id: Dict[str, Dict[str, Any]]
     rules: Dict[str, ModelRule]  # rule_id -> full rule object for outputter access
+    rules_version: str  # Version of FOCUS rules being validated against
+    data_filename: str  # Input data filename for validation context
+    data_row_count: int  # Number of rows in the input data
+    model_version: str  # Requirements model version from JSON Details section
+    focus_dataset: str  # FOCUS dataset name being validated
 
 
 class SpecRules:
@@ -51,6 +56,7 @@ class SpecRules:
         self.rule_set_path = rule_set_path
         self.rules_file_prefix = rules_file_prefix
         self.rules_version = rules_version
+        self.model_version = "Unknown"  # Will be loaded from JSON file
         self.rules_file_suffix = rules_file_suffix
         self.focus_dataset = focus_dataset
         self.filter_rules = filter_rules
@@ -259,6 +265,17 @@ class SpecRules:
             filter_rules=self.filter_rules,
             applicability_criteria_list=self.applicability_criteria_list,
         )
+
+        # Load model version from the JSON file Details section
+        try:
+            model_data = JsonLoader.load_json_rules(self.json_rule_file)
+            details = model_data.get("Details", {})
+            self.model_version = details.get("ModelVersion", "Unknown")
+            self.log.debug("Loaded model version: %s", self.model_version)
+        except Exception as e:
+            self.log.warning("Failed to load model version: %s", e)
+            self.model_version = "Unknown"
+
         self.plan = val_plan
         self.column_types = column_types
         self._meta = {
@@ -275,6 +292,8 @@ class SpecRules:
         connection: Optional[duckdb.DuckDBPyConnection] = None,
         stop_on_first_error: bool = False,
         show_violations: bool = False,
+        data_filename: str = "",
+        data_row_count: int = 0,
     ) -> ValidationResults:
         """
         Execute the loaded ValidationPlan using DuckDB.
@@ -365,6 +384,11 @@ class SpecRules:
                             results_by_idx,
                             self._results_by_rule_id(results_by_idx),
                             rules_dict,
+                            self.rules_version,
+                            data_filename,
+                            data_row_count,
+                            self.model_version,
+                            self.focus_dataset,
                         )
 
             # 6) Normal finalization (e.g., drop temps, flush logs)
@@ -389,7 +413,14 @@ class SpecRules:
             for i in results_by_idx.keys()
         }
         return ValidationResults(
-            results_by_idx, self._results_by_rule_id(results_by_idx), rules_dict
+            results_by_idx,
+            self._results_by_rule_id(results_by_idx),
+            rules_dict,
+            self.rules_version,
+            data_filename,
+            data_row_count,
+            self.model_version,
+            self.focus_dataset,
         )
 
     def explain(self) -> Dict[str, Dict[str, Any]]:

@@ -139,7 +139,12 @@ class TestConsoleOutputter(unittest.TestCase):
                 "Pass-001-M": self.mock_rule,
                 "Fail-002-M": self.mock_rule,
                 "Skip-003-O": self.mock_rule
-            }
+            },
+            rules_version="test_rules_version",
+            data_filename="test_data.csv", 
+            data_row_count=100,
+            model_version="test_model_version",
+            focus_dataset="CostAndUsage"
         )
 
     def test_outputter_initialization(self):
@@ -196,7 +201,12 @@ class TestConsoleOutputter(unittest.TestCase):
             by_rule_id={
                 "Pass-001-M": {"ok": True, "details": {"violations": 0}, "rule_id": "Pass-001-M"}
             },
-            rules={"Pass-001-M": self.mock_rule}
+            rules={"Pass-001-M": self.mock_rule},
+            rules_version="test_rules_version",
+            data_filename="test_data.csv", 
+            data_row_count=100,
+            model_version="test_model_version",
+            focus_dataset="CostAndUsage"
         )
         
         self.outputter.write(all_pass_results)
@@ -230,7 +240,12 @@ class TestConsoleOutputter(unittest.TestCase):
             by_rule_id={
                 "Missing-Rule": {"ok": False, "details": {"violations": 1}, "rule_id": "Missing-Rule"}
             },
-            rules={}  # No rules provided
+            rules={},  # No rules provided
+            rules_version="test_rules_version",
+            data_filename="test_data.csv", 
+            data_row_count=100,
+            model_version="test_model_version",
+            focus_dataset="CostAndUsage"
         )
         
         self.outputter.write(results_missing_rule)
@@ -254,7 +269,12 @@ class TestConsoleOutputter(unittest.TestCase):
                 "Alpha-002-M": {"ok": True, "details": {}, "rule_id": "Alpha-002-M"},
                 "Beta-003-M": {"ok": True, "details": {}, "rule_id": "Beta-003-M"}
             },
-            rules={}
+            rules={},
+            rules_version="test_rules_version",
+            data_filename="test_data.csv", 
+            data_row_count=100,
+            model_version="test_model_version",
+            focus_dataset="CostAndUsage"
         )
         
         self.outputter.write(unordered_results)

@@ -321,7 +321,12 @@ class TestBuildValidationGraph(unittest.TestCase):
                 "Rule-002-M": {"ok": False, "details": {"violations": 2, "message": "Failed"}, "rule_id": "Rule-002-M"},
                 "Rule-003-O": {"ok": True, "details": {"skipped": True}, "rule_id": "Rule-003-O"}
             },
-            rules={}
+            rules={},
+            rules_version="test_rules_version",
+            data_filename="test_data.csv", 
+            data_row_count=100,
+            model_version="test_model_version",
+            focus_dataset="CostAndUsage"
         )
 
     def test_build_validation_graph_basic(self):
@@ -410,7 +415,12 @@ class TestBuildValidationGraph(unittest.TestCase):
             by_rule_id={
                 "Rule-001-M": {"ok": False, "details": {"message": long_message}, "rule_id": "Rule-001-M"}
             },
-            rules={}
+            rules={},
+            rules_version="test_rules_version",
+            data_filename="test_data.csv", 
+            data_row_count=100,
+            model_version="test_model_version",
+            focus_dataset="CostAndUsage"
         )
         
         graph = build_validation_graph(self.plan, results_with_long_message)
@@ -421,7 +431,11 @@ class TestBuildValidationGraph(unittest.TestCase):
     def test_build_validation_graph_empty_plan(self):
         """Test graph building with empty plan."""
         empty_plan = MockPlan(nodes=[])
-        empty_results = ValidationResults(by_idx={}, by_rule_id={}, rules={})
+        empty_results = ValidationResults(
+            by_idx={}, by_rule_id={}, rules={},
+            rules_version="test", data_filename="test.csv", data_row_count=0,
+            model_version="test", focus_dataset="CostAndUsage"
+        )
         
         graph = build_validation_graph(empty_plan, empty_results)
         

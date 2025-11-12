@@ -180,12 +180,12 @@ class UnittestOutputter:
                 rule = None
 
             details = entry.get("details", {})
-            
+
             # Extract column/entity name from rule reference
             column_id = "Unknown"
             friendly_name = rule_id
             check_type_friendly_name = "Unknown"
-            
+
             if rule:
                 # Use rule reference as column_id (this is the entity being validated)
                 column_id = getattr(rule, "reference", "Unknown")
@@ -203,10 +203,10 @@ class UnittestOutputter:
                 )(),  # Mock status object
                 "column_id": column_id,
                 "friendly_name": friendly_name,
-                "error": details.get("message") if status in ["failed", "errored"] else None,
-                "rule_ref": {
-                    "check_type_friendly_name": check_type_friendly_name
-                },
+                "error": (
+                    details.get("message") if status in ["failed", "errored"] else None
+                ),
+                "rule_ref": {"check_type_friendly_name": check_type_friendly_name},
             }
 
         # Handle both ValidationResults format and legacy mock format

@@ -275,7 +275,14 @@ class SpecRulesFromData:
             for i in results_by_idx.keys()
         }
         return ValidationResults(
-            results_by_idx, self._results_by_rule_id(results_by_idx), rules_dict
+            results_by_idx, 
+            self._results_by_rule_id(results_by_idx), 
+            rules_dict,
+            "test_rules_version",  # rules_version
+            "test_data.csv",       # data_filename
+            len(focus_data) if hasattr(focus_data, '__len__') else 0,  # data_row_count
+            "test_model_version",  # model_version  
+            self.focus_dataset     # focus_dataset
         )
     
     def _results_by_rule_id(

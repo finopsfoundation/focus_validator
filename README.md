@@ -736,12 +736,38 @@ Activate the virtual environment (See: [poetry-plugin-shell](https://github.com/
 poetry shell
 ```
 
-Validations can be run using cli application `focus-validator`.
+### Preferred Usage: Web Output
+
+The **recommended way** to run FOCUS validations is using the **web output type**, which generates an interactive HTML report with advanced filtering, rule grouping, and detailed validation insights:
+
+```bash
+poetry run focus-validator --data-file tests/samples/focus_sample_10000.csv --validate-version 1.2 --applicability-criteria ALL --output-type web --output-destination '10000_sample_validate.html'
+```
+
+This command:
+
+- Validates a dataset against FOCUS version 1.2
+- Includes all applicable validation rules (`--applicability-criteria ALL`)
+- Generates an interactive web report saved as `10000_sample_validate.html`
+- Provides filtering by rule status (PASS/FAILED/SKIPPED), entity types, and rule functions
+- Shows both entity-centric and rule-centric views of validation results
+
+### Additional Usage Options
 
 For help and more options:
 
 ```bash
 focus-validator --help
+```
+
+For console output or other formats:
+
+```bash
+# Console output (simple text format)
+focus-validator --data-file your_data.csv --validate-version 1.2
+
+# XML output for CI/CD integration
+focus-validator --data-file your_data.csv --validate-version 1.2 --output-type unittest --output-destination results.xml
 ```
 
 ## Explain Mode

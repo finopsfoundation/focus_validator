@@ -42,6 +42,7 @@ class Validator:
         self.data_filename = data_filename
         self.data_format = data_format
         self.focus_data = None
+        self.data_row_count = 0  # Will be set during data loading
         self.focus_dataset = focus_dataset
         self.explain_mode = explain_mode
         self.transpile_dialect = transpile_dialect
@@ -182,6 +183,7 @@ class Validator:
         if self.focus_data is not None:
             try:
                 row_count = len(self.focus_data)
+                self.data_row_count = row_count  # Store for use in validation results
                 col_count = (
                     len(self.focus_data.columns)
                     if hasattr(self.focus_data, "columns")
@@ -213,7 +215,10 @@ class Validator:
         # Validate
         self.log.debug("Executing rule validation...")
         results = self.spec_rules.validate(
-            self.focus_data, show_violations=self.show_violations
+            self.focus_data,
+            show_violations=self.show_violations,
+            data_filename=self.data_filename or "unknown",
+            data_row_count=self.data_row_count,
         )
 
         # Output results

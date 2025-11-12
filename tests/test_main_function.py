@@ -16,7 +16,9 @@ class TestMainFunction(TestCase):
 
     @patch.object(Validator, "validate")
     def test_data_file(self, mock_validate):
-        mock_validate.return_value = ({}, MagicMock(), ValidationResults({}, {}, {}))
+        mock_validate.return_value = ({}, MagicMock(), ValidationResults(
+            {}, {}, {}, "test_rules", "test_data.csv", 0, "test_model", "CostAndUsage"
+        ))
         with patch("sys.argv", ["prog", "--data-file", "path/to/data.csv", "--block-download"]):
             try:
                 main()
