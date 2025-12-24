@@ -97,6 +97,9 @@ class ModelRule(BaseModel):
     def is_composite(self) -> bool:
         return self.function == "Composite"
 
+    def is_optional(self) -> bool:
+        return self.validation_criteria.keyword in ("OPTIONAL", "MAY")
+
     # Optional metadata
     notes: Optional[str] = Field(None, alias="Notes")
 

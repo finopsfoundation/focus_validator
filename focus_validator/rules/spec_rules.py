@@ -391,7 +391,11 @@ class SpecRules:
                             self.focus_dataset,
                         )
 
-            # 6) Normal finalization (e.g., drop temps, flush logs)
+            # 6) POST-PROCESSING: Apply result overrides (non-applicable, composite aggregation, dependency skips)
+            # This is the single location where all overrides happen, making logic simple and maintainable
+            converter.apply_result_overrides(results_by_idx)
+
+            # 7) Normal finalization (e.g., drop temps, flush logs)
             converter.finalize(success=True, results_by_idx=results_by_idx)
 
         except Exception:
