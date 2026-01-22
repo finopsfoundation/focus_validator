@@ -95,6 +95,80 @@ class CSVDataLoader:
 
         return polars_dtypes
 
+    def _peek_for_all_null_columns(
+        self, filename_or_buffer, dtype_dict, peek_rows=5000
+    ):
+        """
+        Peek at first N rows to identify columns that are all NULL.
+        For these columns, we'll need to force the spec type to avoid misleading type errors.
+
+        Args:
+            filename_or_buffer: File path or buffer to peek into
+            dtype_dict: Dictionary of expected column types from spec
+            peek_rows: Number of rows to peek (default 5000)
+
+        Returns:
+            set: Column names that are all NULL in the peeked data
+        """
+        all_null_columns = set()
+
+        try:
+            # Peek at the first N rows
+            if isinstance(filename_or_buffer, str):
+                # File path - can peek efficiently
+                peek_df = pl.read_csv(
+                    filename_or_buffer,
+                    n_rows=peek_rows,
+                    infer_schema_length=peek_rows,
+                    null_values=[
+                        "INVALID",
+                        "INVALID_COST",
+                        "BAD_DATE",
+                        "INVALID_DECIMAL",
+                        "INVALID_INT",
+                        "NULL",
+                    ],
+                )
+            else:
+                # Buffer - need to read and reset (more expensive)
+                initial_pos = (
+                    filename_or_buffer.tell()
+                    if hasattr(filename_or_buffer, "tell")
+                    else None
+                )
+                peek_df = pl.read_csv(
+                    filename_or_buffer,
+                    n_rows=peek_rows,
+                    infer_schema_length=peek_rows,
+                    null_values=[
+                        "INVALID",
+                        "INVALID_COST",
+                        "BAD_DATE",
+                        "INVALID_DECIMAL",
+                        "INVALID_INT",
+                        "NULL",
+                    ],
+                )
+                # Reset buffer position if possible
+                if initial_pos is not None and hasattr(filename_or_buffer, "seek"):
+                    filename_or_buffer.seek(initial_pos)
+
+            # Check which columns from dtype_dict are all NULL in the peek
+            for col in dtype_dict.keys():
+                if col in peek_df.columns:
+                    if peek_df[col].null_count() == len(peek_df):
+                        all_null_columns.add(col)
+                        self.log.info(
+                            f"Column '{col}' is all NULL in first {peek_rows} rows - "
+                            f"will force type from spec to avoid misleading type errors"
+                        )
+
+        except Exception as e:
+            self.log.warning(f"Failed to peek at data for all-NULL detection: {e}")
+            # If peek fails, continue without this optimization
+
+        return all_null_columns
+
     def _try_load_with_types(self, filename_or_buffer, dtype_dict, parse_dates_list):
         """
         Attempt to load CSV with specified types using Polars, with retry logic for problematic columns.
@@ -103,15 +177,39 @@ class CSVDataLoader:
             pl.DataFrame: Loaded DataFrame with types applied
         """
         try:
-            # Convert to Polars schema
-            polars_dtypes = self._convert_pandas_to_polars_dtypes(dtype_dict)
+            # First, peek to find all-NULL columns
+            all_null_columns = self._peek_for_all_null_columns(
+                filename_or_buffer, dtype_dict
+            )
 
-            self.log.debug(f"Attempting to load with Polars dtypes: {polars_dtypes}")
+            # Convert to Polars schema - only for all-NULL columns to force their types
+            # For columns with data, let Polars infer so we can detect type mismatches
+            polars_dtypes_to_force = {}
+            if all_null_columns:
+                forced_dtypes = {
+                    col: dtype
+                    for col, dtype in dtype_dict.items()
+                    if col in all_null_columns
+                }
+                polars_dtypes_to_force = self._convert_pandas_to_polars_dtypes(
+                    forced_dtypes
+                )
+                self.log.info(
+                    f"Forcing types for {len(polars_dtypes_to_force)} all-NULL columns: "
+                    f"{', '.join(sorted(polars_dtypes_to_force.keys()))}"
+                )
 
-            # Use schema_overrides instead of deprecated dtypes parameter
+            self.log.debug(
+                f"Attempting to load with forced Polars dtypes: {polars_dtypes_to_force}"
+            )
+
+            # Use schema_overrides only for all-NULL columns
+            # For other columns, let Polars infer from data so type checks can catch mismatches
             df = pl.read_csv(
                 filename_or_buffer,
-                schema_overrides=polars_dtypes,
+                schema_overrides=(
+                    polars_dtypes_to_force if polars_dtypes_to_force else None
+                ),
                 try_parse_dates=bool(parse_dates_list),
                 infer_schema_length=10000,  # Increased inference length
                 null_values=[

@@ -2,7 +2,6 @@ import inspect
 import json
 import logging
 import re
-import sys
 import textwrap
 import time
 from abc import ABC, abstractmethod
@@ -195,6 +194,12 @@ class DuckDBColumnCheck:
         )
         self.sample_sql: Optional[str] = None  # For --show-violations feature
 
+        # Attributes for dependency tracking and rule composition
+        self._dependencies: Optional[Set[str]] = None
+        self._child_rule_ids: Optional[List[str]] = None
+        self._non_applicable: bool = False
+        self._non_applicable_reason: Optional[str] = None
+
 
 class DuckDBCheckGenerator(ABC):
     # Abstract base class for generating DuckDB validation checks
@@ -337,15 +342,15 @@ class DuckDBCheckGenerator(ABC):
         # 6) Transfer generator-specific attributes to the check object
         if hasattr(self, "force_fail_due_to_upstream"):
             chk.force_fail_due_to_upstream = self.force_fail_due_to_upstream
-        
+
         # Transfer dependencies for runtime checking of skipped dependencies
         if hasattr(self, "_dependencies"):
             chk._dependencies = self._dependencies
-        
+
         # Transfer child rule IDs for composites
         if hasattr(self, "_child_rule_ids"):
             chk._child_rule_ids = self._child_rule_ids
-        
+
         # Transfer non-applicable flags for three-scenario handling
         if hasattr(self, "_non_applicable"):
             chk._non_applicable = self._non_applicable
@@ -378,17 +383,17 @@ class DuckDBCheckGenerator(ABC):
 
     def _get_validation_keyword(self) -> str:
         """
-        Extract the validation keyword (MUST, SHOULD, MAY, RECOMMENDED, etc.) 
+        Extract the validation keyword (MUST, SHOULD, MAY, RECOMMENDED, etc.)
         from the rule's ValidationCriteria.
-        
+
         Returns:
             str: The validation keyword, defaulting to "MUST" if not specified
         """
-        if hasattr(self.rule, 'validation_criteria'):
+        if hasattr(self.rule, "validation_criteria"):
             criteria = self.rule.validation_criteria
-            if hasattr(criteria, 'keyword'):
+            if hasattr(criteria, "keyword"):
                 return criteria.keyword
-        return 'MUST'  # Default fallback
+        return "MUST"  # Default fallback
 
     def generatePredicate(self) -> str | None:
         """
@@ -435,9 +440,7 @@ class SkippedDynamicCheck(SkippedCheck):
 class SkippedOptionalCheck(SkippedCheck):
     def __init__(self, rule, rule_id: str, **kwargs: Any) -> None:
         super().__init__(rule, rule_id, **kwargs)
-        self.errorMessage = (
-            "Rule skipped - marked as MAY/OPTIONAL and not enforced"
-        )
+        self.errorMessage = "Rule skipped - marked as MAY/OPTIONAL and not enforced"
 
 
 class SkippedNonApplicableCheck(SkippedCheck):
@@ -454,7 +457,9 @@ class ColumnPresentCheckGenerator(DuckDBCheckGenerator):
     def generateSql(self) -> SQLQuery:
         col = self.params.ColumnName
         keyword = self._get_validation_keyword()
-        message = self.errorMessage or f"Column '{col}' {keyword} be present in the table."
+        message = (
+            self.errorMessage or f"Column '{col}' {keyword} be present in the table."
+        )
         self.errorMessage = message  # <-- make sure run_check can see it
         msg_sql = message.replace("'", "''")
 
@@ -529,7 +534,8 @@ class TypeDecimalCheckGenerator(DuckDBCheckGenerator):
         col = self.params.ColumnName
         keyword = self._get_validation_keyword()
         message = (
-            self.errorMessage or f"{col} {keyword} be of type DECIMAL, DOUBLE, or FLOAT."
+            self.errorMessage
+            or f"{col} {keyword} be of type DECIMAL, DOUBLE, or FLOAT."
         )
         msg_sql = message.replace("'", "''")
 
@@ -646,9 +652,7 @@ class FormatNumericGenerator(DuckDBCheckGenerator):
         """
 
         # Predicate SQL (for condition mode)
-        predicate_sql = (
-            f"{col} IS NOT NULL AND (TRIM({col}::TEXT) ~ '^[+-]?([0-9]*[.])?[0-9]+([eE][+-]?[0-9]+)?$')"
-        )
+        predicate_sql = f"{col} IS NOT NULL AND (TRIM({col}::TEXT) ~ '^[+-]?([0-9]*[.])?[0-9]+([eE][+-]?[0-9]+)?$')"
 
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
@@ -741,7 +745,9 @@ class FormatDateTimeGenerator(DuckDBCheckGenerator):
     def generateSql(self) -> SQLQuery:
         col = self.params.ColumnName
         keyword = self._get_validation_keyword()
-        message = self.errorMessage or f"{col} {keyword} be a valid DateTime in UTC format"
+        message = (
+            self.errorMessage or f"{col} {keyword} be a valid DateTime in UTC format"
+        )
         msg_sql = message.replace("'", "''")
 
         # Requirement SQL (finds violations)
@@ -1172,14 +1178,22 @@ class CheckNotValueGenerator(DuckDBCheckGenerator):
 
         # Build requirement SQL (finds violations)
         if value is None:
-            message = self.errorMessage or f"{col} {keyword} NOT be NULL."
+            # Handle keywords that already contain "NOT" (e.g., "MUST NOT")
+            if "NOT" in keyword.upper():
+                message = self.errorMessage or f"{col} {keyword} be NULL."
+            else:
+                message = self.errorMessage or f"{col} {keyword} NOT be NULL."
             condition = f"{col} IS NULL"
             predicate = (
                 f"{col} IS NOT NULL"  # Condition: rows where requirement applies
             )
         else:
             val_escaped = str(value).replace("'", "''")
-            message = self.errorMessage or f"{col} {keyword} NOT be '{value}'."
+            # Handle keywords that already contain "NOT" (e.g., "MUST NOT")
+            if "NOT" in keyword.upper():
+                message = self.errorMessage or f"{col} {keyword} be '{value}'."
+            else:
+                message = self.errorMessage or f"{col} {keyword} NOT be '{value}'."
             condition = f"({col} IS NOT NULL AND {col} = '{val_escaped}')"
             predicate = f"({col} IS NOT NULL AND {col} <> '{val_escaped}')"
 
@@ -1247,7 +1261,9 @@ class CheckSameValueGenerator(DuckDBCheckGenerator):
         col_a = self.params.ColumnAName
         col_b = self.params.ColumnBName
         keyword = self._get_validation_keyword()
-        message = self.errorMessage or f"{col_a} and {col_b} {keyword} have the same value."
+        message = (
+            self.errorMessage or f"{col_a} and {col_b} {keyword} have the same value."
+        )
         msg_sql = message.replace("'", "''")
 
         # Requirement SQL (finds violations)
@@ -1317,9 +1333,17 @@ class CheckNotSameValueGenerator(DuckDBCheckGenerator):
         col_a = self.params.ColumnAName
         col_b = self.params.ColumnBName
         keyword = self._get_validation_keyword()
-        message = (
-            self.errorMessage or f"{col_a} and {col_b} {keyword} NOT have the same value."
-        )
+        # Handle keywords that already contain "NOT" (e.g., "MUST NOT")
+        if "NOT" in keyword.upper():
+            message = (
+                self.errorMessage
+                or f"{col_a} and {col_b} {keyword} have the same value."
+            )
+        else:
+            message = (
+                self.errorMessage
+                or f"{col_a} and {col_b} {keyword} NOT have the same value."
+            )
         msg_sql = message.replace("'", "''")
 
         # Requirement SQL (finds violations)
@@ -1437,7 +1461,9 @@ class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
         col = self.params.ColumnName
         val = self.params.Value
         keyword = self._get_validation_keyword()
-        message = self.errorMessage or f"{col} {keyword} be greater than or equal to {val}."
+        message = (
+            self.errorMessage or f"{col} {keyword} be greater than or equal to {val}."
+        )
         msg_sql = message.replace("'", "''")
 
         # Requirement SQL (finds violations)
@@ -1656,7 +1682,7 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
             # IMPORTANT: pass the REQUIREMENT DICT here
             child_check = self.child_builder(child_req, child_bc)
             children.append(child_check)
-            
+
             # Extract child rule ID for reference
             if child_req.get("CheckFunction") == "CheckModelRule":
                 child_rule_id = child_req.get("ModelRuleId")
@@ -1664,7 +1690,7 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
                     child_rule_ids.append(child_rule_id)
             # For other check functions, we might not have a clear rule ID
             # In that case, we'll use the breadcrumb or a generated ID
-            
+
         # Store child rule IDs in the generator for later transfer to check object
         self._child_rule_ids = child_rule_ids
 
@@ -1753,7 +1779,7 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
                         if rule_id in model_rule_refs:
                             is_ok = result.get("ok", True)
                             is_skipped = result.get("details", {}).get("skipped", False)
-                            
+
                             if is_skipped:
                                 # If dependency was skipped, mark this composite as skipped too
                                 skipped_conformance_refs.append(rule_id)
@@ -1853,7 +1879,7 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
                     if hasattr(cell.cell_contents, "_global_results_by_idx"):
                         converter = cell.cell_contents
                         break
-            
+
             if converter and hasattr(converter, "_global_results_by_idx"):
                 for dep_rule_id in deps:
                     for node_idx, result in converter._global_results_by_idx.items():
@@ -1863,19 +1889,21 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
                                 if result.get("details", {}).get("skipped", False):
                                     all_deps_skipped.append(dep_rule_id)
                                 break
-        
+
         external_skipped_candidates = sorted(set(deps) & skipped_parent_rule_ids)
-        all_skipped = sorted(set(external_skipped_candidates) | set(skipped_conformance_refs) | set(all_deps_skipped))
-        
+        all_skipped = sorted(
+            set(external_skipped_candidates)
+            | set(skipped_conformance_refs)
+            | set(all_deps_skipped)
+        )
+
         # If any dependency was skipped, mark this composite to be skipped
         if all_skipped:
             self.force_skip_due_to_upstream = {
                 "skipped_dependencies": all_skipped,
                 "reason": "upstream dependency was skipped",
             }
-            skip_reason = (
-                f"Rule skipped - dependent rule(s) were skipped: {', '.join(all_skipped)}"
-            )
+            skip_reason = f"Rule skipped - dependent rule(s) were skipped: {', '.join(all_skipped)}"
             self.errorMessage = skip_reason
 
         # 8) Add failed conformance rule references and same-column failures to external failures
@@ -1927,23 +1955,25 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
         # Store dependencies for runtime checking
         # This is crucial for detecting skipped dependencies at execution time
         self._dependencies = []
-        
+
         if deps:
             # Convert dependency rule IDs to check objects by finding them in the plan
             if self.plan:
                 for dep_id in deps:
                     # Find the node with this rule_id in the plan
-                    found = False
                     for node in self.plan.nodes:
                         if node.rule_id == dep_id:
                             # Store a reference to the rule with its idx
-                            dep_ref = type('DependencyRef', (), {
-                                'rule_id': dep_id,
-                                'rule_global_idx': node.idx,
-                                'referenced_rule_id': dep_id
-                            })()
+                            dep_ref = type(
+                                "DependencyRef",
+                                (),
+                                {
+                                    "rule_id": dep_id,
+                                    "rule_global_idx": node.idx,
+                                    "referenced_rule_id": dep_id,
+                                },
+                            )()
                             self._dependencies.append(dep_ref)
-                            found = True
                             break
 
         # Don't set a static errorMessage for composites - let runtime logic provide detailed failure info
@@ -2067,29 +2097,36 @@ class CompositeORRuleGenerator(CompositeBaseRuleGenerator):
                         except Exception:
                             total_rows = 1  # Fallback
 
+                    # Debug logging for ServiceCategory
+                    child_check_type = getattr(child, "checkType", None) or getattr(
+                        child, "check_type", None
+                    )
+
                     # OR semantics: child passes if it has fewer violations than total rows
                     # (meaning at least one row matched the condition)
                     or_child_ok = violations < total_rows
+
                     child_oks.append(or_child_ok)
 
                     # Update the details to reflect OR semantics
+                    det_i["ok"] = or_child_ok  # Update ok status to match OR semantics
                     det_i["violations"] = 0 if or_child_ok else 1
                     det_i["or_adjusted"] = True  # Mark that we adjusted this
-                    
+
                     # Generate unique child ID
                     child_rule_id = getattr(child, "rule_id", None)
-                    child_check_type = getattr(child, "checkType", None) or getattr(child, "check_type", None)
-                    
+                    child_check_type = getattr(child, "checkType", None) or getattr(
+                        child, "check_type", None
+                    )
+
                     if child_rule_id and child_rule_id != composite_rule_id:
                         unique_child_id = child_rule_id
                     elif child_check_type:
                         unique_child_id = f"{child_check_type}#{i + 1}"
                     else:
                         unique_child_id = f"child#{i + 1}"
-                    
-                    child_details.append(
-                        {**det_i, "rule_id": unique_child_id}
-                    )
+
+                    child_details.append({**det_i, "rule_id": unique_child_id})
 
                 # OR passes if ANY child passes
                 overall_ok = any(child_oks)
@@ -2422,25 +2459,23 @@ class FocusToDuckDBSchemaConverter:
         A rule is included if:
         1. It has no applicability criteria (always included)
         2. It has applicability criteria that match the provided criteria
-        
+
         Note: Rules with empty applicability criteria are ALWAYS included,
         regardless of parent applicability. Parent applicability is only
         checked for rules that themselves have applicability criteria.
         """
-        rule_id = getattr(rule, "rule_id", "<unknown>")
-        
         # Check if rule has applicability criteria
         rule_criteria = (
             rule.applicability_criteria
             if hasattr(rule, "applicability_criteria") and rule.applicability_criteria
             else []
         )
-        
+
         # If rule has no applicability criteria, always include it
         # Do NOT check parent applicability for such rules
         if not rule_criteria:
             return True
-        
+
         # Rule has applicability criteria - check if it matches
         if not self._check_rule_applicability(rule):
             return False
@@ -2599,14 +2634,14 @@ class FocusToDuckDBSchemaConverter:
             parent_results_by_idx=parent_results_by_idx,
             parent_edges=parent_edges,
         )
-        
+
         return check_obj
 
     def run_check(self, check: Any) -> Tuple[bool, Dict[str, Any]]:  # noqa: C901
         """
         Execute a DuckDBColumnCheck (leaf or composite) or a SkippedCheck.
         Ensures details always include: violations:int, message:str.
-        
+
         NOTE: This method runs checks NORMALLY without any pre-filtering.
         Post-processing (apply_result_overrides) handles non-applicable rules,
         composite aggregation, and dependency skipping.
@@ -2668,6 +2703,7 @@ class FocusToDuckDBSchemaConverter:
                 "message",
                 _msg_for(check, f"{getattr(check, 'rule_id', '<rule>')}: skipped"),
             )
+
             return ok, details
 
         # ---- composite (AND/OR) -------------------------------------------------
@@ -2676,6 +2712,7 @@ class FocusToDuckDBSchemaConverter:
 
         # Check for special executor on composite (e.g., custom OR logic)
         special = getattr(check, "special_executor", None)
+
         if callable(special):
             ok, details = special(self.conn)
             details.setdefault("violations", 0 if ok else 1)
@@ -2688,6 +2725,7 @@ class FocusToDuckDBSchemaConverter:
                 "check_type",
                 getattr(check, "checkType", None) or getattr(check, "check_type", None),
             )
+
             return ok, details
 
         if nested and handler:
@@ -2696,7 +2734,7 @@ class FocusToDuckDBSchemaConverter:
             oks: List[bool] = []
             child_details: List[Dict[str, Any]] = []
             composite_rule_id = getattr(check, "rule_id", None)
-            
+
             for i, child in enumerate(nested):
                 ok_i, det_i = self.run_check(child)
                 oks.append(ok_i)
@@ -2707,11 +2745,13 @@ class FocusToDuckDBSchemaConverter:
                         child, f"{getattr(child, 'rule_id', '<child>')}: check failed"
                     ),
                 )
-                
+
                 # Generate a unique identifier for each child
                 child_rule_id = getattr(child, "rule_id", None)
-                child_check_type = getattr(child, "checkType", None) or getattr(child, "check_type", None)
-                
+                child_check_type = getattr(child, "checkType", None) or getattr(
+                    child, "check_type", None
+                )
+
                 # For model_rule_reference checks, use the referenced rule ID
                 if child_check_type == "model_rule_reference":
                     # Extract the referenced rule ID from the check object
@@ -2720,7 +2760,10 @@ class FocusToDuckDBSchemaConverter:
                         unique_child_id = referenced_rule_id
                     else:
                         # Fallback to using the check's details if available
-                        unique_child_id = det_i.get("referenced_rule_id") or f"model_rule_reference#{i + 1}"
+                        unique_child_id = (
+                            det_i.get("referenced_rule_id")
+                            or f"model_rule_reference#{i + 1}"
+                        )
                 # Check if child has a unique rule_id (different from parent)
                 # If child's rule_id matches parent or is missing, create descriptive ID
                 elif child_rule_id and child_rule_id != composite_rule_id:
@@ -2732,7 +2775,7 @@ class FocusToDuckDBSchemaConverter:
                 else:
                     # Fallback to generic child identifier
                     unique_child_id = f"child#{i + 1}"
-                
+
                 # Put rule_id AFTER the spread to ensure it overrides any existing rule_id
                 child_detail_entry = {**det_i, "rule_id": unique_child_id}
                 child_details.append(child_detail_entry)
@@ -2743,7 +2786,7 @@ class FocusToDuckDBSchemaConverter:
             # Build descriptive message using the unique child IDs from child_details
             composite_rule_id = getattr(check, "rule_id", "<rule>")
             composite_type = handler.__name__ if handler else "composite"
-            
+
             # Use the unique IDs from child_details, not from check objects
             failed_child_ids = [
                 child_detail["rule_id"]
@@ -2803,6 +2846,7 @@ class FocusToDuckDBSchemaConverter:
                 "check_type",
                 getattr(check, "checkType", None) or getattr(check, "check_type", None),
             )
+
             return ok, details
         # ---- leaf SQL execution ------------------------------------------------
         sql = getattr(check, "checkSql", None)
@@ -3049,6 +3093,26 @@ class FocusToDuckDBSchemaConverter:
             raise InvalidRuleException(message)
 
         # Instantiate with *exactly* what was provided (plus defaults if your gen applies them)
+        # For composite rules (AND/OR), we need to extend parent_edges to include the composite itself
+        # so that children can inherit the composite's condition
+        is_composite = check_fn in ("AND", "OR")
+        child_parent_edges = parent_edges or ()
+
+        if is_composite:
+            # Find the node index for this composite rule in the plan so children can reference it
+            composite_node_idx = None
+            if self.plan:
+                for idx, node in enumerate(self.plan.nodes):
+                    if node.rule_id == rule_id:
+                        composite_node_idx = idx
+                        break
+
+            # Extend parent_edges to include this composite's rule_id
+            # The _parent_rules_from_edges method can handle rule_id strings directly
+            if composite_node_idx is not None:
+                # Add the composite's rule_id to parent_edges so children can find it
+                child_parent_edges = tuple(list(parent_edges or ()) + [rule_id])
+
         return gen_cls(
             rule=rule,
             rule_id=rule_id,
@@ -3064,7 +3128,7 @@ class FocusToDuckDBSchemaConverter:
                 child_req,
                 breadcrumb=child_bc,
                 parent_results_by_idx=parent_results_by_idx or {},
-                parent_edges=parent_edges or (),
+                parent_edges=child_parent_edges,
             ),
             breadcrumb=breadcrumb,
             **params,
@@ -3088,7 +3152,51 @@ class FocusToDuckDBSchemaConverter:
             raise InvalidRuleException(
                 f"{rule_id} @ {breadcrumb}: expected requirement dict, got {type(requirement).__name__}"
             )
+
+        # Build effective condition from parent_edges AND from downstream composite consumers
         eff_cond = self._build_effective_condition(rule, parent_edges)
+
+        # ENHANCEMENT: Also check if this rule is referenced by composite rules with conditions
+        # This handles the case where a rule like PricingQuantity-C-008-M is referenced by
+        # a composite like PricingQuantity-C-007-C that has a condition.
+        if self.plan and hasattr(self.plan, "plan_graph"):
+            graph = self.plan.plan_graph
+            # Find composite rules that reference this rule
+            downstream_composites = graph.children.get(rule_id, set())
+
+            for composite_rid in downstream_composites:
+                # Get the composite rule object
+                composite_node = graph.nodes.get(composite_rid)
+
+                if composite_node and composite_node.rule:
+                    composite_rule = composite_node.rule
+                    composite_function = getattr(composite_rule, "function", None)
+
+                    # Check if it's a composite with a condition
+                    if composite_function == "Composite":
+                        composite_cond_spec = self._extract_condition_spec(
+                            composite_rule
+                        )
+
+                        if composite_cond_spec:
+                            composite_cond_sql = (
+                                self._compile_condition_with_generators(
+                                    composite_cond_spec,
+                                    rule=composite_rule,
+                                    rule_id=composite_rid,
+                                    breadcrumb=f"{composite_rid}_condition",
+                                )
+                            )
+
+                            if composite_cond_sql:
+                                # Combine with existing condition
+                                if eff_cond:
+                                    eff_cond = (
+                                        f"({eff_cond}) AND ({composite_cond_sql})"
+                                    )
+                                else:
+                                    eff_cond = composite_cond_sql
+
         gen = self.__make_generator__(
             rule,
             rule_id,
@@ -3350,13 +3458,16 @@ class FocusToDuckDBSchemaConverter:
     def _build_effective_condition(self, rule, parent_edges) -> str | None:
         parts = []
 
+        # Get the rule_id for potential debugging
+        current_rule_id = (
+            getattr(rule, "rule_id", None) or getattr(rule, "RuleId", None) or "<rule>"
+        )
+
         me = self._extract_condition_spec(rule)
         me_sql = self._compile_condition_with_generators(
             me,
             rule=rule,
-            rule_id=getattr(rule, "rule_id", None)
-            or getattr(rule, "RuleId", None)
-            or "<rule>",
+            rule_id=current_rule_id,
             breadcrumb="Condition",
         )
         if me_sql:
@@ -3365,15 +3476,20 @@ class FocusToDuckDBSchemaConverter:
         for prule in self._parent_rules_from_edges(parent_edges):
             if prule is None:
                 continue
+            parent_rule_id = (
+                getattr(prule, "rule_id", None)
+                or getattr(prule, "RuleId", None)
+                or "<parent>"
+            )
+
             pspec = self._extract_condition_spec(prule)
             psql = self._compile_condition_with_generators(
                 pspec,
                 rule=prule,
-                rule_id=getattr(prule, "rule_id", None)
-                or getattr(prule, "RuleId", None)
-                or "<parent>",
+                rule_id=parent_rule_id,
                 breadcrumb="ParentCondition",
             )
+
             if psql:
                 parts.append(f"({psql})")
 
@@ -3621,209 +3737,278 @@ class FocusToDuckDBSchemaConverter:
             elif t == "skipped":
                 print(f"Skipped: {info.get('reason')}")
 
-    def apply_result_overrides(
-        self, results_by_idx: Dict[int, Dict[str, Any]]
-    ) -> None:
+    def apply_result_overrides(self, results_by_idx: Dict[int, Dict[str, Any]]) -> None:
         """
         POST-PROCESSING: Apply all result overrides after checks have run.
-        
+
         This is the single location where we handle:
         1. Non-applicable rules: Skip rules that don't meet applicability criteria
-        2. Composite aggregation: Update composites based on child results  
+        2. Composite aggregation: Update composites based on child results
         3. Dependency skips: Skip rules whose dependencies failed/skipped
-        
+
         This runs AFTER all checks have executed normally, making the logic
         simple, clear, and maintainable.
         """
         if not self.plan:
             return
-            
+
         # Phase 1: Mark non-applicable rules and their descendants as skipped
-        self._apply_non_applicable_skips(results_by_idx)
-        
+        non_applicable_rule_ids = self._apply_non_applicable_skips(results_by_idx)
+
         # Phase 2: Propagate skipped dependencies BEFORE composite aggregation
         # This ensures composites see correct child skip states
         self._apply_dependency_skips(results_by_idx)
-        
+
         # Phase 3: Update composite results based on child results
         # This must run AFTER dependency skips so it sees the final child states
         self._apply_composite_aggregation(results_by_idx)
-    
+
+        # Phase 4: Apply non-applicable marking to nested children
+        # This must run AFTER composite aggregation so synced skip states are preserved
+        self._apply_nested_child_non_applicable_marking(
+            results_by_idx, non_applicable_rule_ids
+        )
+
     def _apply_non_applicable_skips(
         self, results_by_idx: Dict[int, Dict[str, Any]]
-    ) -> None:
+    ) -> tuple[Set[str], Set[str]]:
         """Mark non-applicable rules and all their descendants as skipped.
-        
+
         This handles both separate plan nodes AND nested children within composites.
         Also handles column-family rules: when a column presence check is non-applicable,
         ALL rules for that column are marked non-applicable.
+
+        Returns:
+            Tuple of (non_applicable_nested_rule_ids, non_applicable_column_prefixes)
+            for use in Phase 4.
         """
         if not self.plan:
-            return
-            
+            return (set(), set())
+
         # Identify all non-applicable rules (both top-level nodes and nested children)
         non_applicable_rules: Set[int] = set()
         non_applicable_nested_rule_ids: Set[str] = set()
         non_applicable_column_prefixes: Set[str] = set()
-        
+
         for idx, node in enumerate(self.plan.nodes):
-            if not node or not hasattr(node, 'rule'):
+            if not node or not hasattr(node, "rule"):
                 continue
-                
+
             rule = node.rule
-            parent_edges = node.parent_edges if hasattr(node, 'parent_edges') else ()
-            
+            parent_edges = node.parent_edges if hasattr(node, "parent_edges") else ()
+
             # Check if this rule should be included
             if not self._should_include_rule(rule, parent_edges):
                 non_applicable_rules.add(idx)
-                rule_id = getattr(rule, 'rule_id', None)
+                rule_id = getattr(rule, "rule_id", None)
                 if rule_id:
                     non_applicable_nested_rule_ids.add(rule_id)
                     # Extract column prefix ONLY for Presence checks with EntityType="Dataset"
                     # that reference a COLUMN (not dataset rules starting with CostAndUsage-D-)
                     # This ensures all rules for a non-applicable column presence check are skipped
-                    rule_function = getattr(rule, 'function', None)
-                    rule_entity_type = getattr(rule, 'entity_type', None)
-                    if rule_function == "Presence" and rule_entity_type == "Dataset" and '-' in rule_id:
+                    rule_function = getattr(rule, "function", None)
+                    rule_entity_type = getattr(rule, "entity_type", None)
+                    if (
+                        rule_function == "Presence"
+                        and rule_entity_type == "Dataset"
+                        and "-" in rule_id
+                    ):
                         # Dataset presence rules for columns are like "CostAndUsage-D-NNN-X"
                         # We need to look at the "Reference" field to get the actual column name
-                        column_name = getattr(rule, 'reference', None)
+                        column_name = getattr(rule, "reference", None)
                         if column_name and column_name != "CostAndUsage":
                             non_applicable_column_prefixes.add(column_name)
-        
+
         # Collect all descendants of non-applicable rules
         rules_to_skip = self._collect_all_descendants(non_applicable_rules)
-        
+
         # Also add all rules that share a column prefix with non-applicable rules
         for idx, node in enumerate(self.plan.nodes):
             if idx not in rules_to_skip:  # Don't re-process already marked rules
-                rule_id = getattr(node.rule, 'rule_id', None) if hasattr(node, 'rule') else None
-                if rule_id and '-' in rule_id:
-                    column_prefix = rule_id.split('-')[0]
+                rule_id = (
+                    getattr(node.rule, "rule_id", None)
+                    if hasattr(node, "rule")
+                    else None
+                )
+                if rule_id and "-" in rule_id:
+                    column_prefix = rule_id.split("-")[0]
                     if column_prefix in non_applicable_column_prefixes:
                         rules_to_skip.add(idx)
                         if rule_id:
                             non_applicable_nested_rule_ids.add(rule_id)
-        
+
         # Mark them all as skipped
         for idx in rules_to_skip:
             if idx in results_by_idx:
                 result = results_by_idx[idx]
                 details = result.get("details", {})
-                
-                # Update result to skipped
-                result["ok"] = True
-                details["skipped"] = True
-                details["reason"] = "rule not applicable"
-                details["message"] = "Rule skipped - not applicable to current dataset or configuration"
-                details["violations"] = 0
-                
+                rule_id = result.get("rule_id", "")
+
+                # Only update skip reason if not already skipped for another reason
+                # This preserves more specific skip reasons like "dynamic rule" or "optional rule"
+                if not details.get("skipped", False):
+                    # Update result to skipped
+                    result["ok"] = True
+                    details["skipped"] = True
+                    details["reason"] = "rule not applicable"
+                    details["message"] = (
+                        "Rule skipped - not applicable to current dataset or configuration"
+                    )
+                    details["violations"] = 0
+
                 # Mark nested children as skipped if composite
                 # This handles children that are part of the composite's nestedChecks
                 if "children" in details:
                     for child in details["children"]:
-                        child["ok"] = True
-                        child["skipped"] = True
-                        child["reason"] = "rule not applicable"
-                        child["violations"] = 0
-                        child_rule_id = child.get("rule_id", "<child>")
-                        child["message"] = f"{child_rule_id}: rule not applicable"
-        
-        # Also mark any nested children that are non-applicable
+                        # Only update if not already skipped
+                        if not child.get("skipped", False):
+                            child["ok"] = True
+                            child["skipped"] = True
+                            child["reason"] = "rule not applicable"
+                            child["violations"] = 0
+                            child_rule_id = child.get("rule_id", "<child>")
+                            child["message"] = f"{child_rule_id}: rule not applicable"
+
+        # Return the sets for use in Phase 4
+        return (non_applicable_nested_rule_ids, non_applicable_column_prefixes)
+
+    def _apply_nested_child_non_applicable_marking(
+        self,
+        results_by_idx: Dict[int, Dict[str, Any]],
+        non_applicable_rule_ids: tuple[Set[str], Set[str]],
+    ) -> None:
+        """Mark nested children as non-applicable AFTER composite aggregation.
+
+        This phase runs after composite aggregation so that any skip states
+        synced from child execution results are preserved. Only marks children
+        as "not applicable" if they aren't already skipped for another reason
+        (like being dynamic).
+
+        Args:
+            results_by_idx: Results dictionary
+            non_applicable_rule_ids: Tuple of (rule_ids, column_prefixes) from Phase 1
+        """
+        # Unpack the sets from Phase 1
+        non_applicable_nested_rule_ids, non_applicable_column_prefixes = (
+            non_applicable_rule_ids
+        )
+
+        # Mark any nested children that are non-applicable
         # These are children embedded in composites, not separate plan nodes
         for idx in results_by_idx:
             result = results_by_idx[idx]
             details = result.get("details", {})
-            
+
             if "children" in details:
                 for child in details["children"]:
                     child_rule_id = child.get("rule_id")
                     if child_rule_id:
                         # Check if child rule ID matches non-applicable rule
                         if child_rule_id in non_applicable_nested_rule_ids:
-                            child["ok"] = True
-                            child["skipped"] = True
-                            child["reason"] = "rule not applicable"
-                            child["violations"] = 0
-                            child["message"] = f"{child_rule_id}: rule not applicable"
-                        # Also check if child rule shares column prefix with non-applicable column
-                        elif '-' in child_rule_id:
-                            child_column_prefix = child_rule_id.split('-')[0]
-                            if child_column_prefix in non_applicable_column_prefixes:
+                            # Only update if not already skipped
+                            if not child.get("skipped", False):
                                 child["ok"] = True
                                 child["skipped"] = True
                                 child["reason"] = "rule not applicable"
                                 child["violations"] = 0
-                                child["message"] = f"{child_rule_id}: rule not applicable"
-    
+                                child["message"] = (
+                                    f"{child_rule_id}: rule not applicable"
+                                )
+                        # Also check if child rule shares column prefix with non-applicable column
+                        elif "-" in child_rule_id:
+                            child_column_prefix = child_rule_id.split("-")[0]
+                            if child_column_prefix in non_applicable_column_prefixes:
+                                # Only update if not already skipped
+                                if not child.get("skipped", False):
+                                    child["ok"] = True
+                                    child["skipped"] = True
+                                    child["reason"] = "rule not applicable"
+                                    child["violations"] = 0
+                                    child["message"] = (
+                                        f"{child_rule_id}: rule not applicable"
+                                    )
+
     def _apply_composite_aggregation(
         self, results_by_idx: Dict[int, Dict[str, Any]]
     ) -> None:
         """Update composite results based on actual child results.
-        
+
         This must run AFTER dependency skips so it sees the final child states.
         """
         if not self.plan:
             return
-            
+
         for idx, node in enumerate(self.plan.nodes):
             if idx not in results_by_idx:
                 continue
-                
+
             result = results_by_idx[idx]
             details = result.get("details", {})
-            
+
             # Only process composites with children
             if "children" not in details or "aggregated" not in details:
                 continue
-            
+
             children = details["children"]
             aggregator = details["aggregated"]
-            
+
             # IMPORTANT: Update children with their current states from results_by_idx
             # The children array was populated during initial execution, but child rules
             # may have been updated by earlier post-processing phases (non-applicable, dependencies)
             # We need to sync the child states so aggregation sees the latest data
-            if self.plan and hasattr(node, 'rule'):
+            if self.plan and hasattr(node, "rule"):
                 rule = node.rule
                 # Get the dependencies list from the rule's validation criteria
                 dependencies = []
-                vc = getattr(rule, 'validation_criteria', None)
-                if vc and hasattr(vc, 'dependencies'):
+                vc = getattr(rule, "validation_criteria", None)
+                if vc and hasattr(vc, "dependencies"):
                     dependencies = list(vc.dependencies or [])
                 elif isinstance(vc, dict):
-                    dependencies = list(vc.get('dependencies') or [])
-                
+                    dependencies = list(vc.get("dependencies") or [])
+
                 # Dependencies list often includes a Dataset presence check as the first entry
                 # (e.g., "CostAndUsage-D-010-M") which is NOT part of the composite's nested children
                 # Skip Dataset dependencies (those starting with "CostAndUsage-D-" or other dataset prefixes)
-                child_dependencies = [dep for dep in dependencies if not dep.endswith("-D-") and "-D-" not in dep]
-                
+                child_dependencies = [
+                    dep
+                    for dep in dependencies
+                    if not dep.endswith("-D-") and "-D-" not in dep
+                ]
+
                 # Match children to their dependency rules - but only if lengths match
                 if child_dependencies and len(child_dependencies) == len(children):
                     for i, dep_rule_id in enumerate(child_dependencies):
                         child = children[i]
-                        
+
                         # Find the result for this dependency rule
                         for dep_idx, dep_node in enumerate(self.plan.nodes):
                             if dep_idx in results_by_idx:
-                                dep_node_rule_id = getattr(dep_node.rule, 'rule_id', None) if hasattr(dep_node, 'rule') else None
-                                
+                                dep_node_rule_id = (
+                                    getattr(dep_node.rule, "rule_id", None)
+                                    if hasattr(dep_node, "rule")
+                                    else None
+                                )
+
                                 if dep_node_rule_id == dep_rule_id:
                                     # Found the node for this dependency - update child state
                                     dep_result = results_by_idx[dep_idx]
                                     dep_details = dep_result.get("details", {})
-                                    
+
                                     # Sync the key fields - prioritize skipped status from details
                                     child["ok"] = dep_result.get("ok", False)
                                     # Check both top-level and details for skipped status
-                                    child["skipped"] = dep_details.get("skipped", False) or dep_result.get("skipped", False)
-                                    child["violations"] = dep_details.get("violations", 0)
+                                    child["skipped"] = dep_details.get(
+                                        "skipped", False
+                                    ) or dep_result.get("skipped", False)
+                                    child["violations"] = dep_details.get(
+                                        "violations", 0
+                                    )
                                     if "reason" in dep_details:
                                         child["reason"] = dep_details["reason"]
                                     # Also check for message to carry forward
                                     if "message" in dep_details:
                                         child["message"] = dep_details["message"]
+
                                     break
                 else:
                     # If we can't match by dependencies, try to match by rule_id directly
@@ -3833,28 +4018,36 @@ class FocusToDuckDBSchemaConverter:
                             # Search for this rule_id in results_by_idx
                             for dep_idx, dep_node in enumerate(self.plan.nodes):
                                 if dep_idx in results_by_idx:
-                                    dep_node_rule_id = getattr(dep_node.rule, 'rule_id', None) if hasattr(dep_node, 'rule') else None
-                                    
+                                    dep_node_rule_id = (
+                                        getattr(dep_node.rule, "rule_id", None)
+                                        if hasattr(dep_node, "rule")
+                                        else None
+                                    )
+
                                     if dep_node_rule_id == child_rule_id:
                                         # Found the node - update child state
                                         dep_result = results_by_idx[dep_idx]
                                         dep_details = dep_result.get("details", {})
-                                        
+
                                         # Sync the key fields
                                         child["ok"] = dep_result.get("ok", False)
-                                        child["skipped"] = dep_details.get("skipped", False) or dep_result.get("skipped", False)
-                                        child["violations"] = dep_details.get("violations", 0)
+                                        child["skipped"] = dep_details.get(
+                                            "skipped", False
+                                        ) or dep_result.get("skipped", False)
+                                        child["violations"] = dep_details.get(
+                                            "violations", 0
+                                        )
                                         if "reason" in dep_details:
                                             child["reason"] = dep_details["reason"]
                                         if "message" in dep_details:
                                             child["message"] = dep_details["message"]
                                         break
-            
+
             # Check if ALL children were skipped
             all_children_skipped = children and all(
                 child.get("skipped", False) for child in children
             )
-            
+
             if all_children_skipped:
                 # If ALL children skipped, mark composite as skipped too
                 result["ok"] = True
@@ -3863,13 +4056,13 @@ class FocusToDuckDBSchemaConverter:
                 details["message"] = "Rule skipped - all child rules were skipped"
                 details["violations"] = 0
                 continue
-            
+
             # Normal aggregation: only consider non-skipped children
             # Skipped children should not affect the composite result
             non_skipped_children = [
                 child for child in children if not child.get("skipped", False)
             ]
-            
+
             # If there are no non-skipped children, this should have been caught above
             # But as a safety check, if all were skipped, mark as skipped
             if not non_skipped_children:
@@ -3879,10 +4072,10 @@ class FocusToDuckDBSchemaConverter:
                 details["message"] = "Rule skipped - all child rules were skipped"
                 details["violations"] = 0
                 continue
-            
+
             # Aggregate only non-skipped children
             child_oks = [child.get("ok", False) for child in non_skipped_children]
-            
+
             if aggregator == "all":
                 # AND: all non-skipped children must pass
                 composite_ok = all(child_oks)
@@ -3892,31 +4085,31 @@ class FocusToDuckDBSchemaConverter:
             else:
                 # Unknown aggregator, keep current result
                 continue
-            
+
             # Update composite result
             result["ok"] = composite_ok
             details["violations"] = 0 if composite_ok else 1
-            
+
             # Build descriptive message using CHILD DETAILS not rule IDs from check objects
             rule_id = result.get("rule_id", "<composite>")
-            
+
             # Collect child rule IDs from non-skipped children only
             failed_children = []
             passed_children = []
             skipped_children = []
-            
+
             for child in children:
                 child_rule_id = child.get("rule_id", "<child>")
                 child_skipped = child.get("skipped", False)
                 child_ok = child.get("ok", False)
-                
+
                 if child_skipped:
                     skipped_children.append(child_rule_id)
                 elif child_ok:
                     passed_children.append(child_rule_id)
                 else:
                     failed_children.append(child_rule_id)
-            
+
             if composite_ok:
                 if aggregator == "all":
                     details["message"] = (
@@ -3939,42 +4132,101 @@ class FocusToDuckDBSchemaConverter:
                         f"{rule_id}: OR failed - all child rules failed: "
                         f"[{', '.join(failed_children)}]"
                     )
-    
+
     def _apply_dependency_skips(
         self, results_by_idx: Dict[int, Dict[str, Any]]
     ) -> None:
-        """Skip rules whose dependencies were skipped or failed."""
+        """Skip rules whose dependencies were skipped or failed.
+
+        Also handles retroactive skipping: when a composite is skipped due to failed
+        dependencies, its child rules (referenced via CheckModelRule) are also marked
+        as skipped in results_by_idx so they appear correctly in the final output.
+        """
         if not self.plan:
             return
-            
+
         # Build dependency map
         for idx, node in enumerate(self.plan.nodes):
             if idx not in results_by_idx:
                 continue
-            
+
             result = results_by_idx[idx]
             details = result.get("details", {})
-            
+
             # Check if this rule has dependencies
-            parent_idxs = node.parent_idxs if hasattr(node, 'parent_idxs') else []
-            
-            # Check if any parent was skipped
+            parent_idxs = node.parent_idxs if hasattr(node, "parent_idxs") else []
+
+            rule_id = result.get("rule_id", "")
+
+            # Check if any parent was skipped or failed (for column presence checks)
             skipped_parents = []
+            failed_presence_checks = []
+
             for parent_idx in parent_idxs:
                 if parent_idx in results_by_idx:
                     parent_result = results_by_idx[parent_idx]
                     parent_details = parent_result.get("details", {})
+                    parent_node = self.plan.nodes[parent_idx]
+                    parent_rule = (
+                        parent_node.rule if hasattr(parent_node, "rule") else None
+                    )
+                    parent_rule_id = parent_result.get("rule_id", f"idx_{parent_idx}")
+
+                    # Skip if parent was skipped
                     if parent_details.get("skipped", False):
-                        parent_rule_id = parent_result.get("rule_id", f"idx_{parent_idx}")
                         skipped_parents.append(parent_rule_id)
-            
-            # If any dependency was skipped, check if we should skip this rule too
-            # For composites, only skip if ALL children are skipped (checked in composite aggregation)
-            # For non-composites, skip if any dependency was skipped
-            rule_function = getattr(node.rule, 'function', None) if hasattr(node, 'rule') else None
+
+                    # Also skip if parent is a column presence check that failed
+                    # Column presence checks are critical dependencies - if they fail, dependent rules can't run
+                    elif not parent_result.get("ok", True):
+                        # Check if this is a column presence check
+                        parent_function = (
+                            getattr(parent_rule, "function", None)
+                            if parent_rule
+                            else None
+                        )
+                        parent_check_type = parent_details.get("check_type")
+
+                        if (
+                            parent_function == "Presence"
+                            or parent_check_type == "column_presence"
+                        ):
+                            failed_presence_checks.append(parent_rule_id)
+
+            rule_function = (
+                getattr(node.rule, "function", None) if hasattr(node, "rule") else None
+            )
             is_composite = rule_function == "Composite"
-            
-            if skipped_parents and not is_composite:
+
+            # For composite rules, check if ALL children are skipped before skipping the composite
+            # A composite with some passing and some skipped children should aggregate normally
+            if is_composite and skipped_parents:
+                # Check if ALL children in the composite are skipped
+                all_children_skipped = True
+                if "children" in details:
+                    for child in details["children"]:
+                        if not child.get("skipped", False):
+                            all_children_skipped = False
+                            break
+
+                # Only skip the composite if all children are skipped
+                if all_children_skipped:
+                    result["ok"] = True
+                    details["skipped"] = True
+                    details["reason"] = "upstream dependency was skipped"
+                    details["message"] = (
+                        f"Rule skipped - dependent rule(s) were skipped: "
+                        f"{', '.join(skipped_parents)}"
+                    )
+                    details["violations"] = 0
+                    details["skipped_dependencies"] = skipped_parents
+                else:
+                    # Some children passed, so don't skip the composite
+                    # Just continue with normal processing
+                    pass
+            # For non-composite rules, skip if parent was skipped
+            elif skipped_parents:
+                # Skip this rule because an upstream dependency was skipped
                 result["ok"] = True
                 details["skipped"] = True
                 details["reason"] = "upstream dependency was skipped"
@@ -3984,47 +4236,180 @@ class FocusToDuckDBSchemaConverter:
                 )
                 details["violations"] = 0
                 details["skipped_dependencies"] = skipped_parents
-                
-                # Mark children as skipped if composite
-                if "children" in details:
+
+            # If the rule has failed presence checks, annotate the failure message
+            # (but don't skip - let it fail with context)
+            elif failed_presence_checks and not result.get("ok", True):
+                current_message = details.get("message", "")
+                dependency_context = f" [Upstream dependency failed: {', '.join(failed_presence_checks)} - required column not present]"
+
+                if current_message:
+                    details["message"] = current_message + dependency_context
+                else:
+                    details["message"] = f"Rule execution failed{dependency_context}"
+
+                # For composite rules, also annotate their children
+                if is_composite and "children" in details:
                     for child in details["children"]:
-                        child["ok"] = True
-                        child["skipped"] = True
-                        child["reason"] = "parent composite was skipped"
-                        child["violations"] = 0
-    
+                        child_rule_id = child.get("rule_id")
+                        if child_rule_id:
+                            # Find this child rule in results_by_idx and annotate it
+                            for child_idx, child_node in enumerate(self.plan.nodes):
+                                if child_idx in results_by_idx:
+                                    child_node_rule_id = (
+                                        getattr(child_node.rule, "rule_id", None)
+                                        if hasattr(child_node, "rule")
+                                        else None
+                                    )
+                                    if child_node_rule_id == child_rule_id:
+                                        child_result = results_by_idx[child_idx]
+                                        child_details = child_result.get("details", {})
+
+                                        # Only annotate if child also failed
+                                        if not child_result.get("ok", True):
+                                            child_current_message = child_details.get(
+                                                "message", ""
+                                            )
+                                            child_context = f" [Upstream dependency failed: {', '.join(failed_presence_checks)} - required column not present]"
+
+                                            if child_current_message:
+                                                child_details["message"] = (
+                                                    child_current_message
+                                                    + child_context
+                                                )
+                                            else:
+                                                child_details["message"] = (
+                                                    f"Rule execution failed{child_context}"
+                                                )
+                                        break
+
+        # Second pass: Find rules that failed but are children of composites with failed dependencies
+        # (Handle "grandparent" dependency failures where child -> composite -> failed dependency)
+        for idx, node in enumerate(self.plan.nodes):
+            if idx not in results_by_idx:
+                continue
+
+            result = results_by_idx[idx]
+            details = result.get("details", {})
+
+            # Only process rules that failed (not skipped, not passed)
+            if result.get("ok", True) or details.get("skipped", False):
+                continue
+
+            # Check if this rule's message already has upstream dependency context
+            current_message = details.get("message", "")
+            if "[Upstream dependency failed:" in current_message:
+                continue  # Already annotated
+
+            rule_id = result.get("rule_id", "")
+
+            # Find composites that reference this rule as a child
+            for comp_idx, comp_node in enumerate(self.plan.nodes):
+                if comp_idx not in results_by_idx:
+                    continue
+
+                comp_rule = comp_node.rule if hasattr(comp_node, "rule") else None
+                comp_function = (
+                    getattr(comp_rule, "function", None) if comp_rule else None
+                )
+
+                if comp_function != "Composite":
+                    continue
+
+                comp_details = results_by_idx[comp_idx].get("details", {})
+
+                # Check if this composite references our rule as a child
+                children = comp_details.get("children", [])
+                is_child_of_composite = any(
+                    c.get("rule_id") == rule_id for c in children
+                )
+
+                if not is_child_of_composite:
+                    continue
+
+                # Check if the composite has failed dependencies (grandparent failures)
+                comp_parent_idxs = (
+                    comp_node.parent_idxs if hasattr(comp_node, "parent_idxs") else []
+                )
+                grandparent_failed_presence = []
+
+                for gp_idx in comp_parent_idxs:
+                    if gp_idx not in results_by_idx:
+                        continue
+
+                    gp_result = results_by_idx[gp_idx]
+                    gp_details = gp_result.get("details", {})
+                    gp_node = self.plan.nodes[gp_idx]
+                    gp_rule = gp_node.rule if hasattr(gp_node, "rule") else None
+                    gp_rule_id = gp_result.get("rule_id", f"idx_{gp_idx}")
+
+                    # Check if grandparent failed
+                    if not gp_result.get("ok", True):
+                        gp_function = (
+                            getattr(gp_rule, "function", None) if gp_rule else None
+                        )
+                        gp_check_type = gp_details.get("check_type")
+
+                        # Skip if this is the same rule (avoid circular reference in message)
+                        if gp_rule_id == rule_id:
+                            continue
+
+                        # Include any failed dependency, but note if it's a column presence check
+                        if (
+                            gp_function == "Presence"
+                            or gp_check_type == "column_presence"
+                        ):
+                            grandparent_failed_presence.append(
+                                f"{gp_rule_id} (missing column)"
+                            )
+                        else:
+                            # For other failures (like composites), just include the rule ID
+                            grandparent_failed_presence.append(gp_rule_id)
+
+                # If we found failed dependencies in grandparents, annotate this rule
+                if grandparent_failed_presence:
+                    dependency_context = f" [Upstream dependency failed: {', '.join(grandparent_failed_presence)}]"
+
+                    if current_message:
+                        details["message"] = current_message + dependency_context
+                    else:
+                        details["message"] = (
+                            f"Rule execution failed{dependency_context}"
+                        )
+
+                    break  # Found the context, no need to check other composites
+
     def _collect_all_descendants(self, rule_indices: Set[int]) -> Set[int]:
         """Recursively collect all descendants of the given rules."""
         if not self.plan:
             return set()
-        
+
         descendants = set(rule_indices)
         to_process = list(rule_indices)
-        
+
         while to_process:
             current_idx = to_process.pop()
-            
+
             # Find all nodes that depend on this one
             for idx, node in enumerate(self.plan.nodes):
-                if not hasattr(node, 'parent_idxs'):
+                if not hasattr(node, "parent_idxs"):
                     continue
-                    
+
                 if current_idx in node.parent_idxs:
                     if idx not in descendants:
                         descendants.add(idx)
                         to_process.append(idx)
-            
+
             # Also check nested children in composite checks
             if current_idx < len(self.plan.nodes):
                 node = self.plan.nodes[current_idx]
-                if hasattr(node, 'rule') and hasattr(node.rule, 'validation_criteria'):
+                if hasattr(node, "rule") and hasattr(node.rule, "validation_criteria"):
                     vc = node.rule.validation_criteria
-                    if hasattr(vc, 'requirement') and isinstance(vc.requirement, dict):
-                        req = vc.requirement
-                        items = req.get("Items", [])
+                    if hasattr(vc, "requirement") and isinstance(vc.requirement, dict):
                         # Items would be child requirements in composites
                         # These are already handled as separate nodes with dependencies
-        
+                        pass
+
         return descendants
 
     def update_global_results(

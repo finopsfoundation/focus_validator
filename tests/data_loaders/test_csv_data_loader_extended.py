@@ -318,7 +318,7 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         self.assertEqual(loader.failed_columns, set())
 
     def test_resilient_loading_with_invalid_numeric_data(self):
-        """Test resilient loading when numeric columns contain invalid data."""
+        """Test that columns with mixed numeric/string data are inferred as String."""
         # Create CSV with invalid numeric data
         self.temp_csv = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
         self.temp_csv.write("BilledCost,ResourceId\n")
@@ -332,13 +332,14 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         
         result = loader.load()
         
-        # Should succeed and coerce invalid values to NaN
+        # NEW BEHAVIOR: Mixed numeric + string data causes inference as String
+        # This allows type validation to detect the problem
         self.assertIsInstance(result, pl.DataFrame)
         self.assertEqual(len(result), 3)
-        self.assertEqual(result['BilledCost'].dtype, pl.Float64)
-        self.assertEqual(result['BilledCost'][0], 123.45)
-        self.assertTrue((result['BilledCost'][1] is None))  # Invalid number -> NaN
-        self.assertEqual(result['BilledCost'][2], 67.89)
+        self.assertEqual(result['BilledCost'].dtype, pl.String)  # Inferred as String
+        self.assertEqual(result['BilledCost'][0], '123.45')  # String
+        self.assertEqual(result['BilledCost'][1], 'INVALID_NUMBER')  # String
+        self.assertEqual(result['BilledCost'][2], '67.89')  # String
 
     def test_resilient_loading_with_invalid_datetime_data(self):
         """Test resilient loading when datetime columns contain invalid data - columns should be dropped."""
@@ -400,13 +401,12 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         self.assertIsInstance(result, pl.DataFrame)
         self.assertEqual(len(result), 4)
         
-        # Check that good data is preserved
-        self.assertEqual(result['BilledCost'][0], 123.45)
-        self.assertEqual(result['BilledCost'][2], 67.89)
-        
-        # Check that bad data is coerced to appropriate null values
-        self.assertTrue((result['BilledCost'][1] is None))  # Invalid number
-        self.assertTrue((result['BilledCost'][3] is None))  # Empty value
+        # NEW BEHAVIOR: BilledCost has mixed data (floats + "NOT_A_NUMBER")
+        # so Polars infers it as String. This is correct - type validation will catch it.
+        self.assertEqual(result['BilledCost'][0], '123.45')  # Loaded as string
+        self.assertEqual(result['BilledCost'][2], '67.89')  # Loaded as string
+        self.assertEqual(result['BilledCost'][1], 'NOT_A_NUMBER')  # Invalid kept as-is
+        self.assertTrue(result['BilledCost'][3] is None or result['BilledCost'][3] == '')  # Empty
         
         # BillingPeriodStart column should be dropped due to invalid date (INVALID_DATE)
         self.assertNotIn('BillingPeriodStart', result.columns)
@@ -433,8 +433,8 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         self.assertEqual(result['OtherColumn'].dtype, pl.Utf8)
 
     def test_failed_columns_tracking(self):
-        """Test that failed column conversions are properly tracked."""
-        # Create CSV with problematic data that will fail initial type conversion
+        """Test that columns with data use inferred types, not forced spec types."""
+        # Create CSV with integer data - spec says float64 but data is integers
         self.temp_csv = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
         self.temp_csv.write("GoodColumn,ProblematicColumn\n")
         self.temp_csv.write("123,456\n")
@@ -453,17 +453,17 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(len(result), 2)
         
-        # Check that the good column has correct type
-        self.assertEqual(result['GoodColumn'].dtype, pl.Float64)  # Polars Float64 type
+        # NEW BEHAVIOR: GoodColumn has actual data, so it keeps inferred type (Int64)
+        # This allows type validation to catch mismatches between spec and actual data
+        self.assertEqual(result['GoodColumn'].dtype, pl.Int64)
         
-        # The problematic column should still be loaded but may contain NaN values
-        # Failed columns tracking is reset during _load_and_convert_with_coercion
-        # so we test the resilient behavior instead
+        # The problematic column should still be loaded (as VARCHAR since it has mixed data)
+        # Polars will infer VARCHAR when it encounters the string value
         self.assertTrue('ProblematicColumn' in result.columns)
 
     def test_integer_type_conversion_with_coercion(self):
-        """Test integer type conversion with nullable Int64 for proper NaN handling."""
-        # Create CSV with integer data including invalid values
+        """Test that mixed data types are inferred as String, not coerced."""
+        # Create CSV with integer column that has invalid values
         self.temp_csv = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
         self.temp_csv.write("IntegerColumn,Description\n")
         self.temp_csv.write("123,item1\n")
@@ -476,11 +476,13 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         
         result = loader.load()
         
-        # Should use nullable Int64 type to handle NaN values
+        # NEW BEHAVIOR: Column has mixed data (integers + string)
+        # Polars infers String type, which is correct - this allows type validation
+        # to catch that the spec expects Int64 but data is String
         self.assertIsInstance(result, pl.DataFrame)
         self.assertEqual(len(result), 3)
-        # Check the specific Int64 nullable type is used
-        self.assertEqual(str(result['IntegerColumn'].dtype), 'Int64')
+        # Column with mixed data should be inferred as String
+        self.assertEqual(str(result['IntegerColumn'].dtype), 'String')
 
     def test_stdin_input_handling(self):
         """Test handling of stdin input ('-' filename)."""
