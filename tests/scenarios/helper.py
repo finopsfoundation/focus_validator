@@ -260,6 +260,9 @@ class SpecRulesFromData:
                 if stop_on_first_error and idx in results_by_idx and not results_by_idx[idx]["ok"]:
                     break
 
+            # POST-PROCESSING: Apply result overrides (non-applicable, composite aggregation, dependency skips)
+            converter.apply_result_overrides(results_by_idx)
+
         finally:
             converter.finalize(success=True, results_by_idx=results_by_idx)
             # Explicitly close the connection we created
