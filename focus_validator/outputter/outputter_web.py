@@ -87,7 +87,7 @@ class WebOutputter:
         # Process all rules into a unified structure with preprocessed statuses
         processed_rules: Dict[str, Dict[str, Any]] = {}
         entities_data: Dict[str, Dict[str, Any]] = {}
-        
+
         # First pass: identify skipped composites and their children
         # Exclude Dataset entity type composites from this cascade behavior
         skipped_composite_children: Set[str] = set()
@@ -95,11 +95,13 @@ class WebOutputter:
             rule_obj = results.rules.get(rule_id)
             if not rule_obj:
                 continue
-                
+
             # Check if this is a skipped composite (but NOT a Dataset entity type)
-            if (rule_obj.function == "Composite" and 
-                rule_obj.entity_type != "Dataset" and
-                entry.get("details", {}).get("skipped", False)):
+            if (
+                rule_obj.function == "Composite"
+                and rule_obj.entity_type != "Dataset"
+                and entry.get("details", {}).get("skipped", False)
+            ):
                 # Extract children rule IDs from the composite's details
                 children = entry.get("details", {}).get("children", [])
                 for child in children:
@@ -111,24 +113,33 @@ class WebOutputter:
             rule_obj = results.rules.get(rule_id)
             if not rule_obj:
                 continue
-            
+
             # If this rule is a child of a skipped composite, mark it as skipped
             if rule_id in skipped_composite_children:
                 entry = original_entry.copy()
                 details = entry.get("details", {}).copy()
                 details["skipped"] = True
-                # Set the message for skipped children - always override
-                details["message"] = "Rule skipped - not applicable to current dataset or configuration"
+                # Only set default message if there isn't already a reason
+                # (preserves dynamic rule messages, etc.)
+                if "reason" not in details or not details["reason"]:
+                    details["message"] = (
+                        "Rule skipped - not applicable to current dataset or configuration"
+                    )
+                    details["reason"] = "rule not applicable"
                 entry["details"] = details
                 entry["ok"] = True  # Skipped rules are marked as passed
             # If this is a skipped Column composite itself, update its message too
-            elif (rule_obj.function == "Composite" and 
-                  rule_obj.entity_type == "Column" and
-                  original_entry.get("details", {}).get("skipped", False)):
+            elif (
+                rule_obj.function == "Composite"
+                and rule_obj.entity_type == "Column"
+                and original_entry.get("details", {}).get("skipped", False)
+            ):
                 entry = original_entry.copy()
                 details = entry.get("details", {}).copy()
                 # Always use the standard message for Column composites that are skipped
-                details["message"] = "Rule skipped - not applicable to current dataset or configuration"
+                details["message"] = (
+                    "Rule skipped - not applicable to current dataset or configuration"
+                )
                 entry["details"] = details
             else:
                 entry = original_entry
@@ -514,7 +525,7 @@ class WebOutputter:
         """Determine overall entity status based on requirements
 
         Entity status is based on passed/failed rules only - skipped rules are not counted.
-        
+
         Special case: If ALL rules are skipped, the entity status is "skipped" (grey).
         """
         if not requirements:
@@ -522,7 +533,7 @@ class WebOutputter:
 
         # Check if ALL rules are skipped
         all_skipped = all(req.get("status") == "skipped" for req in requirements)
-        
+
         if all_skipped:
             return "skipped"
 
@@ -531,11 +542,11 @@ class WebOutputter:
         non_skipped_requirements = [
             req for req in requirements if req.get("status") != "skipped"
         ]
-        
+
         # If somehow we have no non-skipped requirements (shouldn't happen after check above)
         if not non_skipped_requirements:
             return "skipped"
-        
+
         # Count only passed rules among non-skipped rules
         passed_count = sum(1 for req in non_skipped_requirements if req["passed"])
         total_non_skipped = len(non_skipped_requirements)
@@ -622,7 +633,11 @@ class WebOutputter:
                     # Create a dict of column: value pairs
                     violation_row = {}
                     for col_name, value in row_data.items():
-                        violation_row[col_name] = str(value)
+                        # Normalize NaN and None to "NULL"
+                        str_value = str(value)
+                        if str_value in ("nan", "None", "NaN"):
+                            str_value = "NULL"
+                        violation_row[col_name] = str_value
                     sample_violations.append(violation_row)
 
         return {
@@ -1682,8 +1697,10 @@ class WebOutputter:
                                                     <div class="sample-violation-row">
                                                         <div class="sample-violation-label">Row ${{idx + 1}}:</div>
                                                         <div class="sample-violation-data">
-                                                            ${{Object.entries(violation).map(([col, val]) => 
-                                                                `<span class="sample-violation-item">${{col}}='${{val}}'</span>`
+                                                            ${{Object.entries(violation).map(([col, val]) =>
+                                                                val === 'NULL'
+                                                                    ? `<span class="sample-violation-item">${{col}}=NULL</span>`
+                                                                    : `<span class="sample-violation-item">${{col}}='${{val}}'</span>`
                                                             ).join(', ')}}
                                                         </div>
                                                     </div>
@@ -1768,8 +1785,10 @@ class WebOutputter:
                                                                 <div class="sample-violation-row">
                                                                     <div class="sample-violation-label">Row ${{idx + 1}}:</div>
                                                                     <div class="sample-violation-data">
-                                                                        ${{Object.entries(violation).map(([col, val]) => 
-                                                                            `<span class="sample-violation-item">${{col}}='${{val}}'</span>`
+                                                                        ${{Object.entries(violation).map(([col, val]) =>
+                                                                            val === 'NULL'
+                                                                                ? `<span class="sample-violation-item">${{col}}=NULL</span>`
+                                                                                : `<span class="sample-violation-item">${{col}}='${{val}}'</span>`
                                                                         ).join(', ')}}
                                                                     </div>
                                                                 </div>
@@ -1838,8 +1857,10 @@ class WebOutputter:
                                                 <div class="sample-violation-row">
                                                     <div class="sample-violation-label">Row ${{idx + 1}}:</div>
                                                     <div class="sample-violation-data">
-                                                        ${{Object.entries(violation).map(([col, val]) => 
-                                                            `<span class="sample-violation-item">${{col}}='${{val}}'</span>`
+                                                        ${{Object.entries(violation).map(([col, val]) =>
+                                                            val === 'NULL'
+                                                                ? `<span class="sample-violation-item">${{col}}=NULL</span>`
+                                                                : `<span class="sample-violation-item">${{col}}='${{val}}'</span>`
                                                         ).join(', ')}}
                                                     </div>
                                                 </div>
@@ -1967,20 +1988,19 @@ class WebOutputter:
                 // Only MUST/SHOULD/MAY and Static/Dynamic changes should trigger total recalculation
                 // Rule status filters (PASS/FAILED/SKIPPED) should only affect visibility
 
-                // Initialize previous state if not exists
-                if (!window.focusValidatorState.lastRequirementFilters) {{
-                    window.focusValidatorState.lastRequirementFilters = {{
-                        showMust: true, showShould: true, showMay: true,
-                        showStatic: true, showDynamic: true
-                    }};
+                // Initialize previous state if not exists - use null to detect first run
+                if (window.focusValidatorState.lastRequirementFilters === undefined) {{
+                    window.focusValidatorState.lastRequirementFilters = null;
                 }}
 
                 const prevState = window.focusValidatorState.lastRequirementFilters;
-                const isRequirementChange = prevState.showMust !== showMust ||
-                                          prevState.showShould !== showShould ||
-                                          prevState.showMay !== showMay ||
-                                          prevState.showStatic !== showStatic ||
-                                          prevState.showDynamic !== showDynamic;
+                const isRequirementChange = prevState !== null && (
+                    prevState.showMust !== showMust ||
+                    prevState.showShould !== showShould ||
+                    prevState.showMay !== showMay ||
+                    prevState.showStatic !== showStatic ||
+                    prevState.showDynamic !== showDynamic
+                );
 
                 // Store current state for next comparison (only the filters that affect totals)
                 window.focusValidatorState.lastRequirementFilters = {{
@@ -1988,8 +2008,9 @@ class WebOutputter:
                 }};
 
                 // Use centralized filtering with appropriate filter type
+                // On first load (prevState === null), use 'status' so we don't recalculate
                 // Rule status filters (showPass, showFailed, showSkipped) never trigger total recalculation
-                const filterType = isRequirementChange ? 'requirement' : 'status';
+                const filterType = (prevState === null) ? 'status' : (isRequirementChange ? 'requirement' : 'status');
                 handleFilterChange(filterType, statusValue, requirementFilters);
             }}
 
@@ -2036,7 +2057,8 @@ class WebOutputter:
             if (currentView === 'rule') {{
                 applyRuleViewFiltering(statusValue, requirementFilters);
             }} else {{
-                applyEntityViewFiltering(statusValue, requirementFilters);
+                // Pass filterType so entity view knows whether to recalculate status
+                applyEntityViewFiltering(statusValue, requirementFilters, filterType);
             }}
 
             // Only recalculate totals when requirement filters change, not status filters
@@ -2109,9 +2131,10 @@ class WebOutputter:
         /**
          * Apply filtering logic for entity view using preprocessed data from Python
          * - Total: Never changes (fixed count of all entities)
-         * - Support status: Calculated from preprocessed rule statuses
+         * - Support status: Calculated from preprocessed rule statuses ONLY when requirement filters change
+         * - Status filter: Just shows/hides entities based on their current status WITHOUT recalculating
          */
-        function applyEntityViewFiltering(statusValue, requirementFilters) {{
+        function applyEntityViewFiltering(statusValue, requirementFilters, filterType) {{
             const {{ showMust, showShould, showMay, showStatic, showDynamic, showPass, showFailed, showSkipped,
                      showPresence, showType, showFormat, showValidation, showComposite, showNullability }} = requirementFilters;
 
@@ -2182,8 +2205,8 @@ class WebOutputter:
                     // Function and status filters are display-only and don't affect entity status calculation
                     if (ruleTypeVisible && executionTypeVisible) {{
                         ruleTypeMatch = true;
-                        matchingRequirements.push({{ 
-                            passed: passed, 
+                        matchingRequirements.push({{
+                            passed: passed,
                             skipped: skipped,
                             errorMessage: errorMessage
                         }});
@@ -2199,46 +2222,54 @@ class WebOutputter:
                     }}
                 }});
 
-                // Calculate entity status only from requirement type and execution type filters
-                // Function and status filters should not affect the entity status
-                // Special case: If ALL matching requirements are skipped with "not applicable" error, keep status as "skipped"
-                let entityStatus = 'not';
-                if (matchingRequirements.length > 0) {{
-                    // Check if ALL requirements are skipped with "not applicable" message
-                    const allSkippedNonApplicable = matchingRequirements.every(req => 
-                        req.skipped && req.errorMessage.includes('not applicable')
-                    );
+                // Only recalculate entity status when requirement filters change
+                // When status filter changes, use the existing card.dataset.status
+                let entityStatus = card.dataset.status || 'not';
 
-                    if (allSkippedNonApplicable) {{
+                if (filterType === 'requirement' && matchingRequirements.length > 0) {{
+                    // Check if ALL matching requirements are skipped (for any reason)
+                    // This includes both "not applicable" and "dependent rule(s) were skipped" cases
+                    const allSkipped = matchingRequirements.every(req => req.skipped);
+
+                    if (allSkipped) {{
                         entityStatus = 'skipped';
                     }} else {{
                         const passedCount = matchingRequirements.filter(req => req.passed).length;
+                        const failedCount = matchingRequirements.filter(req => !req.passed && !req.skipped).length;
                         const skippedCount = matchingRequirements.filter(req => req.skipped).length;
-                        const passedOrSkippedCount = passedCount + skippedCount;
 
-                        if (passedOrSkippedCount === matchingRequirements.length) {{
+                        // Entity is "not supported" if ALL non-skipped requirements failed
+                        if (failedCount > 0 && passedCount === 0) {{
+                            entityStatus = 'not';
+                        }} else if (failedCount === 0) {{
+                            // No failures - all passed or skipped = fully supported
                             entityStatus = 'fully';
-                        }} else if (passedOrSkippedCount > 0) {{
+                        }} else {{
+                            // Mix of pass and fail (with possible skipped) = partial
                             entityStatus = 'partial';
                         }}
                     }}
+
+                    // Update the status badge only when recalculating
+                    const statusBadge = card.querySelector('.status-badge');
+                    if (statusBadge) {{
+                        statusBadge.className = `status-badge status-${{entityStatus}}`;
+                        statusBadge.textContent = entityStatus === 'fully' ? 'Fully Supported' :
+                                                 entityStatus === 'partial' ? 'Partially Supported' :
+                                                 entityStatus === 'skipped' ? 'Skipped' : 'Not Supported';
+                    }}
+
+                    // Update card data-status for consistent status-based filtering
+                    card.dataset.status = entityStatus;
                 }}
 
-                // Keep original status badge and requirement counts - don't recalculate when only display filters change
-                const statusBadge = card.querySelector('.status-badge');
-                if (statusBadge) {{
-                    statusBadge.className = `status-badge status-${{entityStatus}}`;
-                    statusBadge.textContent = entityStatus === 'fully' ? 'Fully Supported' :
-                                             entityStatus === 'partial' ? 'Partially Supported' :
-                                             entityStatus === 'skipped' ? 'Skipped' : 'Not Supported';
-                }}
-
-                // Update card data-status for consistent status-based filtering
-                card.dataset.status = entityStatus;
-
-                // Control entity visibility based on status filter AND whether any requirements are visible
+                // Control entity visibility based on status filter
+                // When filtering by specific status (not 'all'), show entity if it matches regardless of requirement visibility
+                // When showing 'all', require at least one requirement to be visible
                 const statusMatch = statusValue === 'all' || entityStatus === statusValue;
-                const shouldShowCard = statusMatch && ruleTypeMatch && hasVisibleRequirements;
+                const shouldShowCard = statusValue === 'all'
+                    ? (statusMatch && ruleTypeMatch && hasVisibleRequirements)
+                    : (statusMatch && ruleTypeMatch);
                 card.style.display = shouldShowCard ? 'block' : 'none';
             }});
         }}
@@ -2311,19 +2342,16 @@ class WebOutputter:
                     }}
                 }});
             }} else {{
-                // For entity view: Total is fixed, calculate based on ALL entities regardless of visibility
+                // For entity view: Count based on current card.dataset.status
+                // Don't recalculate - just use whatever status is currently set
                 const allCards = document.querySelectorAll('.column-card');
 
                 // Total is always the count of all entities (never changes)
                 counts.totalColumns = allCards.length;
 
-                // Calculate support status based on requirement type filters (not visibility)
-                const showMust = document.getElementById('mustFilter').checked;
-                const showShould = document.getElementById('shouldFilter').checked;
-                const showMay = document.getElementById('mayFilter').checked;
-
+                // Count based on current stored status (which was set during filtering)
                 allCards.forEach(card => {{
-                    const entityStatus = calculateEntityStatusFromFilters(card, showMust, showShould, showMay);
+                    const entityStatus = card.dataset.status;
 
                     if (entityStatus === 'fully') {{
                         counts.fullySupported++;
@@ -2370,13 +2398,13 @@ class WebOutputter:
                     const icon = req.querySelector('.requirement-icon');
                     const passed = icon && icon.classList.contains('passed');
                     const skipped = icon && icon.classList.contains('skipped');
-                    
+
                     // Get error message to check for non-applicability
                     const errorDiv = req.querySelector('.requirement-error');
                     const errorMessage = errorDiv ? errorDiv.textContent : '';
-                    
-                    filteredRequirements.push({{ 
-                        passed: passed, 
+
+                    filteredRequirements.push({{
+                        passed: passed,
                         skipped: skipped,
                         errorMessage: errorMessage
                     }});
@@ -2388,12 +2416,11 @@ class WebOutputter:
                 return 'not';
             }}
 
-            // Check if ALL requirements are skipped with "not applicable" message
-            const allSkippedNonApplicable = filteredRequirements.every(req => 
-                req.skipped && req.errorMessage.includes('not applicable')
-            );
+            // Check if ALL requirements are skipped (for any reason)
+            // This includes both "not applicable" and "dependent rule(s) were skipped" cases
+            const allSkipped = filteredRequirements.every(req => req.skipped);
 
-            if (allSkippedNonApplicable) {{
+            if (allSkipped) {{
                 return 'skipped';
             }}
 
