@@ -4088,7 +4088,20 @@ class FocusToDuckDBSchemaConverter:
 
             # Update composite result
             result["ok"] = composite_ok
-            details["violations"] = 0 if composite_ok else 1
+
+            # For violations, use the actual violation count from children
+            # For OR composites, we want the violation count from the composite's own SQL execution
+            # which represents rows that don't match ANY of the allowed values
+            # The initial execution already set this correctly, so only update if we're changing pass/fail status
+            if "violations" in details:
+                # Keep the original violation count from execution
+                # Only force to 0 if composite is now passing
+                if composite_ok:
+                    details["violations"] = 0
+                # If failing, keep the original violation count from the composite's SQL execution
+            else:
+                # Fallback if violations wasn't set (shouldn't happen)
+                details["violations"] = 0 if composite_ok else 1
 
             # Build descriptive message using CHILD DETAILS not rule IDs from check objects
             rule_id = result.get("rule_id", "<composite>")

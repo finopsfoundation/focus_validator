@@ -46,16 +46,18 @@ class TestSameValue(unittest.TestCase):
         self.spec_rules.load()
 
     def test_rule_pass_scenario(self):
-        """Test pass."""
+        """Test that MAY/OPTIONAL rules are skipped (not validated)."""
         csv_data = """SkuPriceId,SkuId
 "abc123","abc123"
 """
         df = pd.read_csv(StringIO(csv_data))
         results = self.spec_rules.validate(focus_data=df)
         
-        # Check rule state
+        # Check rule state - MAY rules should be skipped
         rule_result = results.by_rule_id["SkuPriceId-C-011-O"]
-        self.assertTrue(rule_result.get("ok"), f"Rule should PASS but got: {rule_result}")
+        self.assertTrue(rule_result.get("ok"), f"Rule should be skipped (ok=True) but got: {rule_result}")
+        self.assertTrue(rule_result.get("details", {}).get("skipped"), f"Rule should be marked as skipped but got: {rule_result}")
+        self.assertIn("MAY/OPTIONAL", rule_result.get("details", {}).get("reason", ""), f"Skip reason should mention MAY/OPTIONAL but got: {rule_result}")
         
         # Check KeyWord context
         rule_obj = results.rules["SkuPriceId-C-011-O"]
@@ -64,16 +66,18 @@ class TestSameValue(unittest.TestCase):
         
     
     def test_rule_fail_scenario(self):
-        """Test failure."""
+        """Test that MAY/OPTIONAL rules are skipped even when data would fail validation."""
         csv_data = """SkuPriceId,SkuId
 "abc123","abc1234"
 """
         df = pd.read_csv(StringIO(csv_data))
         results = self.spec_rules.validate(focus_data=df)
         
-        # Check rule state
+        # Check rule state - MAY rules should be skipped, not failed
         rule_result = results.by_rule_id["SkuPriceId-C-011-O"]
-        self.assertFalse(rule_result.get("ok"), f"Rule should FAIL but got: {rule_result}")
+        self.assertTrue(rule_result.get("ok"), f"Rule should be skipped (ok=True) but got: {rule_result}")
+        self.assertTrue(rule_result.get("details", {}).get("skipped"), f"Rule should be marked as skipped but got: {rule_result}")
+        self.assertIn("MAY/OPTIONAL", rule_result.get("details", {}).get("reason", ""), f"Skip reason should mention MAY/OPTIONAL but got: {rule_result}")
 
 if __name__ == '__main__':
     unittest.main()
