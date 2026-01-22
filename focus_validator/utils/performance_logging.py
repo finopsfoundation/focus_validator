@@ -44,7 +44,7 @@ class PerformanceTracker:
         if HAS_PSUTIL:
             try:
                 process = psutil.Process(os.getpid())
-                memoryMb = process.memory_info().rss / 1024 / 1024
+                memoryMb = (int)(process.memory_info().rss) / 1024 / 1024
             except Exception:
                 pass
 
