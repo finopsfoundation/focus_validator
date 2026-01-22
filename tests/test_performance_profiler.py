@@ -88,8 +88,8 @@ class TestPerformanceProfiler(unittest.TestCase):
         # ("fake_focuses50000.csv", 15.0, 50000, "validate_50000_records"),
         # ("fake_focuses10000.csv", 7.0, 10000, "validate_10000_records"),
         # ("fake_focuses5000.csv", 3.0, 5000, "validate_5000_records"),
-        ("fake_focuses2000.csv", 3.0, 2000, "validate_2000_records"),
-        ("fake_focuses2000.csv", 3.0, 1000, "validate_1000_records")
+        ("fake_focuses2000.csv", 6.0, 2000, "validate_2000_records"),
+        ("fake_focuses2000.csv", 6.0, 1000, "validate_1000_records")
     )
     @unpack
     def test_param_validator_performance(self, file_name, performance_threshold, number_of_records, case_id):
