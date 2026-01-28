@@ -1535,11 +1535,19 @@ class CheckDistinctCountGenerator(DuckDBCheckGenerator):
         )
         msg_sql = message.replace("'", "''")
 
+        # Build WHERE clause for row-level filtering before aggregation
+        # This applies parent conditions (e.g., "SkuPriceId IS NOT NULL") before GROUP BY
+        where_clause = ""
+        if self.row_condition_sql and self.row_condition_sql.strip():
+            where_clause = f"WHERE {self.row_condition_sql}"
+
         # Requirement SQL (finds violations)
+        # IMPORTANT: Apply row_condition_sql BEFORE GROUP BY to filter groups themselves
         requirement_sql = f"""
         WITH counts AS (
             SELECT {a} AS grp, COUNT(DISTINCT {b}) AS distinct_count
             FROM {{table_name}}
+            {where_clause}
             GROUP BY {a}
         ),
         invalid AS (
