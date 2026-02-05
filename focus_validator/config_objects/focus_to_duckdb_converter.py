@@ -6,7 +6,18 @@ import textwrap
 import time
 from abc import ABC, abstractmethod
 from types import MappingProxyType, SimpleNamespace
-from typing import Any, Callable, ClassVar, Dict, List, NamedTuple, Optional, Set, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    ClassVar,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 import duckdb  # type: ignore[import-untyped]
 import sqlglot  # type: ignore[import-untyped]
@@ -23,6 +34,7 @@ log = logging.getLogger(__name__)
 
 class DependencyRef(NamedTuple):
     """Reference to a dependency rule with tracking information."""
+
     rule_id: str
     rule_global_idx: int
     referenced_rule_id: str
@@ -1982,7 +1994,7 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
                             dep_ref = DependencyRef(
                                 rule_id=dep_id,
                                 rule_global_idx=node.idx,
-                                referenced_rule_id=dep_id
+                                referenced_rule_id=dep_id,
                             )
                             self._dependencies.append(dep_ref)
                             break
