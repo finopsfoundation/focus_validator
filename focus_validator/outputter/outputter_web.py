@@ -1502,7 +1502,7 @@ class WebOutputter:
             setupFiltering();
             applySmartDefaults();
             updateSummaryCardActive('all');
-            
+
             // Apply initial filtering to respect checkbox states on page load
             // This ensures MAY rules are hidden if the MAY checkbox is unchecked by default
             const statusFilter = document.getElementById('statusFilter');
@@ -2751,7 +2751,7 @@ class WebOutputter:
             // Re-apply filtering and defaults
             setupFiltering();
             applySmartDefaults();
-            
+
             // Apply filters to respect checkbox states when switching views
             const statusFilter = document.getElementById('statusFilter');
             if (statusFilter) {{
