@@ -1489,10 +1489,27 @@ class WebOutputter:
                 }}
             }};
 
+            // HTML escape function to prevent XSS
+            function escapeHtml(text) {{
+                if (text == null) return '';
+                const div = document.createElement('div');
+                div.textContent = String(text);
+                return div.innerHTML;
+            }}
+            window.escapeHtml = escapeHtml;
+
             renderCurrentView();
             setupFiltering();
             applySmartDefaults();
             updateSummaryCardActive('all');
+            
+            // Apply initial filtering to respect checkbox states on page load
+            // This ensures MAY rules are hidden if the MAY checkbox is unchecked by default
+            const statusFilter = document.getElementById('statusFilter');
+            if (statusFilter) {{
+                const event = new Event('change');
+                statusFilter.dispatchEvent(event);
+            }}
 
             // Handle logo loading
             const logo = document.getElementById('focus-logo');
@@ -1699,8 +1716,8 @@ class WebOutputter:
                                                         <div class="sample-violation-data">
                                                             ${{Object.entries(violation).map(([col, val]) =>
                                                                 val === 'NULL'
-                                                                    ? `<span class="sample-violation-item">${{col}}=NULL</span>`
-                                                                    : `<span class="sample-violation-item">${{col}}='${{val}}'</span>`
+                                                                    ? `<span class="sample-violation-item">${{escapeHtml(col)}}=NULL</span>`
+                                                                    : `<span class="sample-violation-item">${{escapeHtml(col)}}='${{escapeHtml(val)}}'</span>`
                                                             ).join(', ')}}
                                                         </div>
                                                     </div>
@@ -1787,8 +1804,8 @@ class WebOutputter:
                                                                     <div class="sample-violation-data">
                                                                         ${{Object.entries(violation).map(([col, val]) =>
                                                                             val === 'NULL'
-                                                                                ? `<span class="sample-violation-item">${{col}}=NULL</span>`
-                                                                                : `<span class="sample-violation-item">${{col}}='${{val}}'</span>`
+                                                                                ? `<span class="sample-violation-item">${{escapeHtml(col)}}=NULL</span>`
+                                                                                : `<span class="sample-violation-item">${{escapeHtml(col)}}='${{escapeHtml(val)}}'</span>`
                                                                         ).join(', ')}}
                                                                     </div>
                                                                 </div>
@@ -1832,7 +1849,8 @@ class WebOutputter:
                                      data-name="${{rule.entity.toLowerCase()}}"
                                      data-entity-type="rule"
                                      data-rule-type="${{rule.requirement.rule}}"
-                                     data-execution-type="${{rule.ruleType}}">
+                                     data-execution-type="${{rule.ruleType}}"
+                                     data-function="${{rule.requirement.function}}">
                                     <div class="rule-header">
                                         <div class="rule-info">
                                             <div class="rule-id">${{rule.ruleId}}</div>
@@ -1859,8 +1877,8 @@ class WebOutputter:
                                                     <div class="sample-violation-data">
                                                         ${{Object.entries(violation).map(([col, val]) =>
                                                             val === 'NULL'
-                                                                ? `<span class="sample-violation-item">${{col}}=NULL</span>`
-                                                                : `<span class="sample-violation-item">${{col}}='${{val}}'</span>`
+                                                                ? `<span class="sample-violation-item">${{escapeHtml(col)}}=NULL</span>`
+                                                                : `<span class="sample-violation-item">${{escapeHtml(col)}}='${{escapeHtml(val)}}'</span>`
                                                         ).join(', ')}}
                                                     </div>
                                                 </div>
@@ -2102,18 +2120,40 @@ class WebOutputter:
                 // Get rule type and execution type from data attributes
                 const ruleType = card.dataset.ruleType;
                 const executionType = card.dataset.executionType;
+                const ruleFunction = card.dataset.function;
                 const category = getRuleTypeCategory(ruleType);
                 const execCategory = getExecutionTypeCategory(executionType);
 
-                // Check requirement type filters
-                const ruleTypeVisible = (category === 'must' && requirementFilters.showMust) ||
-                                       (category === 'should' && requirementFilters.showShould) ||
-                                       (category === 'may' && requirementFilters.showMay);
+                // When filtering by a specific status (not "All"), show all rules of that status
+                // regardless of requirement type filters. Requirement filters only apply to "All" view.
+                let ruleTypeMatch = true;
+                if (statusValue === 'all') {{
+                    // Check requirement type filters - default allow for untracked types
+                    let ruleTypeVisible = true;
+                    if (category === 'must') {{
+                        ruleTypeVisible = requirementFilters.showMust;
+                    }} else if (category === 'should') {{
+                        ruleTypeVisible = requirementFilters.showShould;
+                    }} else if (category === 'may') {{
+                        ruleTypeVisible = requirementFilters.showMay;
+                    }}
+                    // For 'other' category, stays true
 
-                const executionTypeVisible = (execCategory === 'static' && requirementFilters.showStatic) ||
-                                             (execCategory === 'dynamic' && requirementFilters.showDynamic);
+                    // Check execution type filters - default allow for untracked types
+                    let executionTypeVisible = true;
+                    if (execCategory === 'static') {{
+                        executionTypeVisible = requirementFilters.showStatic;
+                    }} else if (execCategory === 'dynamic') {{
+                        executionTypeVisible = requirementFilters.showDynamic;
+                    }}
+                    // For 'other' category, stays true
 
-                const ruleTypeMatch = ruleTypeVisible && executionTypeVisible;
+                    ruleTypeMatch = ruleTypeVisible && executionTypeVisible;
+                }}
+                // When statusValue is not 'all', ruleTypeMatch stays true (show all rules of that status)
+
+                // Function filters are not used in rule view (they're hidden and only for entity view)
+                // So we don't check them here - all functions are visible
 
                 // Check status filter (dropdown)
                 const cardStatus = card.dataset.status;
@@ -2711,6 +2751,13 @@ class WebOutputter:
             // Re-apply filtering and defaults
             setupFiltering();
             applySmartDefaults();
+            
+            // Apply filters to respect checkbox states when switching views
+            const statusFilter = document.getElementById('statusFilter');
+            if (statusFilter) {{
+                const event = new Event('change');
+                statusFilter.dispatchEvent(event);
+            }}
 
             console.log('Switched to view:', state.currentView);
         }}
