@@ -6,7 +6,7 @@ import textwrap
 import time
 from abc import ABC, abstractmethod
 from types import MappingProxyType, SimpleNamespace
-from typing import Any, Callable, ClassVar, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, ClassVar, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
 import duckdb  # type: ignore[import-untyped]
 import sqlglot  # type: ignore[import-untyped]
@@ -19,6 +19,13 @@ from .plan_builder import EdgeCtx, ValidationPlan
 from .rule import ModelRule
 
 log = logging.getLogger(__name__)
+
+
+class DependencyRef(NamedTuple):
+    """Reference to a dependency rule with tracking information."""
+    rule_id: str
+    rule_global_idx: int
+    referenced_rule_id: str
 
 
 def _compact_json(data: dict, max_len: int = 600) -> str:
@@ -195,7 +202,7 @@ class DuckDBColumnCheck:
         self.sample_sql: Optional[str] = None  # For --show-violations feature
 
         # Attributes for dependency tracking and rule composition
-        self._dependencies: Optional[Set[str]] = None
+        self._dependencies: Optional[List[DependencyRef]] = None
         self._child_rule_ids: Optional[List[str]] = None
         self._non_applicable: bool = False
         self._non_applicable_reason: Optional[str] = None
@@ -1972,15 +1979,11 @@ class CompositeBaseRuleGenerator(DuckDBCheckGenerator):
                     for node in self.plan.nodes:
                         if node.rule_id == dep_id:
                             # Store a reference to the rule with its idx
-                            dep_ref = type(
-                                "DependencyRef",
-                                (),
-                                {
-                                    "rule_id": dep_id,
-                                    "rule_global_idx": node.idx,
-                                    "referenced_rule_id": dep_id,
-                                },
-                            )()
+                            dep_ref = DependencyRef(
+                                rule_id=dep_id,
+                                rule_global_idx=node.idx,
+                                referenced_rule_id=dep_id
+                            )
                             self._dependencies.append(dep_ref)
                             break
 
