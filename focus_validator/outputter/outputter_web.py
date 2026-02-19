@@ -291,6 +291,7 @@ class WebOutputter:
         dataset_entities = []
         column_entities = []
         attribute_entities = []
+        object_entities = []
 
         for entity_data in entities_data.values():
             entity_type = entity_data["entityType"]
@@ -298,6 +299,8 @@ class WebOutputter:
                 dataset_entities.append(entity_data)
             elif entity_type == "Column":
                 column_entities.append(entity_data)
+            elif entity_type == "Object":
+                object_entities.append(entity_data)
             else:
                 attribute_entities.append(entity_data)
 
@@ -311,6 +314,11 @@ class WebOutputter:
                 "columns": {
                     "name": "Columns",
                     "entities": column_entities,
+                    "expanded": True,
+                },
+                "objects": {
+                    "name": "Objects",
+                    "entities": object_entities,
                     "expanded": True,
                 },
                 "attributes": {
@@ -667,7 +675,7 @@ class WebOutputter:
         return "Unknown"
 
     def _get_rule_entity_type(self, rule_obj) -> str:
-        """Extract entity type from rule object (Column, Dataset, Attribute)"""
+        """Extract entity type from rule object (Column, Dataset, Object, Attribute)"""
         if rule_obj and hasattr(rule_obj, "entity_type"):
             return rule_obj.entity_type
         return "Unknown"
