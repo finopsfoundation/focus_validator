@@ -55,8 +55,8 @@ class SpecRules:
     ):
         self.rule_set_path = rule_set_path
         self.rules_file_prefix = rules_file_prefix
-        self.rules_version = rules_version
-        self.model_version = "Unknown"  # Will be loaded from JSON file
+        self.rules_version = rules_version  # Will be overridden by FOCUSVersion from JSON Details
+        self.model_version = "Unknown"  # Will be loaded from ModelVersion in JSON Details
         self.rules_file_suffix = rules_file_suffix
         self.focus_dataset = focus_dataset
         self.filter_rules = filter_rules
@@ -82,9 +82,18 @@ class SpecRules:
             self.local_supported_versions,
         )
         self.remote_versions = {}
-        if self.rules_block_remote_download and (
-            self.rules_version not in self.local_supported_versions
-        ):
+
+        # Build dict of local versions for semantic matching
+        local_versions_dict = {
+            v: {"source": "local"} for v in self.local_supported_versions
+        }
+
+        # Try semantic version matching for local versions first
+        matched_version = self._find_best_version_match(
+            self.rules_version, local_versions_dict
+        )
+
+        if self.rules_block_remote_download and matched_version is None:
             self.log.error(
                 "Version %s not found in local versions and remote download blocked",
                 self.rules_version,
@@ -92,14 +101,11 @@ class SpecRules:
             raise UnsupportedVersion(
                 f"FOCUS version {self.rules_version} not supported. Supported versions: local {self.local_supported_versions}"
             )
-        elif (
-            self.rules_force_remote_download
-            or self.rules_version not in self.local_supported_versions
-        ):
+        elif self.rules_force_remote_download or matched_version is None:
             self.log.info(
                 "Remote rule download needed (force: %s, version available locally: %s)",
                 self.rules_force_remote_download,
-                self.rules_version in self.local_supported_versions,
+                matched_version is not None,
             )
 
             self.log.debug("Fetching remote supported versions...")
@@ -110,7 +116,12 @@ class SpecRules:
                 self.remote_supported_versions,
             )
 
-            if self.rules_version not in self.remote_supported_versions:
+            # Try semantic version matching for remote versions
+            matched_version = self._find_best_version_match(
+                self.rules_version, self.remote_versions
+            )
+
+            if matched_version is None:
                 self.log.error(
                     "Version %s not found in remote versions", self.rules_version
                 )
@@ -119,12 +130,18 @@ class SpecRules:
                 )
             else:
                 self.log.info(
-                    "Downloading remote rules for version %s...", self.rules_version
+                    "Matched requested version %s to %s from remote",
+                    self.rules_version,
+                    matched_version,
                 )
-                download_url = self.remote_versions[self.rules_version][
+                download_url = self.remote_versions[matched_version][
                     "asset_browser_download_url"
                 ]
+                filename = self.remote_versions[matched_version]["filename"]
                 self.log.debug("Download URL: %s", download_url)
+
+                # Update json_rule_file path to use matched version filename
+                self.json_rule_file = os.path.join(self.rule_set_path, filename)
 
                 if not self.download_remote_version(
                     remote_url=download_url, save_path=self.json_rule_file
@@ -135,6 +152,18 @@ class SpecRules:
                     )
                 else:
                     self.log.info("Remote rules downloaded successfully")
+        else:
+            # Using local version
+            self.log.info(
+                "Matched requested version %s to %s from local files",
+                self.rules_version,
+                matched_version,
+            )
+            # Update json_rule_file path to use matched version
+            self.json_rule_file = os.path.join(
+                self.rule_set_path,
+                f"{self.rules_file_prefix}{matched_version}{self.rules_file_suffix}",
+            )
         self.rules = {}
         self.column_namespace = column_namespace
         self.json_rules = {}
@@ -143,7 +172,12 @@ class SpecRules:
         self.column_types = {}
 
     def supported_local_versions(self) -> List[str]:
-        """Return list of versions from files in rule_set_path."""
+        """Return list of highest versions from files in rule_set_path.
+
+        Only returns the highest semantic version for each major.minor prefix.
+        For example, if both model-1.2.json and model-1.2.0.1.json exist,
+        only 1.2.0.1 will be returned.
+        """
         versions = []
         for filename in os.listdir(self.rule_set_path):
             if filename.startswith(self.rules_file_prefix) and filename.endswith(
@@ -154,7 +188,91 @@ class SpecRules:
                     len(self.rules_file_prefix) : -len(self.rules_file_suffix)
                 ]
                 versions.append(version)
-        return versions
+        return self._filter_to_highest_versions(versions)
+
+    def _parse_version_from_filename(self, filename: str) -> Optional[str]:
+        """Extract version from filename like 'model-1.2.0.1.json' -> '1.2.0.1'."""
+        if not filename.startswith(self.rules_file_prefix) or not filename.endswith(
+            self.rules_file_suffix
+        ):
+            return None
+        version = filename[len(self.rules_file_prefix) : -len(self.rules_file_suffix)]
+        return version if version else None
+
+    def _parse_version_tuple(self, version: str) -> Tuple[int, ...]:
+        """Convert version string '1.2.0.1' to tuple (1, 2, 0, 1) for comparison."""
+        try:
+            return tuple(int(x) for x in version.split("."))
+        except (ValueError, AttributeError):
+            return (0,)  # Fallback for invalid versions
+
+    def _find_best_version_match(
+        self, requested: str, available: Dict[str, Dict[str, Any]]
+    ) -> Optional[str]:
+        """
+        Find the best (highest) semantic version matching the requested prefix.
+
+        Args:
+            requested: Version prefix like '1.2' or '1.3'
+            available: Dict of available versions with metadata
+
+        Returns:
+            Best matching version string, or None if no match found
+        """
+        # Filter versions that match the requested prefix
+        matching = [
+            v
+            for v in available.keys()
+            if v.startswith(requested + ".") or v == requested
+        ]
+
+        if not matching:
+            return None
+
+        # Sort by semantic version (highest first)
+        matching.sort(key=self._parse_version_tuple, reverse=True)
+        return matching[0]
+
+    def _filter_to_highest_versions(self, versions: List[str]) -> List[str]:
+        """
+        Filter version list to only include the highest version for each major.minor prefix.
+
+        For example, given ['1.2', '1.2.0', '1.2.0.1', '1.3', '1.3.0.1']:
+        Returns: ['1.2.0.1', '1.3.0.1']
+
+        This ensures the supported versions list only shows versions that would
+        actually be used (since semantic matching always picks the highest).
+
+        Args:
+            versions: List of version strings
+
+        Returns:
+            Filtered list with only highest version per major.minor
+        """
+        # Group versions by major.minor prefix
+        prefix_groups: Dict[str, List[str]] = {}
+        for v in versions:
+            # Extract major.minor (first two components)
+            parts = v.split(".")
+            if len(parts) >= 2:
+                prefix = f"{parts[0]}.{parts[1]}"
+            else:
+                prefix = v
+
+            if prefix not in prefix_groups:
+                prefix_groups[prefix] = []
+            prefix_groups[prefix].append(v)
+
+        # For each prefix, keep only the highest version
+        highest_versions = []
+        for prefix, group_versions in prefix_groups.items():
+            # Sort by semantic version and take the highest
+            group_versions.sort(key=self._parse_version_tuple, reverse=True)
+            highest_versions.append(group_versions[0])
+
+        # Return sorted by semantic version
+        highest_versions.sort(key=self._parse_version_tuple)
+        return highest_versions
 
     def find_release_assets(
         self,
@@ -164,22 +282,28 @@ class SpecRules:
         timeout: float = 15.0,
     ) -> Dict[str, Dict[str, Any]]:
         """
-        Search GitHub releases for assets whose names start with
-        self.rules_files_prefix and end with self.rules_files_suffix.
+        Search GitHub releases for ALL model files across all releases.
 
-        Returns a dict of dicts:
+        Returns a dict keyed by model VERSION (not release tag):
         {
-            "version": {
-                "release_tag": "v1.2",
-                "asset_browser_download_url": "<asset_browser_download_url>"
+            "1.2.0.1": {
+                "release_tag": "v1.3",
+                "filename": "model-1.2.0.1.json",
+                "asset_browser_download_url": "<url>"
+            },
+            "1.3": {
+                "release_tag": "v1.3",
+                "filename": "model-1.3.json",
+                "asset_browser_download_url": "<url>"
             }
         }
+
+        When multiple releases contain the same model version, the latest release wins.
         """
         session = requests.Session()
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            # Optional but helps with routing
             "User-Agent": "focus-validator/asset-scan",
         }
 
@@ -194,7 +318,6 @@ class SpecRules:
             if resp.status_code == 401:
                 raise PermissionError("Unauthorized (bad or missing token)")
             if resp.status_code == 403:
-                # Could be secondary rate limiting or scope issue
                 raise RuntimeError(f"Forbidden / rate limited: {resp.text}")
             resp.raise_for_status()
 
@@ -209,24 +332,41 @@ class SpecRules:
                 if not self.allow_prerelease_releases and rel.get("prerelease"):
                     continue
 
+                release_tag = rel.get("tag_name", "")
                 assets = rel.get("assets", []) or []
+
+                # Scan ALL model files in this release
                 for asset in assets:
-                    name = asset.get("name", "")
-                    if name.startswith(self.rules_file_prefix) and name.endswith(
-                        self.rules_file_suffix
-                    ):
-                        results[rel.get("tag_name", "").removeprefix("v")] = {
-                            "release_tag": rel.get("tag_name"),
+                    filename = asset.get("name", "")
+                    model_version = self._parse_version_from_filename(filename)
+
+                    if model_version:
+                        # Store by model version (later releases will override earlier ones)
+                        # This ensures we get the latest release containing each model version
+                        results[model_version] = {
+                            "release_tag": release_tag,
+                            "filename": filename,
                             "asset_browser_download_url": asset.get(
                                 "browser_download_url"
                             ),
                         }
+
             page += 1
 
+        self.log.debug(
+            "Found %d model versions across releases: %s",
+            len(results),
+            list(results.keys()),
+        )
         return results
 
     def supported_remote_versions(self) -> List[str]:
-        """Return list of versions from remote source."""
+        """Return list of highest versions from remote source.
+
+        Only returns the highest semantic version for each major.minor prefix.
+        For example, if both 1.2 and 1.2.0.1 are available remotely,
+        only 1.2.0.1 will be returned since that's what semantic matching would use.
+        """
         # Respect block download setting
         if self.rules_block_remote_download:
             self.log.debug(
@@ -236,7 +376,8 @@ class SpecRules:
 
         # Implement logic to fetch supported remote versions
         self.remote_versions = self.find_release_assets()
-        return [v for v in self.remote_versions.keys()]
+        all_versions = list(self.remote_versions.keys())
+        return self._filter_to_highest_versions(all_versions)
 
     def download_remote_version(self, remote_url: str, save_path: str) -> bool:
         """Download the file from remote_url and save it to save_path.
@@ -266,14 +407,25 @@ class SpecRules:
             applicability_criteria_list=self.applicability_criteria_list,
         )
 
-        # Load model version from the JSON file Details section
+        # Load FOCUS version and model version from the JSON file Details section
         try:
             model_data = JsonLoader.load_json_rules(self.json_rule_file)
             details = model_data.get("Details", {})
+            # Override rules_version with FOCUSVersion from model file
+            focus_version = details.get("FOCUSVersion", None)
+            if focus_version:
+                self.rules_version = focus_version
+                self.log.debug("Loaded FOCUS version: %s", self.rules_version)
+            else:
+                self.log.warning(
+                    "FOCUSVersion not found in Details, using requested version: %s",
+                    self.rules_version,
+                )
+            # Load model version
             self.model_version = details.get("ModelVersion", "Unknown")
             self.log.debug("Loaded model version: %s", self.model_version)
         except Exception as e:
-            self.log.warning("Failed to load model version: %s", e)
+            self.log.warning("Failed to load FOCUS/model version: %s", e)
             self.model_version = "Unknown"
 
         self.plan = val_plan
