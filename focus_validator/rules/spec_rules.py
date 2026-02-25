@@ -55,8 +55,12 @@ class SpecRules:
     ):
         self.rule_set_path = rule_set_path
         self.rules_file_prefix = rules_file_prefix
-        self.rules_version = rules_version  # Will be overridden by FOCUSVersion from JSON Details
-        self.model_version = "Unknown"  # Will be loaded from ModelVersion in JSON Details
+        self.rules_version = (
+            rules_version  # Will be overridden by FOCUSVersion from JSON Details
+        )
+        self.model_version = (
+            "Unknown"  # Will be loaded from ModelVersion in JSON Details
+        )
         self.rules_file_suffix = rules_file_suffix
         self.focus_dataset = focus_dataset
         self.filter_rules = filter_rules
