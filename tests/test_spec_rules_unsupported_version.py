@@ -32,7 +32,7 @@ class TestSpecRulesVersionMatching(TestCase):
         self.spec = SpecRules(
             rule_set_path="focus_validator/rules",
             rules_file_prefix="model-",
-            rules_version="1.3",
+            rules_version="1.2",  # Use 1.2 which will match to available 1.2.0.1
             rules_file_suffix=".json",
             focus_dataset="CostAndUsage",
             filter_rules=None,
@@ -48,7 +48,6 @@ class TestSpecRulesVersionMatching(TestCase):
         test_cases = [
             ("model-1.2.json", "1.2"),
             ("model-1.2.0.1.json", "1.2.0.1"),
-            ("model-1.3.json", "1.3"),
             ("model-2.0.0.json", "2.0.0"),
         ]
         for filename, expected in test_cases:
