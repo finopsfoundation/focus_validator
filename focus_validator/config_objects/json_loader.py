@@ -129,14 +129,14 @@ class JsonLoader:
         focus_dataset: Optional[str] = "",
         filter_rules: Optional[str] = None,
         applicability_criteria_list: Optional[List[str]] = None,
-    ) -> Tuple[ValidationPlan, Dict[str, str]]:
+    ) -> Tuple[ValidationPlan, Dict[str, str], Dict[str, Any]]:
         """
         Load CR JSON, build the dependency graph with RuleDependencyResolver,
         select relevant rules, and return both an execution-ready ValidationPlan
         (parents preserved, topo-ordered nodes + layers) and a column type mapping.
 
         Returns:
-            Tuple of (ValidationPlan, Dict[column_name, pandas_dtype])
+            Tuple of (ValidationPlan, Dict[column_name, pandas_dtype], Dict[model_data])
         """
         model_data = JsonLoader.load_json_rules(json_rule_file)
 
@@ -227,4 +227,4 @@ class JsonLoader:
             exec_ctx=None,  # supply a runtime context later if you want gated edges
         )
 
-        return val_plan, column_types
+        return val_plan, column_types, model_data
