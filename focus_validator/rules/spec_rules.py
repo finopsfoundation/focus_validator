@@ -307,7 +307,8 @@ class SpecRules:
             }
         }
 
-        When multiple releases contain the same model version, the latest release wins.
+        When multiple releases contain the same model version, the first (newest)
+        release wins, since GitHub API returns releases in reverse chronological order.
         """
         session = requests.Session()
         headers = {
@@ -349,9 +350,9 @@ class SpecRules:
                     filename = asset.get("name", "")
                     model_version = self._parse_version_from_filename(filename)
 
-                    if model_version:
-                        # Store by model version (later releases will override earlier ones)
-                        # This ensures we get the latest release containing each model version
+                    if model_version and model_version not in results:
+                        # First match wins = newest release, since GitHub API
+                        # returns releases newest-first
                         results[model_version] = {
                             "release_tag": release_tag,
                             "filename": filename,
