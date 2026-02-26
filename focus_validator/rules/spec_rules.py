@@ -208,6 +208,11 @@ class SpecRules:
         try:
             return tuple(int(x) for x in version.split("."))
         except (ValueError, AttributeError):
+            self.log.warning(
+                "Malformed version string '%s' - cannot parse as semantic version. "
+                "Will sort to bottom. Check for corrupted model filenames.",
+                version,
+            )
             return (0,)  # Fallback for invalid versions
 
     def _find_best_version_match(
@@ -404,16 +409,18 @@ class SpecRules:
         self.load_rules()
 
     def load_rules(self) -> ValidationPlan:
-        val_plan, column_types = JsonLoader.load_json_rules_with_dependencies_and_types(
-            json_rule_file=self.json_rule_file,
-            focus_dataset=self.focus_dataset,
-            filter_rules=self.filter_rules,
-            applicability_criteria_list=self.applicability_criteria_list,
+        # Load rules and parse JSON once
+        val_plan, column_types, model_data = (
+            JsonLoader.load_json_rules_with_dependencies_and_types(
+                json_rule_file=self.json_rule_file,
+                focus_dataset=self.focus_dataset,
+                filter_rules=self.filter_rules,
+                applicability_criteria_list=self.applicability_criteria_list,
+            )
         )
 
-        # Load FOCUS version and model version from the JSON file Details section
+        # Extract FOCUS version and model version from Details (already parsed above)
         try:
-            model_data = JsonLoader.load_json_rules(self.json_rule_file)
             details = model_data.get("Details", {})
             # Override rules_version with FOCUSVersion from model file
             focus_version = details.get("FOCUSVersion", None)
