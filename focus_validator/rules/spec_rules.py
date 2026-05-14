@@ -442,6 +442,7 @@ class SpecRules:
 
         self.plan = val_plan
         self.column_types = column_types
+        self.model_data = model_data
         self._meta = {
             "json_rule_file": self.json_rule_file,
             "focus_dataset": self.focus_dataset,
@@ -482,6 +483,7 @@ class SpecRules:
             transpile_dialect=self.transpile_dialect,
             show_violations=show_violations,
             rules_version=self.rules_version,
+            schemas=getattr(self, "model_data", {}).get("Schemas", {}),
         )
         # 1) Let the converter prepare schemas, UDFs, temp views, etc.
         if connection is None:
@@ -620,6 +622,7 @@ class SpecRules:
             transpile_dialect=self.transpile_dialect,
             show_violations=False,  # Not relevant for explain mode
             rules_version=self.rules_version,
+            schemas=getattr(self, "model_data", {}).get("Schemas", {}),
         )
 
         # Create a minimal connection for explain mode (converter needs it for initialization)

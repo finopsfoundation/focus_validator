@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "focus_validator"
-version = "2.1.0"
+version = "2.2.0"
 description = "FOCUS spec validator."
 authors = []
 readme = "README.md"
@@ -26,6 +26,7 @@ requests = "*"
 pandera = { version = "^0.26.1" }
 multimethod = ">=2.0,<2.1"
 sqlglot = "^27.28.1"
+jsonschema = "^4.25.1"
 numpy = { version = "^1.26"}
 pytz = "^2025.2"
 pandasql = "^0.7.3"

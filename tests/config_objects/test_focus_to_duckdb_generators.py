@@ -22,6 +22,7 @@ from focus_validator.config_objects.focus_to_duckdb_converter import (
     # Type generators
     TypeDecimalCheckGenerator,
     TypeStringCheckGenerator,
+    TypeJSONCheckGenerator,
     TypeDateTimeGenerator,
     
     # Format generators
@@ -31,13 +32,21 @@ from focus_validator.config_objects.focus_to_duckdb_converter import (
     FormatBillingCurrencyCodeGenerator,
     FormatJSONGenerator,
     FormatCurrencyGenerator,
+    CheckJSONSchemaGenerator,
+    FocusToDuckDBSchemaConverter,
     
     # Value check generators
     CheckValueGenerator,
     CheckNotValueGenerator,
+    CheckRegexMatchGenerator,
+    CheckStringEndsWithGenerator,
     CheckSameValueGenerator,
     CheckNotSameValueGenerator,
     CheckGreaterOrEqualGenerator,
+    CheckGreaterThanGenerator,
+    CheckLessOrEqualGenerator,
+    CheckColumnComparisonGenerator,
+    CheckNoDuplicatesGenerator,
     
     # Column comparison generators
     ColumnByColumnEqualsColumnValueGenerator,
@@ -223,6 +232,36 @@ class TestTypeStringGenerator(unittest.TestCase):
         self.assertEqual(check_type, "type_string")
 
 
+class TestTypeJSONGenerator(unittest.TestCase):
+    """Test TypeJSON SQL generation."""
+
+    def setUp(self):
+        """Set up TypeJSON generator."""
+        mock_rule = Mock(spec=ModelRule)
+        mock_rule.rule_id = "Tags-TYPE-JSON-001"
+
+        self.generator = TypeJSONCheckGenerator(
+            rule=mock_rule,
+            rule_id="Tags-TYPE-JSON-001",
+            ColumnName="Tags"
+        )
+
+    def test_type_json_sql_generation(self):
+        """Test SQL generation for TypeJSON check."""
+        sql_result = self.generator.generateSql()
+        sql = _extract_sql(sql_result)
+
+        self.assertIn("WITH invalid AS", sql)
+        self.assertIn("Tags IS NOT NULL", sql)
+        self.assertIn("typeof(Tags) != 'JSON'", sql)
+        self.assertIn("Tags MUST be of type JSON", sql)
+
+    def test_type_json_check_type(self):
+        """Test check type identification."""
+        check_type = self.generator.getCheckType()
+        self.assertEqual(check_type, "type_json")
+
+
 class TestCheckValueGenerator(unittest.TestCase):
     """Test CheckValue SQL generation for exact value matching."""
     
@@ -293,6 +332,86 @@ class TestCheckValueGenerator(unittest.TestCase):
         self.assertIn("O''Reilly", sql)
 
 
+class TestCheckRegexMatchGenerator(unittest.TestCase):
+    """Test CheckRegexMatch SQL generation."""
+
+    def setUp(self):
+        """Set up CheckRegexMatch generator."""
+        self.mock_rule = Mock(spec=ModelRule)
+        self.mock_rule.rule_id = "TEST-CHECK-REGEX"
+
+    def test_check_regex_match_sql_generation(self):
+        """Test CheckRegexMatch emits regex validation SQL."""
+        generator = CheckRegexMatchGenerator(
+            rule=self.mock_rule,
+            rule_id="TEST-CHECK-REGEX",
+            ColumnName="ContractCommitmentDurationType",
+            Pattern="^[1-9][0-9]*\\s+(Day|Days)$"
+        )
+
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
+
+        self.assertIn("WITH invalid AS", sql)
+        self.assertIn("ContractCommitmentDurationType IS NOT NULL", sql)
+        self.assertIn(
+            "NOT regexp_matches(CAST(ContractCommitmentDurationType AS VARCHAR), '^[1-9][0-9]*\\s+(Day|Days)$')",
+            sql,
+        )
+        self.assertIn("ContractCommitmentDurationType MUST match regex", sql)
+
+    def test_check_regex_match_check_type(self):
+        """Test CheckRegexMatch check type identification."""
+        generator = CheckRegexMatchGenerator(
+            rule=self.mock_rule,
+            rule_id="TEST-CHECK-REGEX",
+            ColumnName="ContractCommitmentDurationType",
+            Pattern="^[1-9][0-9]*\\s+(Day|Days)$"
+        )
+
+        self.assertEqual(generator.getCheckType(), "check_regex_match")
+
+
+class TestCheckStringEndsWithGenerator(unittest.TestCase):
+    """Test CheckStringEndsWith SQL generation."""
+
+    def setUp(self):
+        """Set up CheckStringEndsWith generator."""
+        self.mock_rule = Mock(spec=ModelRule)
+        self.mock_rule.rule_id = "TEST-CHECK-ENDSWITH"
+
+    def test_check_string_endswith_sql_generation(self):
+        """Test CheckStringEndsWith emits suffix validation SQL."""
+        generator = CheckStringEndsWithGenerator(
+            rule=self.mock_rule,
+            rule_id="TEST-CHECK-ENDSWITH",
+            ColumnName="ContractCommitmentDurationType",
+            Value="Years"
+        )
+
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
+
+        self.assertIn("WITH invalid AS", sql)
+        self.assertIn("ContractCommitmentDurationType IS NOT NULL", sql)
+        self.assertIn(
+            "RIGHT(CAST(ContractCommitmentDurationType AS VARCHAR), 5) != 'Years'",
+            sql,
+        )
+        self.assertIn("ContractCommitmentDurationType MUST end with ''Years''", sql)
+
+    def test_check_string_endswith_check_type(self):
+        """Test CheckStringEndsWith check type identification."""
+        generator = CheckStringEndsWithGenerator(
+            rule=self.mock_rule,
+            rule_id="TEST-CHECK-ENDSWITH",
+            ColumnName="ContractCommitmentDurationType",
+            Value="Years"
+        )
+
+        self.assertEqual(generator.getCheckType(), "check_string_ends_with")
+
+
 class TestFormatGenerators(unittest.TestCase):
     """Test various format validation generators."""
     
@@ -350,6 +469,148 @@ class TestFormatGenerators(unittest.TestCase):
         self.assertIn("BillingCurrency IS NOT NULL", sql)
         # Should validate against ISO 4217 currency codes
 
+    def test_format_json_generator_returns_sql_query(self):
+        """Test FormatJSON SQL generation and predicate support."""
+        mock_rule = Mock(spec=ModelRule)
+        mock_rule.rule_id = "FORMAT-JSON-001"
+
+        generator = FormatJSONGenerator(
+            rule=mock_rule,
+            rule_id="FORMAT-JSON-001",
+            ColumnName="Tags",
+        )
+
+        sql_result = generator.generateSql()
+
+        self.assertIsInstance(sql_result, SQLQuery)
+        self.assertIn("WITH invalid AS", sql_result.get_requirement_sql())
+        self.assertIn("Tags IS NOT NULL", sql_result.get_requirement_sql())
+        self.assertIn("json_valid(CAST(Tags AS VARCHAR))", sql_result.get_requirement_sql())
+        self.assertIn("json_valid(CAST(Tags AS VARCHAR))", sql_result.get_predicate_sql())
+
+    def test_format_json_generator_applies_row_condition_to_predicate(self):
+        """Test FormatJSON predicate SQL includes row-level conditions."""
+        mock_rule = Mock(spec=ModelRule)
+        mock_rule.rule_id = "FORMAT-JSON-002"
+
+        generator = FormatJSONGenerator(
+            rule=mock_rule,
+            rule_id="FORMAT-JSON-002",
+            ColumnName="Tags",
+            row_condition_sql="ProviderName = 'AWS'",
+        )
+
+        predicate = generator.generatePredicate()
+
+        self.assertIsNotNone(predicate)
+        self.assertIn("ProviderName = 'AWS'", predicate)
+
+    def test_check_json_schema_generator_validates_rows(self):
+        """Test CheckJSONSchema validates JSON values against model schemas."""
+        mock_rule = Mock(spec=ModelRule)
+        mock_rule.rule_id = "CHECK-JSON-SCHEMA-001"
+
+        generator = CheckJSONSchemaGenerator(
+            rule=mock_rule,
+            rule_id="CHECK-JSON-SCHEMA-001",
+            ColumnName="Payload",
+            Path="$",
+            SchemaId="TEST-SCHEMA",
+            schemas={
+                "TEST-SCHEMA": {
+                    "Schema": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "type": "object",
+                        "required": ["foo"],
+                        "properties": {"foo": {"type": "string"}},
+                        "additionalProperties": False,
+                    }
+                }
+            },
+            row_condition_sql="ProviderName = 'AWS'",
+        )
+
+        check = generator.generateCheck()
+
+        class FakeResult:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def fetchall(self):
+                return self._rows
+
+        class FakeConn:
+            def __init__(self, rows):
+                self.rows = rows
+                self.last_sql = None
+
+            def execute(self, sql):
+                self.last_sql = sql
+                return FakeResult(self.rows)
+
+        fake_conn = FakeConn([
+            ('{"foo": "ok"}',),
+            ('{"foo": 1}',),
+            ('not json',),
+        ])
+
+        ok, details = check.special_executor(fake_conn)
+
+        self.assertFalse(ok)
+        self.assertEqual(details["violations"], 2)
+        self.assertEqual(details["schema_id"], "TEST-SCHEMA")
+        self.assertIn("ProviderName = 'AWS'", fake_conn.last_sql)
+        self.assertIn("row 2", details["failure_messages"][0])
+
+    def test_converter_build_check_threads_schemas_to_check_json_schema(self):
+        """Test converter build path passes Schemas data into CheckJSONSchema."""
+        validation_criteria = ValidationCriteria(
+            MustSatisfy="Payload MUST conform to schema.",
+            Keyword="MUST",
+            Requirement={
+                "CheckFunction": "CheckJSONSchema",
+                "ColumnName": "Payload",
+                "Path": "$",
+                "SchemaId": "TEST-SCHEMA",
+            },
+            Condition={},
+            Dependencies=[],
+        )
+
+        mock_rule = Mock(spec=ModelRule)
+        mock_rule.rule_id = "CHECK-JSON-SCHEMA-002"
+        mock_rule.validation_criteria = validation_criteria
+        mock_rule.is_dynamic.return_value = False
+        mock_rule.is_optional.return_value = False
+
+        converter = FocusToDuckDBSchemaConverter(
+            focus_data=None,
+            explain_mode=True,
+            schemas={
+                "TEST-SCHEMA": {
+                    "Schema": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "type": "object",
+                        "required": ["foo"],
+                        "properties": {"foo": {"type": "string"}},
+                    }
+                }
+            },
+        )
+        converter.conn = MagicMock()
+        converter.plan = SimpleNamespace(nodes=[])
+
+        check = converter.build_check(
+            rule=mock_rule,
+            parent_results_by_idx={},
+            parent_edges=(),
+            rule_id="CHECK-JSON-SCHEMA-002",
+            node_idx=0,
+        )
+
+        self.assertEqual(check.checkType, "json_schema")
+        self.assertTrue(callable(check.special_executor))
+
 
 class TestComparisonGenerators(unittest.TestCase):
     """Test comparison and relational check generators."""
@@ -372,6 +633,45 @@ class TestComparisonGenerators(unittest.TestCase):
         self.assertIn("WITH invalid AS", sql)
         self.assertIn("UsageQuantity < 0", sql)
         self.assertIn("UsageQuantity MUST be greater than or equal to 0", sql)
+
+    def test_check_greater_than_generator(self):
+        """Test CheckGreaterThan SQL generation."""
+        mock_rule = Mock(spec=ModelRule)
+        mock_rule.rule_id = "CHECK-GT-001"
+
+        generator = CheckGreaterThanGenerator(
+            rule=mock_rule,
+            rule_id="CHECK-GT-001",
+            ColumnName="PaymentCurrencyBilledCost",
+            Value=0,
+        )
+
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
+
+        self.assertIn("PaymentCurrencyBilledCost <= 0", sql)
+        self.assertIn("PaymentCurrencyBilledCost MUST be greater than 0", sql)
+
+    def test_check_less_or_equal_generator(self):
+        """Test CheckLessOrEqual SQL generation."""
+        mock_rule = Mock(spec=ModelRule)
+        mock_rule.rule_id = "CHECK-LTE-001"
+
+        generator = CheckLessOrEqualGenerator(
+            rule=mock_rule,
+            rule_id="CHECK-LTE-001",
+            ColumnName="ContractCommitmentDiscountPercentage",
+            Value=1.0,
+        )
+
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
+
+        self.assertIn("ContractCommitmentDiscountPercentage > 1.0", sql)
+        self.assertIn(
+            "ContractCommitmentDiscountPercentage MUST be less than or equal to 1.0",
+            sql,
+        )
         
     def test_check_not_value_generator(self):
         """Test CheckNotValue SQL generation."""
@@ -434,6 +734,25 @@ class TestComparisonGenerators(unittest.TestCase):
         sql = _extract_sql(sql_result)
         
         self.assertIn("(EffectiveCost * BilledCost)", sql)
+
+    def test_check_column_comparison_generator(self):
+        """Test CheckColumnComparison SQL generation."""
+        mock_rule = Mock(spec=ModelRule)
+        mock_rule.rule_id = "COLUMN-COMPARE-002"
+
+        generator = CheckColumnComparisonGenerator(
+            rule=mock_rule,
+            rule_id="COLUMN-COMPARE-002",
+            ColumnAName="BillingPeriodLastUpdated",
+            ColumnBName="BillingPeriodCreated",
+            Comparator=">=",
+        )
+
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
+
+        self.assertIn("BillingPeriodLastUpdated >= BillingPeriodCreated", sql)
+        self.assertIn("BillingPeriodLastUpdated MUST be >= BillingPeriodCreated", sql)
         
 
 class TestAdvancedGenerators(unittest.TestCase):
@@ -458,6 +777,24 @@ class TestAdvancedGenerators(unittest.TestCase):
         self.assertIn("GROUP BY BillingAccountId", sql)
         self.assertIn("COUNT(DISTINCT BillingAccountName)", sql)
         self.assertIn("<> 1", sql)
+
+    def test_check_no_duplicates_generator(self):
+        """Test CheckNoDuplicates SQL generation."""
+        mock_rule = Mock(spec=ModelRule)
+        mock_rule.rule_id = "NO-DUPES-001"
+
+        generator = CheckNoDuplicatesGenerator(
+            rule=mock_rule,
+            rule_id="NO-DUPES-001",
+            ColumnName="ContractCommitmentId",
+        )
+
+        sql_result = generator.generateSql()
+        sql = _extract_sql(sql_result)
+
+        self.assertIn("GROUP BY ContractCommitmentId", sql)
+        self.assertIn("WHERE occurrences > 1", sql)
+        self.assertIn("ContractCommitmentId MUST contain no duplicate values", sql)
 
 
 class TestSQLGenerationPatterns(unittest.TestCase):
@@ -484,8 +821,14 @@ class TestSQLGenerationPatterns(unittest.TestCase):
         
         generators = [
             TypeDecimalCheckGenerator(rule=mock_rule, rule_id="TEMPLATE-TEST", ColumnName="TestColumn"),
-            TypeStringCheckGenerator(rule=mock_rule, rule_id="TEMPLATE-TEST", ColumnName="TestColumn"), 
+            TypeStringCheckGenerator(rule=mock_rule, rule_id="TEMPLATE-TEST", ColumnName="TestColumn"),
+            TypeJSONCheckGenerator(rule=mock_rule, rule_id="TEMPLATE-TEST", ColumnName="TestColumn"),
             CheckValueGenerator(rule=mock_rule, rule_id="TEMPLATE-TEST", ColumnName="TestColumn", Value="TestValue"),
+            CheckRegexMatchGenerator(rule=mock_rule, rule_id="TEMPLATE-TEST", ColumnName="TestColumn", Pattern="^ok$"),
+            CheckStringEndsWithGenerator(rule=mock_rule, rule_id="TEMPLATE-TEST", ColumnName="TestColumn", Value="ok"),
+            CheckGreaterThanGenerator(rule=mock_rule, rule_id="TEMPLATE-TEST", ColumnName="TestColumn", Value=0),
+            CheckLessOrEqualGenerator(rule=mock_rule, rule_id="TEMPLATE-TEST", ColumnName="TestColumn", Value=1),
+            CheckColumnComparisonGenerator(rule=mock_rule, rule_id="TEMPLATE-TEST", ColumnAName="TestColumn", ColumnBName="OtherColumn", Comparator=">="),
             FormatNumericGenerator(rule=mock_rule, rule_id="TEMPLATE-TEST", ColumnName="TestColumn")
         ]
         
