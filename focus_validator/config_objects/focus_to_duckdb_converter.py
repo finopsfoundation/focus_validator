@@ -558,6 +558,40 @@ class TypeStringCheckGenerator(DuckDBCheckGenerator):
         return "type_string"
 
 
+class TypeJSONCheckGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName"}
+
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        keyword = self._get_validation_keyword()
+        message = self.errorMessage or f"{col} {keyword} be of type JSON."
+        msg_sql = message.replace("'", "''")
+
+        condition = f"{col} IS NOT NULL AND typeof({col}) != 'JSON'"
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {condition}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+        predicate_sql = f"{col} IS NOT NULL AND typeof({col}) = 'JSON'"
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
+
+    def getCheckType(self) -> str:
+        return "type_json"
+
+
 class TypeDecimalCheckGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
 
@@ -1081,16 +1115,8 @@ class FormatJSONGenerator(DuckDBCheckGenerator):
         message = self.errorMessage or f"{col} {keyword} be valid JSON format"
         msg_sql = message.replace("'", "''")
 
-        # Requirement SQL (finds violations)
-        # Check if column is not null and either:
-        # 1. Cannot be cast to JSON, or
-        # 2. Is not a valid JSON string when treated as text
-        condition = (
-            f"{col} IS NOT NULL "
-            f"AND (TRY_CAST({col} AS JSON) IS NULL "
-            f"OR (typeof({col}) = 'VARCHAR' AND NOT json_valid({col}::TEXT)))"
-        )
-        condition = self._apply_condition(condition)
+        invalid_predicate = f"{col} IS NOT NULL AND NOT json_valid(CAST({col} AS VARCHAR))"
+        condition = self._apply_condition(invalid_predicate)
 
         requirement_sql = f"""
         WITH invalid AS (
@@ -1104,11 +1130,8 @@ class FormatJSONGenerator(DuckDBCheckGenerator):
         FROM invalid
         """
 
-        # Predicate SQL (for condition mode)
-        predicate_sql = (
-            f"{col} IS NOT NULL "
-            f"AND (TRY_CAST({col} AS JSON) IS NOT NULL "
-            f"OR (typeof({col}) = 'VARCHAR' AND json_valid({col}::TEXT)))"
+        predicate_sql = self._apply_condition(
+            f"{col} IS NOT NULL AND json_valid(CAST({col} AS VARCHAR))"
         )
 
         return SQLQuery(
@@ -1117,6 +1140,165 @@ class FormatJSONGenerator(DuckDBCheckGenerator):
 
     def getCheckType(self) -> str:
         return "format_json"
+
+
+class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName", "SchemaId"}
+    DEFAULTS = {"Path": "$"}
+
+    def getCheckType(self) -> str:
+        return "json_schema"
+
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        schema_id = self.params.SchemaId
+        keyword = self._get_validation_keyword()
+        self.errorMessage = (
+            self.errorMessage
+            or f"{col} {keyword} conform to JSON Schema '{schema_id}'"
+        )
+        return SQLQuery(requirement_sql="SELECT 0 AS violations")
+
+    def _extract_path_value(self, payload: Any, path: str) -> Any:
+        if path == "$":
+            return payload
+
+        if not path.startswith("$."):
+            raise InvalidRuleException(
+                f"Unsupported JSON path '{path}' for CheckJSONSchema in rule {self.rule_id}"
+            )
+
+        current = payload
+        for segment in path[2:].split("."):
+            if current is None:
+                return None
+
+            token = segment
+            while token:
+                array_match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)(\[(\d+)\])?(.*)$", token)
+                if not array_match:
+                    raise InvalidRuleException(
+                        f"Unsupported JSON path segment '{segment}' for CheckJSONSchema in rule {self.rule_id}"
+                    )
+
+                key_name, _, array_idx, remainder = array_match.groups()
+                if not isinstance(current, dict):
+                    return None
+                current = current.get(key_name)
+
+                if array_idx is not None:
+                    if not isinstance(current, list):
+                        return None
+                    idx = int(array_idx)
+                    if idx >= len(current):
+                        return None
+                    current = current[idx]
+
+                token = remainder or ""
+
+        return current
+
+    def generateCheck(self) -> DuckDBColumnCheck:
+        chk = super().generateCheck()
+
+        schema_map = getattr(self.params, "schemas", None) or {}
+        schema_id = self.params.SchemaId
+        schema_entry = schema_map.get(schema_id)
+
+        if not isinstance(schema_entry, dict) or "Schema" not in schema_entry:
+            raise InvalidRuleException(
+                f"SchemaId '{schema_id}' referenced by rule {self.rule_id} was not found in model Schemas"
+            )
+
+        schema = schema_entry["Schema"]
+        path = getattr(self.params, "Path", "$")
+        col = self.params.ColumnName
+        where_clauses = [f"{col} IS NOT NULL"]
+        row_condition = (self.row_condition_sql or "").strip()
+        if row_condition:
+            where_clauses.append(f"({row_condition})")
+
+        query = (
+            f"SELECT {col} FROM {{table_name}} WHERE " + " AND ".join(where_clauses)
+        )
+
+        def _exec_json_schema(conn):
+            try:
+                from jsonschema import Draft202012Validator
+            except ModuleNotFoundError as exc:
+                raise RuntimeError(
+                    "CheckJSONSchema requires the 'jsonschema' package to be installed"
+                ) from exc
+
+            Draft202012Validator.check_schema(schema)
+            validator = Draft202012Validator(schema)
+            table_name = getattr(self.params, "table_name", "focus_data")
+            sql = query.replace("{{table_name}}", table_name)
+            sql = sql.replace("{table_name}", table_name)
+            try:
+                rows = conn.execute(sql).fetchall()
+            except (duckdb.BinderException, duckdb.CatalogException) as exc:
+                msg = str(exc)
+                missing = []
+                patterns = [
+                    r'Column with name ([A-Za-z0-9_"]+) does not exist',
+                    r'Referenced column "([A-Za-z0-9_]+)" not found',
+                    r'Binder Error: .*? column ([A-Za-z0-9_"]+)',
+                    r'"([A-Za-z0-9_]+)" not found',
+                ]
+                for pattern in patterns:
+                    for match in re.finditer(pattern, msg):
+                        col_name = match.group(1).strip('"')
+                        if col_name and col_name not in missing:
+                            missing.append(col_name)
+
+                missing_msg = (
+                    f"Missing columns: {', '.join(missing)}"
+                    if missing
+                    else "Missing required column(s)"
+                )
+                return False, {
+                    "violations": 1,
+                    "schema_id": schema_id,
+                    "message": f"{self.errorMessage}. {missing_msg}",
+                    "failure_reason": missing_msg,
+                    "error_type": "missing_columns",
+                }
+
+            failure_messages: list[str] = []
+            violations = 0
+            for row_num, row in enumerate(rows, start=1):
+                raw_value = row[0] if isinstance(row, (tuple, list)) else row
+                try:
+                    payload = json.loads(raw_value) if isinstance(raw_value, str) else raw_value
+                except Exception as exc:
+                    violations += 1
+                    failure_messages.append(f"row {row_num}: invalid JSON ({exc})")
+                    continue
+
+                instance = self._extract_path_value(payload, path)
+                errors = sorted(validator.iter_errors(instance), key=lambda err: list(err.path))
+                if errors:
+                    violations += 1
+                    failure_messages.append(
+                        f"row {row_num}: {errors[0].message}"
+                    )
+
+            ok = violations == 0
+            details = {
+                "violations": violations,
+                "schema_id": schema_id,
+                "message": self.errorMessage
+                if ok
+                else f"{self.errorMessage}. First error: {failure_messages[0]}",
+            }
+            if failure_messages:
+                details["failure_messages"] = failure_messages[:5]
+            return ok, details
+
+        chk.special_executor = _exec_json_schema
+        chk.meta["special_executor_kind"] = "json_schema"
+        return chk
 
 
 class CheckValueGenerator(DuckDBCheckGenerator):
@@ -1284,6 +1466,128 @@ class CheckNotValueGenerator(DuckDBCheckGenerator):
             return None
         sql_query = self.generateSql()
         return sql_query.get_predicate_sql()
+
+
+class CheckRegexMatchGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName", "Pattern"}
+
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        pattern = self.params.Pattern
+        keyword = self._get_validation_keyword()
+        pattern_sql = str(pattern).replace("'", "''")
+        message = self.errorMessage or f"{col} {keyword} match regex '{pattern}'."
+        msg_sql = message.replace("'", "''")
+
+        condition = (
+            f"{col} IS NOT NULL AND NOT regexp_matches(CAST({col} AS VARCHAR), '{pattern_sql}')"
+        )
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {condition}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+        predicate_sql = (
+            f"{col} IS NOT NULL AND regexp_matches(CAST({col} AS VARCHAR), '{pattern_sql}')"
+        )
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
+
+    def get_sample_sql(self) -> str:
+        col = self.params.ColumnName
+        pattern = self.params.Pattern
+        pattern_sql = str(pattern).replace("'", "''")
+
+        condition = (
+            f"{col} IS NOT NULL AND NOT regexp_matches(CAST({col} AS VARCHAR), '{pattern_sql}')"
+        )
+        condition = self._apply_condition(condition)
+
+        return f"""
+        SELECT {col}
+        FROM {{table_name}}
+        WHERE {condition}
+        """
+
+    @property
+    def sample_sql(self) -> str:
+        return self.get_sample_sql()
+
+    def getCheckType(self) -> str:
+        return "check_regex_match"
+
+
+class CheckStringEndsWithGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName", "Value"}
+
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        value = self.params.Value
+        keyword = self._get_validation_keyword()
+        value_sql = str(value).replace("'", "''")
+        value_len = len(str(value))
+        message = self.errorMessage or f"{col} {keyword} end with '{value}'."
+        msg_sql = message.replace("'", "''")
+
+        condition = (
+            f"{col} IS NOT NULL AND RIGHT(CAST({col} AS VARCHAR), {value_len}) != '{value_sql}'"
+        )
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {condition}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+        predicate_sql = (
+            f"{col} IS NOT NULL AND RIGHT(CAST({col} AS VARCHAR), {value_len}) = '{value_sql}'"
+        )
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
+
+    def get_sample_sql(self) -> str:
+        col = self.params.ColumnName
+        value = self.params.Value
+        value_sql = str(value).replace("'", "''")
+        value_len = len(str(value))
+
+        condition = (
+            f"{col} IS NOT NULL AND RIGHT(CAST({col} AS VARCHAR), {value_len}) != '{value_sql}'"
+        )
+        condition = self._apply_condition(condition)
+
+        return f"""
+        SELECT {col}
+        FROM {{table_name}}
+        WHERE {condition}
+        """
+
+    @property
+    def sample_sql(self) -> str:
+        return self.get_sample_sql()
+
+    def getCheckType(self) -> str:
+        return "check_string_ends_with"
 
 
 class CheckSameValueGenerator(DuckDBCheckGenerator):
@@ -1552,6 +1856,172 @@ class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
         return sql_query.get_predicate_sql()
 
 
+class CheckGreaterThanGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName", "Value"}
+
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        val = self.params.Value
+        keyword = self._get_validation_keyword()
+        message = self.errorMessage or f"{col} {keyword} be greater than {val}."
+        msg_sql = message.replace("'", "''")
+
+        condition = f"{col} IS NOT NULL AND {col} <= {self._lit(val)}"
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {condition}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+        predicate_sql = f"{col} IS NOT NULL AND {col} > {self._lit(val)}"
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
+
+    def get_sample_sql(self) -> str:
+        col = self.params.ColumnName
+        val = self.params.Value
+        condition = f"{col} IS NOT NULL AND {col} <= {self._lit(val)}"
+        condition = self._apply_condition(condition)
+
+        return f"""
+        SELECT {col}
+        FROM {{table_name}}
+        WHERE {condition}
+        """
+
+    @property
+    def sample_sql(self) -> str:
+        return self.get_sample_sql()
+
+    def getCheckType(self) -> str:
+        return "check_greater_than"
+
+
+class CheckLessOrEqualGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName", "Value"}
+
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        val = self.params.Value
+        keyword = self._get_validation_keyword()
+        message = self.errorMessage or f"{col} {keyword} be less than or equal to {val}."
+        msg_sql = message.replace("'", "''")
+
+        condition = f"{col} IS NOT NULL AND {col} > {self._lit(val)}"
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {condition}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+        predicate_sql = f"{col} IS NOT NULL AND {col} <= {self._lit(val)}"
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
+        )
+
+    def get_sample_sql(self) -> str:
+        col = self.params.ColumnName
+        val = self.params.Value
+        condition = f"{col} IS NOT NULL AND {col} > {self._lit(val)}"
+        condition = self._apply_condition(condition)
+
+        return f"""
+        SELECT {col}
+        FROM {{table_name}}
+        WHERE {condition}
+        """
+
+    @property
+    def sample_sql(self) -> str:
+        return self.get_sample_sql()
+
+    def getCheckType(self) -> str:
+        return "check_less_or_equal"
+
+
+class CheckColumnComparisonGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnAName", "ColumnBName", "Comparator"}
+
+    _VALID_COMPARATORS: ClassVar[Set[str]] = {"=", "!=", "<>", ">", ">=", "<", "<="}
+
+    def generateSql(self) -> SQLQuery:
+        col_a = self.params.ColumnAName
+        col_b = self.params.ColumnBName
+        comparator = self.params.Comparator
+        keyword = self._get_validation_keyword()
+
+        if comparator not in self._VALID_COMPARATORS:
+            raise InvalidRuleException(
+                f"Unsupported comparator for {self.rule_id}: {comparator}"
+            )
+
+        message = self.errorMessage or f"{col_a} {keyword} be {comparator} {col_b}."
+        msg_sql = message.replace("'", "''")
+
+        pass_predicate = (
+            f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} {comparator} {col_b}"
+        )
+        condition = f"NOT ({pass_predicate})"
+        condition = self._apply_condition(condition)
+
+        requirement_sql = f"""
+        WITH invalid AS (
+            SELECT 1
+            FROM {{table_name}}
+            WHERE {condition}
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+        return SQLQuery(
+            requirement_sql=requirement_sql.strip(), predicate_sql=pass_predicate
+        )
+
+    def get_sample_sql(self) -> str:
+        col_a = self.params.ColumnAName
+        col_b = self.params.ColumnBName
+        comparator = self.params.Comparator
+        condition = (
+            f"NOT ({col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} {comparator} {col_b})"
+        )
+        condition = self._apply_condition(condition)
+
+        return f"""
+        SELECT {col_a}, {col_b}
+        FROM {{table_name}}
+        WHERE {condition}
+        """
+
+    @property
+    def sample_sql(self) -> str:
+        return self.get_sample_sql()
+
+    def getCheckType(self) -> str:
+        return "check_column_comparison"
+
+
 class CheckDistinctCountGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnAName", "ColumnBName", "ExpectedCount"}
 
@@ -1603,6 +2073,66 @@ class CheckDistinctCountGenerator(DuckDBCheckGenerator):
 
     def getCheckType(self) -> str:
         return "distinct_count"
+
+
+class CheckNoDuplicatesGenerator(DuckDBCheckGenerator):
+    REQUIRED_KEYS = {"ColumnName"}
+
+    def generateSql(self) -> SQLQuery:
+        col = self.params.ColumnName
+        keyword = self._get_validation_keyword()
+        message = self.errorMessage or f"{col} {keyword} contain no duplicate values."
+        msg_sql = message.replace("'", "''")
+
+        where_clause = f"WHERE {col} IS NOT NULL"
+        if self.row_condition_sql and self.row_condition_sql.strip():
+            where_clause = f"WHERE ({col} IS NOT NULL) AND ({self.row_condition_sql})"
+
+        requirement_sql = f"""
+        WITH counts AS (
+            SELECT {col} AS value, COUNT(*) AS occurrences
+            FROM {{table_name}}
+            {where_clause}
+            GROUP BY {col}
+        ),
+        invalid AS (
+            SELECT value, occurrences
+            FROM counts
+            WHERE occurrences > 1
+        )
+        SELECT
+            COUNT(*) AS violations,
+            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
+        FROM invalid
+        """
+
+        return SQLQuery(requirement_sql=requirement_sql.strip(), predicate_sql=None)
+
+    def get_sample_sql(self) -> str:
+        col = self.params.ColumnName
+        where_clause = f"WHERE {col} IS NOT NULL"
+        if self.row_condition_sql and self.row_condition_sql.strip():
+            where_clause = f"WHERE ({col} IS NOT NULL) AND ({self.row_condition_sql})"
+
+        return f"""
+        WITH dupes AS (
+            SELECT {col} AS value
+            FROM {{table_name}}
+            {where_clause}
+            GROUP BY {col}
+            HAVING COUNT(*) > 1
+        )
+        SELECT t.{col}
+        FROM {{table_name}} t
+        JOIN dupes d ON t.{col} = d.value
+        """
+
+    @property
+    def sample_sql(self) -> str:
+        return self.get_sample_sql()
+
+    def getCheckType(self) -> str:
+        return "check_no_duplicates"
 
 
 class CheckModelRuleGenerator(DuckDBCheckGenerator):
@@ -4343,6 +4873,10 @@ class FocusToDuckDBSchemaConverter:
             "generator": TypeStringCheckGenerator,
             "factory": lambda args: "ColumnName",
         },
+        "TypeJSON": {
+            "generator": TypeJSONCheckGenerator,
+            "factory": lambda args: "ColumnName",
+        },
         "TypeDecimal": {
             "generator": TypeDecimalCheckGenerator,
             "factory": lambda args: "ColumnName",
@@ -4367,6 +4901,10 @@ class FocusToDuckDBSchemaConverter:
             "generator": FormatBillingCurrencyCodeGenerator,
             "factory": lambda args: "ColumnName",
         },
+        "FormatJSON": {
+            "generator": FormatJSONGenerator,
+            "factory": lambda args: "ColumnName",
+        },
         "FormatKeyValue": {
             "generator": FormatJSONGenerator,
             "factory": lambda args: "ColumnName",
@@ -4375,8 +4913,16 @@ class FocusToDuckDBSchemaConverter:
             "generator": FormatCurrencyGenerator,
             "factory": lambda args: "ColumnName",
         },
+        "CheckColumnComparison": {
+            "generator": CheckColumnComparisonGenerator,
+            "factory": lambda args: "ColumnAName",
+        },
         "CheckNationalCurrency": {
             "generator": FormatBillingCurrencyCodeGenerator,
+            "factory": lambda args: "ColumnName",
+        },
+        "CheckGreaterThanValue": {
+            "generator": CheckGreaterThanGenerator,
             "factory": lambda args: "ColumnName",
         },
         "FormatUnit": {
@@ -4387,8 +4933,24 @@ class FocusToDuckDBSchemaConverter:
             "generator": CheckValueGenerator,
             "factory": lambda args: "ColumnName",
         },
+        "CheckLessOrEqualThanValue": {
+            "generator": CheckLessOrEqualGenerator,
+            "factory": lambda args: "ColumnName",
+        },
         "CheckNotValue": {
             "generator": CheckNotValueGenerator,
+            "factory": lambda args: "ColumnName",
+        },
+        "CheckNoDuplicates": {
+            "generator": CheckNoDuplicatesGenerator,
+            "factory": lambda args: "ColumnName",
+        },
+        "CheckRegexMatch": {
+            "generator": CheckRegexMatchGenerator,
+            "factory": lambda args: "ColumnName",
+        },
+        "CheckStringEndsWith": {
+            "generator": CheckStringEndsWithGenerator,
             "factory": lambda args: "ColumnName",
         },
         "CheckSameValue": {
@@ -4414,6 +4976,10 @@ class FocusToDuckDBSchemaConverter:
         "CheckModelRule": {
             "generator": CheckModelRuleGenerator,
             "factory": lambda args: "ModelRuleId",
+        },
+        "CheckJSONSchema": {
+            "generator": CheckJSONSchemaGenerator,
+            "factory": lambda args: "ColumnName",
         },
         "AND": {
             "generator": CompositeANDRuleGenerator,
@@ -4595,6 +5161,7 @@ class FocusToDuckDBSchemaConverter:
         transpile_dialect: Optional[str] = None,
         show_violations: bool = False,
         rules_version: Optional[str] = None,
+        schemas: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__qualname__}")
         self.conn: duckdb.DuckDBPyConnection | None = None
@@ -4608,6 +5175,7 @@ class FocusToDuckDBSchemaConverter:
         )
         self.show_violations = show_violations
         self.rules_version = rules_version
+        self.schemas = schemas or {}
 
         # Build the effective CHECK_GENERATORS mapping for this version
         self.CHECK_GENERATORS = self._build_check_generators_for_version(rules_version)
@@ -5374,6 +5942,8 @@ class FocusToDuckDBSchemaConverter:
             rule_id=rule_id,
             plan=self.plan,
             conn=self.conn,
+            schemas=self.schemas,
+            table_name=self.table_name,
             parent_results_by_idx=parent_results_by_idx or {},
             parent_edges=parent_edges or (),
             row_condition_sql=row_condition_sql,
@@ -5911,15 +6481,18 @@ class FocusToDuckDBSchemaConverter:
         # Conformance reference / special executor (no SQL)
         special = getattr(check, "special_executor", None)
         if callable(special):
+            special_kind = meta.get("special_executor_kind")
             return {
                 "rule_id": rid,
-                "type": "reference",
+                "type": "special",
                 "check_type": ctype,
                 "generator": meta.get("generator"),
                 "row_condition_sql": meta.get("row_condition_sql"),
                 "referenced": getattr(check, "referenced_rule_id", None),
                 "sql": None,  # executed by reference, not SQL
-                "note": "mirrors referenced rule outcome (no SQL)",
+                "note": "mirrors referenced rule outcome (no SQL)"
+                if special_kind == "reference"
+                else "executed via special executor (no SQL)",
                 "must_satisfy": must_satisfy,
             }
 
