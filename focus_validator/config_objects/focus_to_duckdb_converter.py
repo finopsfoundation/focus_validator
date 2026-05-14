@@ -1115,7 +1115,9 @@ class FormatJSONGenerator(DuckDBCheckGenerator):
         message = self.errorMessage or f"{col} {keyword} be valid JSON format"
         msg_sql = message.replace("'", "''")
 
-        invalid_predicate = f"{col} IS NOT NULL AND NOT json_valid(CAST({col} AS VARCHAR))"
+        invalid_predicate = (
+            f"{col} IS NOT NULL AND NOT json_valid(CAST({col} AS VARCHAR))"
+        )
         condition = self._apply_condition(invalid_predicate)
 
         requirement_sql = f"""
@@ -1154,8 +1156,7 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
         schema_id = self.params.SchemaId
         keyword = self._get_validation_keyword()
         self.errorMessage = (
-            self.errorMessage
-            or f"{col} {keyword} conform to JSON Schema '{schema_id}'"
+            self.errorMessage or f"{col} {keyword} conform to JSON Schema '{schema_id}'"
         )
         return SQLQuery(requirement_sql="SELECT 0 AS violations")
 
@@ -1175,7 +1176,9 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
 
             token = segment
             while token:
-                array_match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)(\[(\d+)\])?(.*)$", token)
+                array_match = re.match(
+                    r"^([A-Za-z_][A-Za-z0-9_]*)(\[(\d+)\])?(.*)$", token
+                )
                 if not array_match:
                     raise InvalidRuleException(
                         f"Unsupported JSON path segment '{segment}' for CheckJSONSchema in rule {self.rule_id}"
@@ -1218,13 +1221,13 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
         if row_condition:
             where_clauses.append(f"({row_condition})")
 
-        query = (
-            f"SELECT {col} FROM {{table_name}} WHERE " + " AND ".join(where_clauses)
-        )
+        query = f"SELECT {col} FROM {{table_name}} WHERE " + " AND ".join(where_clauses)
 
         def _exec_json_schema(conn):
             try:
-                from jsonschema import Draft202012Validator
+                from jsonschema import (  # type: ignore[import-untyped]
+                    Draft202012Validator,
+                )
             except ModuleNotFoundError as exc:
                 raise RuntimeError(
                     "CheckJSONSchema requires the 'jsonschema' package to be installed"
@@ -1270,27 +1273,33 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
             for row_num, row in enumerate(rows, start=1):
                 raw_value = row[0] if isinstance(row, (tuple, list)) else row
                 try:
-                    payload = json.loads(raw_value) if isinstance(raw_value, str) else raw_value
+                    payload = (
+                        json.loads(raw_value)
+                        if isinstance(raw_value, str)
+                        else raw_value
+                    )
                 except Exception as exc:
                     violations += 1
                     failure_messages.append(f"row {row_num}: invalid JSON ({exc})")
                     continue
 
                 instance = self._extract_path_value(payload, path)
-                errors = sorted(validator.iter_errors(instance), key=lambda err: list(err.path))
+                errors = sorted(
+                    validator.iter_errors(instance), key=lambda err: list(err.path)
+                )
                 if errors:
                     violations += 1
-                    failure_messages.append(
-                        f"row {row_num}: {errors[0].message}"
-                    )
+                    failure_messages.append(f"row {row_num}: {errors[0].message}")
 
             ok = violations == 0
             details = {
                 "violations": violations,
                 "schema_id": schema_id,
-                "message": self.errorMessage
-                if ok
-                else f"{self.errorMessage}. First error: {failure_messages[0]}",
+                "message": (
+                    self.errorMessage
+                    if ok
+                    else f"{self.errorMessage}. First error: {failure_messages[0]}"
+                ),
             }
             if failure_messages:
                 details["failure_messages"] = failure_messages[:5]
@@ -1479,9 +1488,7 @@ class CheckRegexMatchGenerator(DuckDBCheckGenerator):
         message = self.errorMessage or f"{col} {keyword} match regex '{pattern}'."
         msg_sql = message.replace("'", "''")
 
-        condition = (
-            f"{col} IS NOT NULL AND NOT regexp_matches(CAST({col} AS VARCHAR), '{pattern_sql}')"
-        )
+        condition = f"{col} IS NOT NULL AND NOT regexp_matches(CAST({col} AS VARCHAR), '{pattern_sql}')"
         condition = self._apply_condition(condition)
 
         requirement_sql = f"""
@@ -1496,9 +1503,7 @@ class CheckRegexMatchGenerator(DuckDBCheckGenerator):
         FROM invalid
         """
 
-        predicate_sql = (
-            f"{col} IS NOT NULL AND regexp_matches(CAST({col} AS VARCHAR), '{pattern_sql}')"
-        )
+        predicate_sql = f"{col} IS NOT NULL AND regexp_matches(CAST({col} AS VARCHAR), '{pattern_sql}')"
 
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
@@ -1509,9 +1514,7 @@ class CheckRegexMatchGenerator(DuckDBCheckGenerator):
         pattern = self.params.Pattern
         pattern_sql = str(pattern).replace("'", "''")
 
-        condition = (
-            f"{col} IS NOT NULL AND NOT regexp_matches(CAST({col} AS VARCHAR), '{pattern_sql}')"
-        )
+        condition = f"{col} IS NOT NULL AND NOT regexp_matches(CAST({col} AS VARCHAR), '{pattern_sql}')"
         condition = self._apply_condition(condition)
 
         return f"""
@@ -1540,9 +1543,7 @@ class CheckStringEndsWithGenerator(DuckDBCheckGenerator):
         message = self.errorMessage or f"{col} {keyword} end with '{value}'."
         msg_sql = message.replace("'", "''")
 
-        condition = (
-            f"{col} IS NOT NULL AND RIGHT(CAST({col} AS VARCHAR), {value_len}) != '{value_sql}'"
-        )
+        condition = f"{col} IS NOT NULL AND RIGHT(CAST({col} AS VARCHAR), {value_len}) != '{value_sql}'"
         condition = self._apply_condition(condition)
 
         requirement_sql = f"""
@@ -1557,9 +1558,7 @@ class CheckStringEndsWithGenerator(DuckDBCheckGenerator):
         FROM invalid
         """
 
-        predicate_sql = (
-            f"{col} IS NOT NULL AND RIGHT(CAST({col} AS VARCHAR), {value_len}) = '{value_sql}'"
-        )
+        predicate_sql = f"{col} IS NOT NULL AND RIGHT(CAST({col} AS VARCHAR), {value_len}) = '{value_sql}'"
 
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
@@ -1571,9 +1570,7 @@ class CheckStringEndsWithGenerator(DuckDBCheckGenerator):
         value_sql = str(value).replace("'", "''")
         value_len = len(str(value))
 
-        condition = (
-            f"{col} IS NOT NULL AND RIGHT(CAST({col} AS VARCHAR), {value_len}) != '{value_sql}'"
-        )
+        condition = f"{col} IS NOT NULL AND RIGHT(CAST({col} AS VARCHAR), {value_len}) != '{value_sql}'"
         condition = self._apply_condition(condition)
 
         return f"""
@@ -1914,7 +1911,9 @@ class CheckLessOrEqualGenerator(DuckDBCheckGenerator):
         col = self.params.ColumnName
         val = self.params.Value
         keyword = self._get_validation_keyword()
-        message = self.errorMessage or f"{col} {keyword} be less than or equal to {val}."
+        message = (
+            self.errorMessage or f"{col} {keyword} be less than or equal to {val}."
+        )
         msg_sql = message.replace("'", "''")
 
         condition = f"{col} IS NOT NULL AND {col} > {self._lit(val)}"
@@ -1977,9 +1976,7 @@ class CheckColumnComparisonGenerator(DuckDBCheckGenerator):
         message = self.errorMessage or f"{col_a} {keyword} be {comparator} {col_b}."
         msg_sql = message.replace("'", "''")
 
-        pass_predicate = (
-            f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} {comparator} {col_b}"
-        )
+        pass_predicate = f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} {comparator} {col_b}"
         condition = f"NOT ({pass_predicate})"
         condition = self._apply_condition(condition)
 
@@ -2003,9 +2000,7 @@ class CheckColumnComparisonGenerator(DuckDBCheckGenerator):
         col_a = self.params.ColumnAName
         col_b = self.params.ColumnBName
         comparator = self.params.Comparator
-        condition = (
-            f"NOT ({col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} {comparator} {col_b})"
-        )
+        condition = f"NOT ({col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} {comparator} {col_b})"
         condition = self._apply_condition(condition)
 
         return f"""
@@ -5872,7 +5867,7 @@ class FocusToDuckDBSchemaConverter:
         gen_cls = reg["generator"]
 
         # Strip reserved + 'CheckFunction' and pass as-is (no aliasing)
-        reserved = getattr(DuckDBCheckGenerator, "RESERVED", set()) or set()
+        reserved: set = getattr(DuckDBCheckGenerator, "RESERVED", set()) or set()
         params = {
             k: v
             for k, v in requirement.items()
@@ -6253,7 +6248,7 @@ class FocusToDuckDBSchemaConverter:
         gen_cls = reg["generator"]
 
         # Basic required-key validation (optional)
-        required = getattr(gen_cls, "REQUIRED_KEYS", set()) or set()
+        required: set = getattr(gen_cls, "REQUIRED_KEYS", set()) or set()
         missing = [k for k in required if k not in spec]
         if missing:
             # For conditions, you can choose to return None or raise
@@ -6490,9 +6485,11 @@ class FocusToDuckDBSchemaConverter:
                 "row_condition_sql": meta.get("row_condition_sql"),
                 "referenced": getattr(check, "referenced_rule_id", None),
                 "sql": None,  # executed by reference, not SQL
-                "note": "mirrors referenced rule outcome (no SQL)"
-                if special_kind == "reference"
-                else "executed via special executor (no SQL)",
+                "note": (
+                    "mirrors referenced rule outcome (no SQL)"
+                    if special_kind == "reference"
+                    else "executed via special executor (no SQL)"
+                ),
                 "must_satisfy": must_satisfy,
             }
 
