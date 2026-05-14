@@ -163,8 +163,8 @@ class ParquetDataLoader:
                                 exact=False,  # Allow partial matches
                                 cache=True,  # Cache format inference
                             )
-                            # For auto-inference, allow some nulls but require most values to convert
-                            if candidate.null_count() < len(candidate):
+                            # Require all values to convert successfully
+                            if candidate.null_count() == 0:
                                 converted = candidate
                         except Exception:
                             pass
