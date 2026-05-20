@@ -1161,6 +1161,12 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
         return SQLQuery(requirement_sql="SELECT 0 AS violations")
 
     def _extract_path_value(self, payload: Any, path: str) -> Any:
+        """Extract a value from a JSON payload using a limited JSONPath subset.
+
+        Supported: '$', '$.key', '$.key.nested', '$.key[0]'.
+        Not supported: chained indices ('$.foo[0][1]'), bracket-key access
+        ('$["foo bar"]'), wildcards, or filters.
+        """
         if path == "$":
             return payload
 
