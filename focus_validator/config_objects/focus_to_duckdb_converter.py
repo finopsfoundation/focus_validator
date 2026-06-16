@@ -548,7 +548,9 @@ class TypeStringCheckGenerator(DuckDBCheckGenerator):
         """
 
         # Predicate SQL (for condition mode)
-        predicate_sql = f"{col} IS NOT NULL AND typeof({col}) = 'VARCHAR'"
+        predicate_sql = self._apply_condition(
+            f"{col} IS NOT NULL AND typeof({col}) = 'VARCHAR'"
+        )
 
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
@@ -582,7 +584,9 @@ class TypeJSONCheckGenerator(DuckDBCheckGenerator):
         FROM invalid
         """
 
-        predicate_sql = f"{col} IS NOT NULL AND typeof({col}) = 'JSON'"
+        predicate_sql = self._apply_condition(
+            f"{col} IS NOT NULL AND typeof({col}) = 'JSON'"
+        )
 
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
@@ -624,7 +628,7 @@ class TypeDecimalCheckGenerator(DuckDBCheckGenerator):
         """
 
         # Predicate SQL (for condition mode)
-        predicate_sql = (
+        predicate_sql = self._apply_condition(
             f"{col} IS NOT NULL AND typeof({col}) IN ('DECIMAL', 'DOUBLE', 'FLOAT')"
         )
 
@@ -673,7 +677,7 @@ class TypeDateTimeGenerator(DuckDBCheckGenerator):
         """
 
         # Predicate SQL (for condition mode)
-        predicate_sql = (
+        predicate_sql = self._apply_condition(
             f"{col} IS NOT NULL "
             f"AND (typeof({col}) IN ('TIMESTAMP', 'TIMESTAMP_NS', 'TIMESTAMP WITH TIME ZONE', 'DATE') "
             f"OR ({col}::TEXT ~ '^[0-9]{{4}}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z$'))"
@@ -718,7 +722,9 @@ class FormatNumericGenerator(DuckDBCheckGenerator):
         """
 
         # Predicate SQL (for condition mode)
-        predicate_sql = f"{col} IS NOT NULL AND (TRIM({col}::TEXT) ~ '^[+-]?([0-9]*[.])?[0-9]+([eE][+-]?[0-9]+)?$')"
+        predicate_sql = self._apply_condition(
+            f"{col} IS NOT NULL AND (TRIM({col}::TEXT) ~ '^[+-]?([0-9]*[.])?[0-9]+([eE][+-]?[0-9]+)?$')"
+        )
 
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
@@ -775,7 +781,9 @@ class FormatStringGenerator(DuckDBCheckGenerator):
         """
 
         # Predicate SQL (for condition mode)
-        predicate_sql = f"{col} IS NOT NULL AND ({col}::TEXT ~ '^[\\x00-\\x7F]*$')"
+        predicate_sql = self._apply_condition(
+            f"{col} IS NOT NULL AND ({col}::TEXT ~ '^[\\x00-\\x7F]*$')"
+        )
 
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
@@ -840,7 +848,7 @@ class FormatDateTimeGenerator(DuckDBCheckGenerator):
         """
 
         # Predicate SQL (for condition mode)
-        predicate_sql = (
+        predicate_sql = self._apply_condition(
             f"{col} IS NOT NULL "
             f"AND (typeof({col}) IN ('TIMESTAMP', 'TIMESTAMP_NS', 'TIMESTAMP WITH TIME ZONE', 'DATE') "
             f"OR (typeof({col}) = 'VARCHAR' AND {col}::TEXT ~ '^[0-9]{{4}}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z?$' "
@@ -891,7 +899,9 @@ class FormatBillingCurrencyCodeGenerator(DuckDBCheckGenerator):
         """
 
         # Predicate SQL (for condition mode)
-        predicate_sql = f"{col} IS NOT NULL AND TRIM({col}::TEXT) IN ('{codes_list}')"
+        predicate_sql = self._apply_condition(
+            f"{col} IS NOT NULL AND TRIM({col}::TEXT) IN ('{codes_list}')"
+        )
 
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
@@ -931,7 +941,9 @@ class FormatCurrencyGenerator(DuckDBCheckGenerator):
         """
 
         # Predicate SQL (for condition mode)
-        predicate_sql = f"{col} IS NOT NULL AND (TRIM({col}::TEXT) ~ '^[A-Z]{{3}}$')"
+        predicate_sql = self._apply_condition(
+            f"{col} IS NOT NULL AND (TRIM({col}::TEXT) ~ '^[A-Z]{{3}}$')"
+        )
 
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
@@ -1069,7 +1081,7 @@ class FormatUnitGenerator(DuckDBCheckGenerator):
         """
 
         # Predicate SQL (for condition mode)
-        predicate_sql = (
+        predicate_sql = self._apply_condition(
             f"{col} IS NOT NULL AND regexp_matches({col}, '{combined_pattern}')"
         )
 
@@ -1354,7 +1366,8 @@ class CheckValueGenerator(DuckDBCheckGenerator):
         """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate),
         )
 
     def get_sample_sql(self) -> str:
@@ -1443,7 +1456,8 @@ class CheckNotValueGenerator(DuckDBCheckGenerator):
         """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate),
         )
 
     def get_sample_sql(self) -> str:
@@ -1509,7 +1523,9 @@ class CheckRegexMatchGenerator(DuckDBCheckGenerator):
         FROM invalid
         """
 
-        predicate_sql = f"{col} IS NOT NULL AND regexp_matches(CAST({col} AS VARCHAR), '{pattern_sql}')"
+        predicate_sql = self._apply_condition(
+            f"{col} IS NOT NULL AND regexp_matches(CAST({col} AS VARCHAR), '{pattern_sql}')"
+        )
 
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
@@ -1545,7 +1561,6 @@ class CheckStringEndsWithGenerator(DuckDBCheckGenerator):
         value = self.params.Value
         keyword = self._get_validation_keyword()
         value_sql = str(value).replace("'", "''")
-        value_len = len(str(value))
         message = self.errorMessage or f"{col} {keyword} end with '{value}'."
         msg_sql = message.replace("'", "''")
 
@@ -1564,7 +1579,9 @@ class CheckStringEndsWithGenerator(DuckDBCheckGenerator):
         FROM invalid
         """
 
-        predicate_sql = f"{col} IS NOT NULL AND ends_with(CAST({col} AS VARCHAR), '{value_sql}')"
+        predicate_sql = self._apply_condition(
+            f"{col} IS NOT NULL AND ends_with(CAST({col} AS VARCHAR), '{value_sql}')"
+        )
 
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
@@ -1574,7 +1591,6 @@ class CheckStringEndsWithGenerator(DuckDBCheckGenerator):
         col = self.params.ColumnName
         value = self.params.Value
         value_sql = str(value).replace("'", "''")
-        value_len = len(str(value))
 
         condition = f"{col} IS NOT NULL AND NOT ends_with(CAST({col} AS VARCHAR), '{value_sql}')"
         condition = self._apply_condition(condition)
@@ -1624,7 +1640,7 @@ class CheckSameValueGenerator(DuckDBCheckGenerator):
         """
 
         # Predicate SQL (for condition mode)
-        predicate_sql = (
+        predicate_sql = self._apply_condition(
             f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} = {col_b}"
         )
 
@@ -1702,7 +1718,7 @@ class CheckNotSameValueGenerator(DuckDBCheckGenerator):
         """
 
         # Predicate SQL (for condition mode)
-        predicate_sql = (
+        predicate_sql = self._apply_condition(
             f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} <> {col_b}"
         )
 
@@ -1776,7 +1792,9 @@ class ColumnByColumnEqualsColumnValueGenerator(DuckDBCheckGenerator):
         """
 
         # Predicate SQL (for condition mode)
-        predicate_sql = f"{a} IS NOT NULL AND {b} IS NOT NULL AND {r} IS NOT NULL AND ({a} * {b}) = {r}"
+        predicate_sql = self._apply_condition(
+            f"{a} IS NOT NULL AND {b} IS NOT NULL AND {r} IS NOT NULL AND ({a} * {b}) = {r}"
+        )
 
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
@@ -1793,21 +1811,38 @@ class ColumnByColumnEqualsColumnValueGenerator(DuckDBCheckGenerator):
         return sql_query.get_predicate_sql()
 
 
-class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
+class _CheckScalarComparisonGenerator(DuckDBCheckGenerator):
+    """Base for single-column scalar comparison checks (>=, >, <=, ...).
+
+    Subclasses differ only by operator and wording, so they set:
+      - PASS_OPERATOR: operator a valid value satisfies (e.g. ">=")
+      - VIOLATION_OPERATOR: its negation, used to find violating rows (e.g. "<")
+      - MESSAGE_PHRASE: human-readable phrase (e.g. "greater than or equal to")
+      - CHECK_TYPE: value returned by getCheckType()
+    """
+
     REQUIRED_KEYS = {"ColumnName", "Value"}
+    PASS_OPERATOR: ClassVar[str]
+    VIOLATION_OPERATOR: ClassVar[str]
+    MESSAGE_PHRASE: ClassVar[str]
+    CHECK_TYPE: ClassVar[str]
+
+    def _violation_condition(self) -> str:
+        col = self.params.ColumnName
+        val = self.params.Value
+        return f"{col} IS NOT NULL AND {col} {self.VIOLATION_OPERATOR} {self._lit(val)}"
 
     def generateSql(self) -> SQLQuery:
         col = self.params.ColumnName
         val = self.params.Value
         keyword = self._get_validation_keyword()
         message = (
-            self.errorMessage or f"{col} {keyword} be greater than or equal to {val}."
+            self.errorMessage or f"{col} {keyword} be {self.MESSAGE_PHRASE} {val}."
         )
         msg_sql = message.replace("'", "''")
 
         # Requirement SQL (finds violations)
-        condition = f"{col} IS NOT NULL AND {col} < {val}"
-        condition = self._apply_condition(condition)
+        condition = self._apply_condition(self._violation_condition())
 
         requirement_sql = f"""
         WITH invalid AS (
@@ -1822,7 +1857,9 @@ class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
         """
 
         # Predicate SQL (for condition mode)
-        predicate_sql = f"{col} IS NOT NULL AND {col} >= {self._lit(val)}"
+        predicate_sql = self._apply_condition(
+            f"{col} IS NOT NULL AND {col} {self.PASS_OPERATOR} {self._lit(val)}"
+        )
 
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
@@ -1831,11 +1868,7 @@ class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
     def get_sample_sql(self) -> str:
         """Return SQL to fetch sample violating rows for display"""
         col = self.params.ColumnName
-        val = self.params.Value
-
-        # Build condition to find violating rows (values less than the required minimum)
-        condition = f"{col} IS NOT NULL AND {col} < {val}"
-        condition = self._apply_condition(condition)
+        condition = self._apply_condition(self._violation_condition())
 
         return f"""
         SELECT {col}
@@ -1849,7 +1882,7 @@ class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
         return self.get_sample_sql()
 
     def getCheckType(self) -> str:
-        return "check_greater_equal"
+        return self.CHECK_TYPE
 
     def generatePredicate(self) -> str | None:
         """Backward compatibility wrapper"""
@@ -1859,108 +1892,25 @@ class CheckGreaterOrEqualGenerator(DuckDBCheckGenerator):
         return sql_query.get_predicate_sql()
 
 
-class CheckGreaterThanGenerator(DuckDBCheckGenerator):
-    REQUIRED_KEYS = {"ColumnName", "Value"}
-
-    def generateSql(self) -> SQLQuery:
-        col = self.params.ColumnName
-        val = self.params.Value
-        keyword = self._get_validation_keyword()
-        message = self.errorMessage or f"{col} {keyword} be greater than {val}."
-        msg_sql = message.replace("'", "''")
-
-        condition = f"{col} IS NOT NULL AND {col} <= {self._lit(val)}"
-        condition = self._apply_condition(condition)
-
-        requirement_sql = f"""
-        WITH invalid AS (
-            SELECT 1
-            FROM {{table_name}}
-            WHERE {condition}
-        )
-        SELECT
-            COUNT(*) AS violations,
-            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
-        FROM invalid
-        """
-
-        predicate_sql = f"{col} IS NOT NULL AND {col} > {self._lit(val)}"
-
-        return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
-        )
-
-    def get_sample_sql(self) -> str:
-        col = self.params.ColumnName
-        val = self.params.Value
-        condition = f"{col} IS NOT NULL AND {col} <= {self._lit(val)}"
-        condition = self._apply_condition(condition)
-
-        return f"""
-        SELECT {col}
-        FROM {{table_name}}
-        WHERE {condition}
-        """
-
-    @property
-    def sample_sql(self) -> str:
-        return self.get_sample_sql()
-
-    def getCheckType(self) -> str:
-        return "check_greater_than"
+class CheckGreaterOrEqualGenerator(_CheckScalarComparisonGenerator):
+    PASS_OPERATOR = ">="
+    VIOLATION_OPERATOR = "<"
+    MESSAGE_PHRASE = "greater than or equal to"
+    CHECK_TYPE = "check_greater_equal"
 
 
-class CheckLessOrEqualGenerator(DuckDBCheckGenerator):
-    REQUIRED_KEYS = {"ColumnName", "Value"}
+class CheckGreaterThanGenerator(_CheckScalarComparisonGenerator):
+    PASS_OPERATOR = ">"
+    VIOLATION_OPERATOR = "<="
+    MESSAGE_PHRASE = "greater than"
+    CHECK_TYPE = "check_greater_than"
 
-    def generateSql(self) -> SQLQuery:
-        col = self.params.ColumnName
-        val = self.params.Value
-        keyword = self._get_validation_keyword()
-        message = (
-            self.errorMessage or f"{col} {keyword} be less than or equal to {val}."
-        )
-        msg_sql = message.replace("'", "''")
 
-        condition = f"{col} IS NOT NULL AND {col} > {self._lit(val)}"
-        condition = self._apply_condition(condition)
-
-        requirement_sql = f"""
-        WITH invalid AS (
-            SELECT 1
-            FROM {{table_name}}
-            WHERE {condition}
-        )
-        SELECT
-            COUNT(*) AS violations,
-            CASE WHEN COUNT(*) > 0 THEN '{msg_sql}' END AS error_message
-        FROM invalid
-        """
-
-        predicate_sql = f"{col} IS NOT NULL AND {col} <= {self._lit(val)}"
-
-        return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
-        )
-
-    def get_sample_sql(self) -> str:
-        col = self.params.ColumnName
-        val = self.params.Value
-        condition = f"{col} IS NOT NULL AND {col} > {self._lit(val)}"
-        condition = self._apply_condition(condition)
-
-        return f"""
-        SELECT {col}
-        FROM {{table_name}}
-        WHERE {condition}
-        """
-
-    @property
-    def sample_sql(self) -> str:
-        return self.get_sample_sql()
-
-    def getCheckType(self) -> str:
-        return "check_less_or_equal"
+class CheckLessOrEqualGenerator(_CheckScalarComparisonGenerator):
+    PASS_OPERATOR = "<="
+    VIOLATION_OPERATOR = ">"
+    MESSAGE_PHRASE = "less than or equal to"
+    CHECK_TYPE = "check_less_or_equal"
 
 
 class CheckColumnComparisonGenerator(DuckDBCheckGenerator):
@@ -1999,7 +1949,8 @@ class CheckColumnComparisonGenerator(DuckDBCheckGenerator):
         """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=pass_predicate
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(pass_predicate),
         )
 
     def get_sample_sql(self) -> str:
@@ -2356,7 +2307,8 @@ class JSONCheckPathTypeGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql.strip()
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
     def getCheckType(self) -> str:
@@ -2478,7 +2430,8 @@ class JSONCheckPathKeyValueFormatGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql.strip()
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
     def getCheckType(self) -> str:
@@ -2611,7 +2564,8 @@ class JSONCheckPathKeyStartsWithGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql.strip()
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
     def getCheckType(self) -> str:
@@ -2744,7 +2698,8 @@ class JSONCheckPathKeyExistsGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql.strip()
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
     def getCheckType(self) -> str:
@@ -2915,7 +2870,8 @@ class JSONCheckPathValueGenerator(DuckDBCheckGenerator):
                 """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql.strip()
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
     def getCheckType(self) -> str:
@@ -3079,7 +3035,8 @@ class JSONCheckPathNotValueGenerator(DuckDBCheckGenerator):
                 """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql.strip()
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
     def getCheckType(self) -> str:
@@ -3374,7 +3331,8 @@ class JSONCheckPathSameValueGenerator(DuckDBCheckGenerator):
                 """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql.strip()
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
     def getCheckType(self) -> str:
@@ -3479,7 +3437,8 @@ class JSONCheckPathNumericFormatGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql.strip()
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
     def getCheckType(self) -> str:
@@ -3658,7 +3617,8 @@ class JSONCheckPathUnitFormatGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql.strip()
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
     def getCheckType(self) -> str:
@@ -3756,7 +3716,8 @@ class JSONCheckPathDistinctParentGenerator(DuckDBCheckGenerator):
         """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql.strip()
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
     def getCheckType(self) -> str:
@@ -3812,7 +3773,7 @@ class FormatJSONFormatGenerator(DuckDBCheckGenerator):
 
             return SQLQuery(
                 requirement_sql=requirement_sql.strip(),
-                predicate_sql=predicate_sql.strip(),
+                predicate_sql=self._apply_condition(predicate_sql.strip()),
             )
 
         # Path provided - validate elements at that path
@@ -3891,7 +3852,8 @@ class FormatJSONFormatGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql.strip()
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
     def getCheckType(self) -> str:
@@ -3996,7 +3958,8 @@ class JSONFormatStringGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql.strip()
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
     def getCheckType(self) -> str:
@@ -4183,7 +4146,8 @@ class JSONFormatUnitGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql.strip()
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
     def getCheckType(self) -> str:
@@ -4295,7 +4259,8 @@ class JSONFormatNumericGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql.strip()
+            requirement_sql=requirement_sql.strip(),
+            predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
     def getCheckType(self) -> str:

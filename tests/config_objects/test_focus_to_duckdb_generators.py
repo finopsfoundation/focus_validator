@@ -395,7 +395,7 @@ class TestCheckStringEndsWithGenerator(unittest.TestCase):
         self.assertIn("WITH invalid AS", sql)
         self.assertIn("ContractCommitmentDurationType IS NOT NULL", sql)
         self.assertIn(
-            "RIGHT(CAST(ContractCommitmentDurationType AS VARCHAR), 5) != 'Years'",
+            "NOT ends_with(CAST(ContractCommitmentDurationType AS VARCHAR), 'Years')",
             sql,
         )
         self.assertIn("ContractCommitmentDurationType MUST end with ''Years''", sql)
@@ -504,6 +504,58 @@ class TestFormatGenerators(unittest.TestCase):
 
         self.assertIsNotNone(predicate)
         self.assertIn("ProviderName = 'AWS'", predicate)
+
+    def test_leaf_generators_apply_row_condition_to_predicate(self):
+        """All leaf generators bake the row condition into their predicate SQL.
+
+        FormatJSON established this pattern; it is now uniform across leaf
+        generators so a check used in condition mode only matches rows within
+        its declared scope. See the matching FormatJSON test above.
+        """
+        mock_rule = Mock(spec=ModelRule)
+        mock_rule.rule_id = "ROW-COND-PREDICATE"
+        row_condition = "ProviderName = 'AWS'"
+
+        generators = [
+            CheckSameValueGenerator(
+                rule=mock_rule,
+                rule_id="ROW-COND-PREDICATE",
+                ColumnAName="ColA",
+                ColumnBName="ColB",
+                exec_mode="condition",
+                row_condition_sql=row_condition,
+            ),
+            CheckGreaterOrEqualGenerator(
+                rule=mock_rule,
+                rule_id="ROW-COND-PREDICATE",
+                ColumnName="Amount",
+                Value=100,
+                exec_mode="condition",
+                row_condition_sql=row_condition,
+            ),
+            ColumnByColumnEqualsColumnValueGenerator(
+                rule=mock_rule,
+                rule_id="ROW-COND-PREDICATE",
+                ColumnAName="EffectiveCost",
+                ColumnBName="BilledCost",
+                ResultColumnName="ExpectedCost",
+                exec_mode="condition",
+                row_condition_sql=row_condition,
+            ),
+        ]
+
+        for generator in generators:
+            predicate = generator.generatePredicate()
+            self.assertIsNotNone(
+                predicate,
+                f"{type(generator).__name__} should produce a predicate",
+            )
+            self.assertIn(
+                row_condition,
+                predicate,
+                f"{type(generator).__name__} should apply the row condition "
+                f"to its predicate",
+            )
 
     def test_check_json_schema_generator_validates_rows(self):
         """Test CheckJSONSchema validates JSON values against model schemas."""
