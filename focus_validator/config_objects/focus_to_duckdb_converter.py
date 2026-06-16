@@ -1564,7 +1564,7 @@ class CheckStringEndsWithGenerator(DuckDBCheckGenerator):
         FROM invalid
         """
 
-        predicate_sql = f"{col} IS NOT NULL AND RIGHT(CAST({col} AS VARCHAR), {value_len}) = '{value_sql}'"
+        predicate_sql = f"{col} IS NOT NULL AND ends_with(CAST({col} AS VARCHAR), '{value_sql}')"
 
         return SQLQuery(
             requirement_sql=requirement_sql.strip(), predicate_sql=predicate_sql
