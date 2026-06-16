@@ -1242,7 +1242,7 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
             Draft202012Validator.check_schema(schema)
             validator = Draft202012Validator(schema)
             table_name = getattr(self.params, "table_name", "focus_data")
-            sql = query.replace("{{table_name}}", table_name)
+            sql = query.replace("{table_name}", table_name)
             sql = sql.replace("{table_name}", table_name)
             try:
                 rows = conn.execute(sql).fetchall()
