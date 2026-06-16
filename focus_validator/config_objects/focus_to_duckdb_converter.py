@@ -1576,7 +1576,7 @@ class CheckStringEndsWithGenerator(DuckDBCheckGenerator):
         value_sql = str(value).replace("'", "''")
         value_len = len(str(value))
 
-        condition = f"{col} IS NOT NULL AND RIGHT(CAST({col} AS VARCHAR), {value_len}) != '{value_sql}'"
+        condition = f"{col} IS NOT NULL AND NOT ends_with(CAST({col} AS VARCHAR), '{value_sql}')"
         condition = self._apply_condition(condition)
 
         return f"""
