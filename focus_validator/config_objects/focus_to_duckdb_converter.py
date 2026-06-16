@@ -1983,7 +1983,7 @@ class CheckColumnComparisonGenerator(DuckDBCheckGenerator):
         msg_sql = message.replace("'", "''")
 
         pass_predicate = f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} {comparator} {col_b}"
-        condition = f"NOT ({pass_predicate})"
+        condition = f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND NOT ({col_a} {comparator} {col_b})"
         condition = self._apply_condition(condition)
 
         requirement_sql = f"""
