@@ -2006,7 +2006,7 @@ class CheckColumnComparisonGenerator(DuckDBCheckGenerator):
         col_a = self.params.ColumnAName
         col_b = self.params.ColumnBName
         comparator = self.params.Comparator
-        condition = f"NOT ({col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} {comparator} {col_b})"
+        condition = f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND NOT ({col_a} {comparator} {col_b})"
         condition = self._apply_condition(condition)
 
         return f"""
