@@ -88,7 +88,10 @@ class ParquetDataLoader:
                             )
                             # Accept if parsing added no new nulls (nullable
                             # columns) and at least one value actually parsed
-                            if has_values and candidate.null_count() == original_null_count:
+                            if (
+                                has_values
+                                and candidate.null_count() == original_null_count
+                            ):
                                 converted = candidate
                         except Exception:
                             pass
@@ -102,7 +105,10 @@ class ParquetDataLoader:
                             )
                             # Accept if parsing added no new nulls (nullable
                             # columns) and at least one value actually parsed
-                            if has_values and candidate.null_count() == original_null_count:
+                            if (
+                                has_values
+                                and candidate.null_count() == original_null_count
+                            ):
                                 converted = candidate
                         except Exception:
                             pass
@@ -115,7 +121,10 @@ class ParquetDataLoader:
                             )
                             # Accept if parsing added no new nulls (nullable
                             # columns) and at least one value actually parsed
-                            if has_values and candidate.null_count() == original_null_count:
+                            if (
+                                has_values
+                                and candidate.null_count() == original_null_count
+                            ):
                                 converted = candidate
                         except Exception:
                             pass
@@ -161,7 +170,10 @@ class ParquetDataLoader:
 
                             # Accept if parsing added no new nulls (nullable
                             # columns) and at least one value actually parsed
-                            if has_values and candidate.null_count() == original_null_count:
+                            if (
+                                has_values
+                                and candidate.null_count() == original_null_count
+                            ):
                                 converted = candidate
 
                         except Exception:
@@ -181,7 +193,10 @@ class ParquetDataLoader:
                             )
                             # Accept if parsing added no new nulls (nullable columns)
                             # and at least one value actually parsed
-                            if has_values and candidate.null_count() == original_null_count:
+                            if (
+                                has_values
+                                and candidate.null_count() == original_null_count
+                            ):
                                 converted = candidate
                         except Exception:
                             pass
