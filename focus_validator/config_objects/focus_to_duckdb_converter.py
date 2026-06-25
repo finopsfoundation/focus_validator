@@ -569,7 +569,7 @@ class TypeJSONCheckGenerator(DuckDBCheckGenerator):
         message = self.errorMessage or f"{col} {keyword} be of type JSON."
         msg_sql = message.replace("'", "''")
 
-        condition = f"{col} IS NOT NULL AND typeof({col}) != 'JSON'"
+        condition = f"{col} IS NOT NULL AND NOT json_valid(CAST({col} AS VARCHAR))"
         condition = self._apply_condition(condition)
 
         requirement_sql = f"""
