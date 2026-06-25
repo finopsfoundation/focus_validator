@@ -253,7 +253,7 @@ class TestTypeJSONGenerator(unittest.TestCase):
 
         self.assertIn("WITH invalid AS", sql)
         self.assertIn("Tags IS NOT NULL", sql)
-        self.assertIn("typeof(Tags) != 'JSON'", sql)
+        self.assertIn("NOT json_valid(CAST(Tags AS VARCHAR))", sql)
         self.assertIn("Tags MUST be of type JSON", sql)
 
     def test_type_json_check_type(self):

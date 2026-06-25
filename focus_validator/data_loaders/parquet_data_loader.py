@@ -58,14 +58,23 @@ class ParquetDataLoader:
                     # Try multiple datetime parsing strategies
                     converted = None
 
+                    # A strategy succeeds only if parsing introduces no nulls
+                    # beyond those already present (so nullable columns convert),
+                    # and the column has at least one real value (an all-null
+                    # column carries no evidence of being a datetime, so it is
+                    # left as a string rather than coerced).
+                    original_null_count = series.null_count()
+                    has_values = original_null_count < series.len()
+
                     # Strategy 1: Try ISO format with timezone
                     try:
                         candidate = series.str.to_datetime(
                             format="%Y-%m-%dT%H:%M:%S%z",  # ISO with timezone like -05:00
                             strict=False,
                         )
-                        # Check if conversion was successful (all values converted)
-                        if candidate.null_count() == 0:
+                        # Accept if parsing added no new nulls (nullable columns)
+                        # and at least one value actually parsed
+                        if has_values and candidate.null_count() == original_null_count:
                             converted = candidate
                     except Exception:
                         pass
@@ -77,8 +86,9 @@ class ParquetDataLoader:
                                 format="%Y-%m-%dT%H:%M:%SZ",  # ISO with Z timezone
                                 strict=False,
                             )
-                            # Check if conversion was successful (all values converted)
-                            if candidate.null_count() == 0:
+                            # Accept if parsing added no new nulls (nullable
+                            # columns) and at least one value actually parsed
+                            if has_values and candidate.null_count() == original_null_count:
                                 converted = candidate
                         except Exception:
                             pass
@@ -90,8 +100,9 @@ class ParquetDataLoader:
                                 format="%Y-%m-%d %H:%M:%S",  # Space-separated format
                                 strict=False,
                             )
-                            # Check if conversion was successful (all values converted)
-                            if candidate.null_count() == 0:
+                            # Accept if parsing added no new nulls (nullable
+                            # columns) and at least one value actually parsed
+                            if has_values and candidate.null_count() == original_null_count:
                                 converted = candidate
                         except Exception:
                             pass
@@ -102,8 +113,9 @@ class ParquetDataLoader:
                             candidate = series.str.to_datetime(
                                 format="%Y-%m-%d", strict=False  # Simple date format
                             )
-                            # Check if conversion was successful (all values converted)
-                            if candidate.null_count() == 0:
+                            # Accept if parsing added no new nulls (nullable
+                            # columns) and at least one value actually parsed
+                            if has_values and candidate.null_count() == original_null_count:
                                 converted = candidate
                         except Exception:
                             pass
@@ -147,14 +159,18 @@ class ParquetDataLoader:
                                 series.name, converted_values, dtype=pl.Datetime("us")
                             )
 
-                            # Check if we successfully converted all values
-                            if candidate.null_count() == 0:
+                            # Accept if parsing added no new nulls (nullable
+                            # columns) and at least one value actually parsed
+                            if has_values and candidate.null_count() == original_null_count:
                                 converted = candidate
 
                         except Exception:
                             pass
 
-                    # Strategy 6: Let Polars infer format (for fallback cases)
+                    # Strategy 6: Let Polars infer the format (fallback for any
+                    # single format strategies 1-5 did not match). Format inference
+                    # cannot parse timezone-qualified ISO (trailing 'Z' or offsets),
+                    # but strategies 1-2 already cover those.
                     if converted is None:
                         try:
                             candidate = series.str.to_datetime(
@@ -163,8 +179,9 @@ class ParquetDataLoader:
                                 exact=False,  # Allow partial matches
                                 cache=True,  # Cache format inference
                             )
-                            # Require all values to convert successfully
-                            if candidate.null_count() == 0:
+                            # Accept if parsing added no new nulls (nullable columns)
+                            # and at least one value actually parsed
+                            if has_values and candidate.null_count() == original_null_count:
                                 converted = candidate
                         except Exception:
                             pass
