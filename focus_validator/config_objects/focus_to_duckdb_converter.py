@@ -1942,23 +1942,34 @@ class CheckColumnComparisonGenerator(DuckDBCheckGenerator):
 
     _VALID_COMPARATORS: ClassVar[Set[str]] = {"=", "!=", "<>", ">", ">=", "<", "<="}
 
-    def generateSql(self) -> SQLQuery:
-        col_a = self.params.ColumnAName
-        col_b = self.params.ColumnBName
+    def _validated_comparator(self) -> str:
         comparator = self.params.Comparator
-        keyword = self._get_validation_keyword()
-
         if comparator not in self._VALID_COMPARATORS:
             raise InvalidRuleException(
                 f"Unsupported comparator for {self.rule_id}: {comparator}"
             )
+        return comparator
+
+    def _violation_condition(self) -> str:
+        col_a = self.params.ColumnAName
+        col_b = self.params.ColumnBName
+        comparator = self._validated_comparator()
+        return (
+            f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL "
+            f"AND NOT ({col_a} {comparator} {col_b})"
+        )
+
+    def generateSql(self) -> SQLQuery:
+        col_a = self.params.ColumnAName
+        col_b = self.params.ColumnBName
+        comparator = self._validated_comparator()
+        keyword = self._get_validation_keyword()
 
         message = self.errorMessage or f"{col_a} {keyword} be {comparator} {col_b}."
         msg_sql = message.replace("'", "''")
 
         pass_predicate = f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} {comparator} {col_b}"
-        condition = f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND NOT ({col_a} {comparator} {col_b})"
-        condition = self._apply_condition(condition)
+        condition = self._apply_condition(self._violation_condition())
 
         requirement_sql = f"""
         WITH invalid AS (
@@ -1980,9 +1991,7 @@ class CheckColumnComparisonGenerator(DuckDBCheckGenerator):
     def get_sample_sql(self) -> str:
         col_a = self.params.ColumnAName
         col_b = self.params.ColumnBName
-        comparator = self.params.Comparator
-        condition = f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND NOT ({col_a} {comparator} {col_b})"
-        condition = self._apply_condition(condition)
+        condition = self._apply_condition(self._violation_condition())
 
         return f"""
         SELECT {col_a}, {col_b}
