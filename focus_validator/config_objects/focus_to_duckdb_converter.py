@@ -1237,10 +1237,10 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
         # an InvalidRuleException instead of surfacing mid-run. If jsonschema is
         # not installed, defer to the executor's clear RuntimeError at run time.
         try:
-            from jsonschema import (  # type: ignore[import-untyped]
-                Draft202012Validator,
+            from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
+            from jsonschema.exceptions import (
+                SchemaError,  # type: ignore[import-untyped]
             )
-            from jsonschema.exceptions import SchemaError  # type: ignore[import-untyped]
         except ModuleNotFoundError:
             pass
         else:
