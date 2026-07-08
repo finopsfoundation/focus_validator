@@ -1238,8 +1238,8 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
         # not installed, defer to the executor's clear RuntimeError at run time.
         try:
             from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
-            from jsonschema.exceptions import (
-                SchemaError,  # type: ignore[import-untyped]
+            from jsonschema.exceptions import (  # type: ignore[import-untyped]
+                SchemaError,
             )
         except ModuleNotFoundError:
             pass
