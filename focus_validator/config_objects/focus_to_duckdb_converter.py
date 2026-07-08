@@ -1306,6 +1306,8 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
 
             failure_messages: list[str] = []
             violations = 0
+            # row_num counts position within the filtered result set (non-null,
+            # row-condition-matching rows), not the source data row number.
             for row_num, row in enumerate(rows, start=1):
                 raw_value = row[0] if isinstance(row, (tuple, list)) else row
                 try:
@@ -1316,7 +1318,9 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
                     )
                 except Exception as exc:
                     violations += 1
-                    failure_messages.append(f"row {row_num}: invalid JSON ({exc})")
+                    failure_messages.append(
+                        f"matching row {row_num}: invalid JSON ({exc})"
+                    )
                     continue
 
                 instance = self._extract_path_value(payload, path)
@@ -1325,7 +1329,9 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
                 )
                 if errors:
                     violations += 1
-                    failure_messages.append(f"row {row_num}: {errors[0].message}")
+                    failure_messages.append(
+                        f"matching row {row_num}: {errors[0].message}"
+                    )
 
             ok = violations == 0
             details = {
