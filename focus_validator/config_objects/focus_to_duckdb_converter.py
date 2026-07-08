@@ -2166,6 +2166,7 @@ class CheckModelRuleGenerator(DuckDBCheckGenerator):
         chk.special_executor = _exec_reference
         chk.exec_mode = "reference"
         chk.referenced_rule_id = target_id
+        chk.meta["special_executor_kind"] = "reference"
         return chk
 
 
@@ -6451,6 +6452,7 @@ class FocusToDuckDBSchemaConverter:
             return {
                 "rule_id": rid,
                 "type": "special",
+                "special_kind": special_kind,
                 "check_type": ctype,
                 "generator": meta.get("generator"),
                 "row_condition_sql": meta.get("row_condition_sql"),
@@ -6541,7 +6543,7 @@ class FocusToDuckDBSchemaConverter:
                 print(
                     f"Composite: {info.get('aggregate')} with {len(info.get('children', []))} items"
                 )
-            elif t == "reference":
+            elif t == "special" and info.get("special_kind") == "reference":
                 print(f"Reference to: {info.get('referenced')}")
             elif t == "skipped":
                 print(f"Skipped: {info.get('reason')}")
