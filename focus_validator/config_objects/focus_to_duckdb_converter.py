@@ -1232,6 +1232,26 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
             )
 
         schema = schema_entry["Schema"]
+
+        # Validate the schema up front so a malformed model schema fails fast as
+        # an InvalidRuleException instead of surfacing mid-run. If jsonschema is
+        # not installed, defer to the executor's clear RuntimeError at run time.
+        try:
+            from jsonschema import (  # type: ignore[import-untyped]
+                Draft202012Validator,
+            )
+            from jsonschema.exceptions import SchemaError  # type: ignore[import-untyped]
+        except ModuleNotFoundError:
+            pass
+        else:
+            try:
+                Draft202012Validator.check_schema(schema)
+            except SchemaError as exc:
+                raise InvalidRuleException(
+                    f"SchemaId '{schema_id}' referenced by rule {self.rule_id} "
+                    f"has an invalid JSON schema: {exc.message}"
+                ) from exc
+
         path = getattr(self.params, "Path", "$")
         col = self.params.ColumnName
         where_clauses = [f"{col} IS NOT NULL"]
@@ -1251,11 +1271,9 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
                     "CheckJSONSchema requires the 'jsonschema' package to be installed"
                 ) from exc
 
-            Draft202012Validator.check_schema(schema)
             validator = Draft202012Validator(schema)
             table_name = getattr(self.params, "table_name", "focus_data")
             sql = query.replace("{table_name}", table_name)
-            sql = sql.replace("{table_name}", table_name)
             try:
                 rows = conn.execute(sql).fetchall()
             except (duckdb.BinderException, duckdb.CatalogException) as exc:
