@@ -1232,6 +1232,26 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
             )
 
         schema = schema_entry["Schema"]
+
+        # Validate the schema up front so a malformed model schema fails fast as
+        # an InvalidRuleException instead of surfacing mid-run. If jsonschema is
+        # not installed, defer to the executor's clear RuntimeError at run time.
+        try:
+            from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
+            from jsonschema.exceptions import (  # type: ignore[import-untyped]
+                SchemaError,
+            )
+        except ModuleNotFoundError:
+            pass
+        else:
+            try:
+                Draft202012Validator.check_schema(schema)
+            except SchemaError as exc:
+                raise InvalidRuleException(
+                    f"SchemaId '{schema_id}' referenced by rule {self.rule_id} "
+                    f"has an invalid JSON schema: {exc.message}"
+                ) from exc
+
         path = getattr(self.params, "Path", "$")
         col = self.params.ColumnName
         where_clauses = [f"{col} IS NOT NULL"]
@@ -1251,11 +1271,9 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
                     "CheckJSONSchema requires the 'jsonschema' package to be installed"
                 ) from exc
 
-            Draft202012Validator.check_schema(schema)
             validator = Draft202012Validator(schema)
             table_name = getattr(self.params, "table_name", "focus_data")
             sql = query.replace("{table_name}", table_name)
-            sql = sql.replace("{table_name}", table_name)
             try:
                 rows = conn.execute(sql).fetchall()
             except (duckdb.BinderException, duckdb.CatalogException) as exc:
@@ -1288,6 +1306,8 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
 
             failure_messages: list[str] = []
             violations = 0
+            # row_num counts position within the filtered result set (non-null,
+            # row-condition-matching rows), not the source data row number.
             for row_num, row in enumerate(rows, start=1):
                 raw_value = row[0] if isinstance(row, (tuple, list)) else row
                 try:
@@ -1298,7 +1318,9 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
                     )
                 except Exception as exc:
                     violations += 1
-                    failure_messages.append(f"row {row_num}: invalid JSON ({exc})")
+                    failure_messages.append(
+                        f"matching row {row_num}: invalid JSON ({exc})"
+                    )
                     continue
 
                 instance = self._extract_path_value(payload, path)
@@ -1307,7 +1329,9 @@ class CheckJSONSchemaGenerator(DuckDBCheckGenerator):
                 )
                 if errors:
                     violations += 1
-                    failure_messages.append(f"row {row_num}: {errors[0].message}")
+                    failure_messages.append(
+                        f"matching row {row_num}: {errors[0].message}"
+                    )
 
             ok = violations == 0
             details = {
@@ -1918,23 +1942,34 @@ class CheckColumnComparisonGenerator(DuckDBCheckGenerator):
 
     _VALID_COMPARATORS: ClassVar[Set[str]] = {"=", "!=", "<>", ">", ">=", "<", "<="}
 
-    def generateSql(self) -> SQLQuery:
-        col_a = self.params.ColumnAName
-        col_b = self.params.ColumnBName
+    def _validated_comparator(self) -> str:
         comparator = self.params.Comparator
-        keyword = self._get_validation_keyword()
-
         if comparator not in self._VALID_COMPARATORS:
             raise InvalidRuleException(
                 f"Unsupported comparator for {self.rule_id}: {comparator}"
             )
+        return comparator
+
+    def _violation_condition(self) -> str:
+        col_a = self.params.ColumnAName
+        col_b = self.params.ColumnBName
+        comparator = self._validated_comparator()
+        return (
+            f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL "
+            f"AND NOT ({col_a} {comparator} {col_b})"
+        )
+
+    def generateSql(self) -> SQLQuery:
+        col_a = self.params.ColumnAName
+        col_b = self.params.ColumnBName
+        comparator = self._validated_comparator()
+        keyword = self._get_validation_keyword()
 
         message = self.errorMessage or f"{col_a} {keyword} be {comparator} {col_b}."
         msg_sql = message.replace("'", "''")
 
         pass_predicate = f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND {col_a} {comparator} {col_b}"
-        condition = f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND NOT ({col_a} {comparator} {col_b})"
-        condition = self._apply_condition(condition)
+        condition = self._apply_condition(self._violation_condition())
 
         requirement_sql = f"""
         WITH invalid AS (
@@ -1956,9 +1991,7 @@ class CheckColumnComparisonGenerator(DuckDBCheckGenerator):
     def get_sample_sql(self) -> str:
         col_a = self.params.ColumnAName
         col_b = self.params.ColumnBName
-        comparator = self.params.Comparator
-        condition = f"{col_a} IS NOT NULL AND {col_b} IS NOT NULL AND NOT ({col_a} {comparator} {col_b})"
-        condition = self._apply_condition(condition)
+        condition = self._apply_condition(self._violation_condition())
 
         return f"""
         SELECT {col_a}, {col_b}
@@ -2166,6 +2199,7 @@ class CheckModelRuleGenerator(DuckDBCheckGenerator):
         chk.special_executor = _exec_reference
         chk.exec_mode = "reference"
         chk.referenced_rule_id = target_id
+        chk.meta["special_executor_kind"] = "reference"
         return chk
 
 
@@ -6451,6 +6485,7 @@ class FocusToDuckDBSchemaConverter:
             return {
                 "rule_id": rid,
                 "type": "special",
+                "special_kind": special_kind,
                 "check_type": ctype,
                 "generator": meta.get("generator"),
                 "row_condition_sql": meta.get("row_condition_sql"),
@@ -6541,7 +6576,7 @@ class FocusToDuckDBSchemaConverter:
                 print(
                     f"Composite: {info.get('aggregate')} with {len(info.get('children', []))} items"
                 )
-            elif t == "reference":
+            elif t == "special" and info.get("special_kind") == "reference":
                 print(f"Reference to: {info.get('referenced')}")
             elif t == "skipped":
                 print(f"Skipped: {info.get('reason')}")
