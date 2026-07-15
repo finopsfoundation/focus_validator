@@ -1530,11 +1530,16 @@ class TestFOCUSRuleScenarios(unittest.TestCase):
         sql_result = generator.generateSql()
         sql = _extract_sql(sql_result)
         
-        # Should validate calculation
+        # Should validate calculation with a relative float tolerance so that
+        # IEEE-754 rounding of the product is not flagged as a violation.
         self.assertIn("ListUnitPrice IS NOT NULL", sql)
         self.assertIn("UsageQuantity IS NOT NULL", sql)
         self.assertIn("EffectiveCost IS NOT NULL", sql)
-        self.assertIn("(ListUnitPrice * UsageQuantity) <> EffectiveCost", sql)
+        self.assertIn("(ListUnitPrice * UsageQuantity)", sql)
+        self.assertIn(
+            "ABS((ListUnitPrice * UsageQuantity) - EffectiveCost)", sql
+        )
+        self.assertIn("GREATEST(ABS(EffectiveCost), 1)", sql)
         
     def test_account_id_consistency_rule(self):
         """Test BillingAccountId to BillingAccountName consistency."""
