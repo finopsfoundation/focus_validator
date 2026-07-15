@@ -1792,6 +1792,21 @@ class CheckDecimalValueGenerator(SkippedCheck):
 class ColumnByColumnEqualsColumnValueGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnAName", "ColumnBName", "ResultColumnName"}
 
+    # Relative tolerance for the product comparison. FOCUS defines the
+    # relationship as exact, but the CSV loader infers numeric columns as
+    # Float64/DOUBLE, so ({a} * {b}) is evaluated in IEEE-754 double precision.
+    # A zero-tolerance `<>` flags rows whose exact-decimal product equals the
+    # result but whose float64 product differs by a rounding bit (e.g.
+    # 0.000015 * 20 -> 0.00030000000000000003 vs 0.0003). This epsilon absorbs
+    # only that representation error, not genuine mismatches.
+    RELATIVE_TOLERANCE: ClassVar[str] = "1e-9"
+
+    def _tolerance_expr(self, a: str, b: str, r: str) -> str:
+        return (
+            f"ABS(({a} * {b}) - {r}) "
+            f"<= {self.RELATIVE_TOLERANCE} * GREATEST(ABS({r}), 1)"
+        )
+
     def generateSql(self) -> SQLQuery:
         a = self.params.ColumnAName
         b = self.params.ColumnBName
@@ -1800,7 +1815,8 @@ class ColumnByColumnEqualsColumnValueGenerator(DuckDBCheckGenerator):
         msg_sql = message.replace("'", "''")
 
         # Requirement SQL (finds violations)
-        condition = f"{a} IS NOT NULL AND {b} IS NOT NULL AND {r} IS NOT NULL AND ({a} * {b}) <> {r}"
+        not_null = f"{a} IS NOT NULL AND {b} IS NOT NULL AND {r} IS NOT NULL"
+        condition = f"{not_null} AND NOT ({self._tolerance_expr(a, b, r)})"
         condition = self._apply_condition(condition)
 
         requirement_sql = f"""
@@ -1817,7 +1833,7 @@ class ColumnByColumnEqualsColumnValueGenerator(DuckDBCheckGenerator):
 
         # Predicate SQL (for condition mode)
         predicate_sql = self._apply_condition(
-            f"{a} IS NOT NULL AND {b} IS NOT NULL AND {r} IS NOT NULL AND ({a} * {b}) = {r}"
+            f"{not_null} AND ({self._tolerance_expr(a, b, r)})"
         )
 
         return SQLQuery(
