@@ -16,7 +16,7 @@ generate-setup-file = false
 script = "build.py"
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = ">=3.11,<4.0"
 pandas = "^2"
 tabulate = "*"
 pyarrow = "*"
