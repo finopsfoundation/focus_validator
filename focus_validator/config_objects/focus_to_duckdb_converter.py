@@ -876,9 +876,14 @@ class FormatBillingCurrencyCodeGenerator(DuckDBCheckGenerator):
         msg_sql = message.replace("'", "''")
 
         # Get valid currency codes from CSV file
-        valid_codes = get_currency_codes(
-            code_file="focus_validator/rules/currency_codes.csv"
-        )
+        # NOTE: 3.11-compat fix — resolve the bundled data file relative to the
+        # installed package, not the CWD (the hard-coded relative path only
+        # worked when the process CWD happened to be the repo root).
+        import importlib.resources as _res
+
+        _codes_ref = _res.files("focus_validator").joinpath("rules/currency_codes.csv")
+        with _res.as_file(_codes_ref) as _codes_path:
+            valid_codes = get_currency_codes(code_file=str(_codes_path))
         # Create SQL IN clause with properly quoted currency codes
         codes_list = "', '".join(sorted(valid_codes))
 
@@ -2526,12 +2531,14 @@ class JSONCheckPathKeyStartsWithGenerator(DuckDBCheckGenerator):
         prefix_escaped = prefix.replace("'", "''")
 
         # Build SQL array of ignored keys
+        # NOTE: built for Python 3.11 compat — 3.12+ allows backslashes inside
+        # f-string expressions (PEP 701) but 3.11 does not, so the inner
+        # replacement is hoisted to a plain statement below.
         if ignore_keys and len(ignore_keys) > 0:
-            ignore_keys_sql = (
-                "["
-                + ", ".join(f"'{k.replace('\"', '\"\"')}'" for k in ignore_keys)
-                + "]"
-            )
+            def _sql_quote_key(k: str) -> str:
+                return "'" + k.replace("\"", "\"\"") + "'"
+
+            ignore_keys_sql = "[" + ", ".join(_sql_quote_key(k) for k in ignore_keys) + "]"
         else:
             ignore_keys_sql = "[]"
 
