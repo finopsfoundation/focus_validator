@@ -22,9 +22,7 @@ class UnittestFormatter:
         self.failures = str(failures)
         self.errors = str(errors)
         self.skipped = str(skipped)
-        self.assertions = str(assertions)
-        if not self.assertions:
-            self.assertions = self.tests
+        self.assertions = self.tests if assertions is None else str(assertions)
         self.time = time
         self.timestamp = timestamp
         if not self.timestamp:
@@ -275,7 +273,7 @@ class UnittestOutputter:
                 testsuite=test_suite_id,
                 name=testcase["check_name"],
                 result=testcase["status"].value,
-                message=testcase["friendly_name"],
+                message=testcase["error"] or testcase["friendly_name"],
                 check_type_name=testcase["rule_ref"]["check_type_friendly_name"],
             )
 
