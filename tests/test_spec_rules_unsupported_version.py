@@ -1,3 +1,5 @@
+import os
+import tempfile
 from unittest import TestCase
 from unittest.mock import MagicMock
 
@@ -225,3 +227,39 @@ class TestSpecRulesVersionMatching(TestCase):
         # Should return semantically sorted
         expected = sorted([v for v in result], key=self.spec._parse_version_tuple)
         self.assertEqual(result, expected)
+
+
+class TestSpecRulesPinnedLocalVersion(TestCase):
+    """A pinned patch version resolves locally even when a newer patch exists."""
+
+    def _spec(self, rule_set_path, version):
+        return SpecRules(
+            rule_set_path=rule_set_path,
+            rules_file_prefix="model-",
+            rules_version=version,
+            rules_file_suffix=".json",
+            focus_dataset="CostAndUsage",
+            filter_rules=None,
+            rules_force_remote_download=False,
+            rules_block_remote_download=True,
+            allow_draft_releases=False,
+            allow_prerelease_releases=False,
+            column_namespace=None,
+        )
+
+    def test_pinned_older_patch_uses_local_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("model-1.4.0.1.json", "model-1.4.0.2.json"):
+                with open(os.path.join(tmp, name), "w") as f:
+                    f.write("{}")
+
+            pinned = self._spec(tmp, "1.4.0.1")
+            self.assertEqual(
+                pinned.json_rule_file, os.path.join(tmp, "model-1.4.0.1.json")
+            )
+            self.assertEqual(pinned.local_supported_versions, ["1.4.0.2"])
+
+            prefix = self._spec(tmp, "1.4")
+            self.assertEqual(
+                prefix.json_rule_file, os.path.join(tmp, "model-1.4.0.2.json")
+            )

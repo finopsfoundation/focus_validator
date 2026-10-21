@@ -87,10 +87,9 @@ class SpecRules:
         )
         self.remote_versions = {}
 
-        # Build dict of local versions for semantic matching
-        local_versions_dict = {
-            v: {"source": "local"} for v in self.local_supported_versions
-        }
+        # Build dict of local versions for semantic matching. Use every local
+        # file so a pinned patch version still matches when a newer one exists.
+        local_versions_dict = {v: {"source": "local"} for v in self._local_versions()}
 
         # Try semantic version matching for local versions first
         matched_version = self._find_best_version_match(
@@ -182,6 +181,10 @@ class SpecRules:
         For example, if both model-1.2.json and model-1.2.0.1.json exist,
         only 1.2.0.1 will be returned.
         """
+        return self._filter_to_highest_versions(self._local_versions())
+
+    def _local_versions(self) -> List[str]:
+        """Return every version found in rule_set_path filenames."""
         versions = []
         for filename in os.listdir(self.rule_set_path):
             if filename.startswith(self.rules_file_prefix) and filename.endswith(
@@ -192,7 +195,7 @@ class SpecRules:
                     len(self.rules_file_prefix) : -len(self.rules_file_suffix)
                 ]
                 versions.append(version)
-        return self._filter_to_highest_versions(versions)
+        return versions
 
     def _parse_version_from_filename(self, filename: str) -> Optional[str]:
         """Extract version from filename like 'model-1.2.0.1.json' -> '1.2.0.1'."""
