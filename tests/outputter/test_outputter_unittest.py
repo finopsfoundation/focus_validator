@@ -39,7 +39,7 @@ class TestUnittestFormatter(unittest.TestCase):
         self.assertEqual(formatter.failures, "1")
         self.assertEqual(formatter.errors, "0")
         self.assertEqual(formatter.skipped, "2")
-        self.assertEqual(formatter.assertions, "None")  # str(None) = 'None', and 'None' is truthy so doesn't trigger fallback
+        self.assertEqual(formatter.assertions, "5")  # defaults to the test count
         self.assertIsNotNone(formatter.timestamp)
         self.assertEqual(formatter.time, "0")
 
@@ -293,6 +293,24 @@ class TestUnittestOutputter(unittest.TestCase):
         self.assertEqual(len(root.findall(".//failure")), 1)
         self.assertEqual(len(root.findall(".//error")), 1)
         self.assertEqual(len(root.findall(".//skipped")), 1)
+
+    def test_write_failure_message_uses_error(self):
+        """Failures carry the violation message, falling back to the friendly name."""
+        with_error = self.create_mock_checklist_object(
+            "Fail-001-M", "failed", error="BilledCost MUST NOT be NULL."
+        )
+        without_error = self.create_mock_checklist_object("Fail-002-M", "failed")
+
+        mock_result_set = Mock()
+        mock_result_set.checklist = {"Fail-001-M": with_error, "Fail-002-M": without_error}
+
+        self.outputter.write(mock_result_set)
+
+        root = ET.parse(self.output_file).getroot()
+        messages = {f.get("name"): f.get("message") for f in root.findall(".//failure")}
+        self.assertEqual(messages["Fail-001-M"], "BilledCost MUST NOT be NULL.")
+        self.assertEqual(messages["Fail-002-M"], "Friendly name for Fail-002-M")
+        self.assertEqual(root.get("assertions"), "2")
 
     def test_write_groups_by_test_suite(self):
         """Test that tests are grouped by test suite (rule prefix)."""
