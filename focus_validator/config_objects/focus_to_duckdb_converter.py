@@ -1014,6 +1014,10 @@ class FormatUnitGenerator(DuckDBCheckGenerator):
         # Count-based units pattern (flexible - matches alphanumeric words with optional spaces)
         # This captures any reasonable count unit like "Request", "API Request", "vCPU", "WriteCapacityUnit", etc.
         count_unit_pattern = r"[A-Za-z][A-Za-z0-9]*(?:\s+[A-Za-z][A-Za-z0-9]*)*"
+        count_plural_pattern = r"(?:[A-Za-z][A-Za-z0-9]*\s+)*[A-Za-z][A-Za-z0-9]*s"
+
+        # <singular-base-unit>-<plural-base-unit>: "GB-Hours", "Core-Hours", "Request-Tokens"
+        compound_pattern = f"({data_size_pattern}|{count_unit_pattern})-({time_plural_pattern}|{count_plural_pattern})"
 
         # Pattern 1: Standalone units
         # - Data size units: "GB", "KB", etc.
@@ -1023,28 +1027,25 @@ class FormatUnitGenerator(DuckDBCheckGenerator):
             f"^({data_size_pattern}|{time_singular_pattern}|{time_plural_pattern}|{count_unit_pattern})$"
         )
 
-        # Pattern 2: <unit>-<plural-time-units> – "GB-Hours", "Request-Days", "API Request-Months"
-        # Any unit (data size or count) combined with plural time units
-        patterns.append(
-            f"^({data_size_pattern}|{count_unit_pattern})-({time_plural_pattern})$"
-        )
+        # Pattern 2: compound units – "GB-Hours", "Request-Tokens", "API Request-Months"
+        patterns.append(f"^{compound_pattern}$")
 
         # Pattern 3: <unit>/<singular-time-unit> – "GB/Hour", "Request/Day", "API Request/Second"
         # Any unit (data size or count) as a rate per time unit
         patterns.append(
-            f"^({data_size_pattern}|{count_unit_pattern}|{time_plural_pattern})/({time_singular_pattern})$"
+            f"^({data_size_pattern}|{count_unit_pattern}|{time_plural_pattern}|{compound_pattern})/({time_singular_pattern})$"
         )
 
         # Pattern 4: <quantity> <units> – "1000 Requests", "5000 API Requests"
         # Numeric quantity followed by any unit
         patterns.append(
-            f"^[0-9]+ ({data_size_pattern}|{time_singular_pattern}|{time_plural_pattern}|{count_unit_pattern})$"
+            f"^[0-9]+ ({data_size_pattern}|{time_singular_pattern}|{time_plural_pattern}|{count_unit_pattern}|{compound_pattern})$"
         )
 
         # Pattern 5: <units>/<interval> <plural-time-units> – "Requests/3 Months", "API Requests/5 Days"
         # Units per interval of time
         patterns.append(
-            f"^({data_size_pattern}|{count_unit_pattern}|{time_plural_pattern})/[0-9]+ ({time_plural_pattern})$"
+            f"^({data_size_pattern}|{count_unit_pattern}|{time_plural_pattern}|{compound_pattern})/[0-9]+ ({time_plural_pattern})$"
         )
 
         # Combine all patterns with OR
@@ -3560,26 +3561,28 @@ class JSONCheckPathUnitFormatGenerator(DuckDBCheckGenerator):
         time_singular_pattern = "|".join(time_units_singular)
         time_plural_pattern = "|".join(time_units_plural)
         count_unit_pattern = r"[A-Za-z][A-Za-z0-9]*(?:\s+[A-Za-z][A-Za-z0-9]*)*"
+        count_plural_pattern = r"(?:[A-Za-z][A-Za-z0-9]*\s+)*[A-Za-z][A-Za-z0-9]*s"
+
+        # <singular-base-unit>-<plural-base-unit>: "GB-Hours", "Core-Hours", "Request-Tokens"
+        compound_pattern = f"({data_size_pattern}|{count_unit_pattern})-({time_plural_pattern}|{count_plural_pattern})"
 
         # Pattern 1: Standalone units
         patterns.append(
             f"^({data_size_pattern}|{time_singular_pattern}|{time_plural_pattern}|{count_unit_pattern})$"
         )
-        # Pattern 2: <unit>-<plural-time-units>
-        patterns.append(
-            f"^({data_size_pattern}|{count_unit_pattern})-({time_plural_pattern})$"
-        )
+        # Pattern 2: compound units
+        patterns.append(f"^{compound_pattern}$")
         # Pattern 3: <unit>/<singular-time-unit>
         patterns.append(
-            f"^({data_size_pattern}|{count_unit_pattern}|{time_plural_pattern})/({time_singular_pattern})$"
+            f"^({data_size_pattern}|{count_unit_pattern}|{time_plural_pattern}|{compound_pattern})/({time_singular_pattern})$"
         )
         # Pattern 4: <quantity> <units>
         patterns.append(
-            f"^[0-9]+ ({data_size_pattern}|{time_singular_pattern}|{time_plural_pattern}|{count_unit_pattern})$"
+            f"^[0-9]+ ({data_size_pattern}|{time_singular_pattern}|{time_plural_pattern}|{count_unit_pattern}|{compound_pattern})$"
         )
         # Pattern 5: <units>/<interval> <plural-time-units>
         patterns.append(
-            f"^({data_size_pattern}|{count_unit_pattern}|{time_plural_pattern})/[0-9]+ ({time_plural_pattern})$"
+            f"^({data_size_pattern}|{count_unit_pattern}|{time_plural_pattern}|{compound_pattern})/[0-9]+ ({time_plural_pattern})$"
         )
 
         # Combine all patterns with OR
@@ -4086,26 +4089,28 @@ class JSONFormatUnitGenerator(DuckDBCheckGenerator):
         time_singular_pattern = "|".join(time_units_singular)
         time_plural_pattern = "|".join(time_units_plural)
         count_unit_pattern = r"[A-Za-z][A-Za-z0-9]*(?:\s+[A-Za-z][A-Za-z0-9]*)*"
+        count_plural_pattern = r"(?:[A-Za-z][A-Za-z0-9]*\s+)*[A-Za-z][A-Za-z0-9]*s"
+
+        # <singular-base-unit>-<plural-base-unit>: "GB-Hours", "Core-Hours", "Request-Tokens"
+        compound_pattern = f"({data_size_pattern}|{count_unit_pattern})-({time_plural_pattern}|{count_plural_pattern})"
 
         # Pattern 1: Standalone units
         patterns.append(
             f"^({data_size_pattern}|{time_singular_pattern}|{time_plural_pattern}|{count_unit_pattern})$"
         )
-        # Pattern 2: <unit>-<plural-time-units>
-        patterns.append(
-            f"^({data_size_pattern}|{count_unit_pattern})-({time_plural_pattern})$"
-        )
+        # Pattern 2: compound units
+        patterns.append(f"^{compound_pattern}$")
         # Pattern 3: <unit>/<singular-time-unit>
         patterns.append(
-            f"^({data_size_pattern}|{count_unit_pattern}|{time_plural_pattern})/({time_singular_pattern})$"
+            f"^({data_size_pattern}|{count_unit_pattern}|{time_plural_pattern}|{compound_pattern})/({time_singular_pattern})$"
         )
         # Pattern 4: <quantity> <units>
         patterns.append(
-            f"^[0-9]+ ({data_size_pattern}|{time_singular_pattern}|{time_plural_pattern}|{count_unit_pattern})$"
+            f"^[0-9]+ ({data_size_pattern}|{time_singular_pattern}|{time_plural_pattern}|{count_unit_pattern}|{compound_pattern})$"
         )
         # Pattern 5: <units>/<interval> <plural-time-units>
         patterns.append(
-            f"^({data_size_pattern}|{count_unit_pattern}|{time_plural_pattern})/[0-9]+ ({time_plural_pattern})$"
+            f"^({data_size_pattern}|{count_unit_pattern}|{time_plural_pattern}|{compound_pattern})/[0-9]+ ({time_plural_pattern})$"
         )
 
         # Combine all patterns with OR
