@@ -8,7 +8,9 @@ import unittest
 from unittest.mock import Mock, patch, MagicMock
 from types import SimpleNamespace
 import json
+import os
 import sys
+import tempfile
 
 # Mock duckdb since it might not be available in test environment
 sys.modules['duckdb'] = MagicMock()
@@ -468,6 +470,27 @@ class TestFormatGenerators(unittest.TestCase):
         self.assertIn("WITH invalid AS", sql)
         self.assertIn("BillingCurrency IS NOT NULL", sql)
         # Should validate against ISO 4217 currency codes
+
+    def test_format_currency_code_generator_outside_repo_root(self):
+        """Currency codes load from the package, not the working directory."""
+        mock_rule = Mock(spec=ModelRule)
+        mock_rule.rule_id = "FORMAT-CURRENCY-002"
+
+        generator = FormatBillingCurrencyCodeGenerator(
+            rule=mock_rule,
+            rule_id="FORMAT-CURRENCY-002",
+            ColumnName="BillingCurrency"
+        )
+
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                sql = _extract_sql(generator.generateSql())
+            finally:
+                os.chdir(cwd)
+
+        self.assertIn("'USD'", sql)
 
     def test_format_json_generator_returns_sql_query(self):
         """Test FormatJSON SQL generation and predicate support."""
