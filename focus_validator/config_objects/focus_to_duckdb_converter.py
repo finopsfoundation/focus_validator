@@ -6231,7 +6231,18 @@ class FocusToDuckDBSchemaConverter:
 
         fn = spec.get("CheckFunction")
         if not fn:
-            return None
+            # Older models encode composite conditions as {"AND": [...]} or {"AND": {...}}
+            for op in ("AND", "OR"):
+                if op in spec:
+                    items = spec[op]
+                    spec = {
+                        "CheckFunction": op,
+                        "Items": items if isinstance(items, list) else [items],
+                    }
+                    fn = op
+                    break
+            else:
+                return None
 
         # Composites (reuse your composite names)
         if fn == "AND":
