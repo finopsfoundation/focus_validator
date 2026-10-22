@@ -569,7 +569,11 @@ class TypeJSONCheckGenerator(DuckDBCheckGenerator):
         message = self.errorMessage or f"{col} {keyword} be of type JSON."
         msg_sql = message.replace("'", "''")
 
-        condition = f"{col} IS NOT NULL AND NOT json_valid(CAST({col} AS VARCHAR))"
+        # STRUCT/MAP columns (e.g. from Parquet) cast to JSON but render as non-JSON VARCHAR
+        condition = (
+            f"{col} IS NOT NULL AND TRY_CAST({col} AS JSON) IS NULL "
+            f"AND NOT json_valid(CAST({col} AS VARCHAR))"
+        )
         condition = self._apply_condition(condition)
 
         requirement_sql = f"""
@@ -585,7 +589,8 @@ class TypeJSONCheckGenerator(DuckDBCheckGenerator):
         """
 
         predicate_sql = self._apply_condition(
-            f"{col} IS NOT NULL AND typeof({col}) = 'JSON'"
+            f"{col} IS NOT NULL AND (TRY_CAST({col} AS JSON) IS NOT NULL "
+            f"OR json_valid(CAST({col} AS VARCHAR)))"
         )
 
         return SQLQuery(
@@ -1127,8 +1132,10 @@ class FormatJSONGenerator(DuckDBCheckGenerator):
         message = self.errorMessage or f"{col} {keyword} be valid JSON format"
         msg_sql = message.replace("'", "''")
 
+        # STRUCT/MAP columns (e.g. from Parquet) cast to JSON but render as non-JSON VARCHAR
         invalid_predicate = (
-            f"{col} IS NOT NULL AND NOT json_valid(CAST({col} AS VARCHAR))"
+            f"{col} IS NOT NULL AND TRY_CAST({col} AS JSON) IS NULL "
+            f"AND NOT json_valid(CAST({col} AS VARCHAR))"
         )
         condition = self._apply_condition(invalid_predicate)
 
@@ -1145,7 +1152,8 @@ class FormatJSONGenerator(DuckDBCheckGenerator):
         """
 
         predicate_sql = self._apply_condition(
-            f"{col} IS NOT NULL AND json_valid(CAST({col} AS VARCHAR))"
+            f"{col} IS NOT NULL AND (TRY_CAST({col} AS JSON) IS NOT NULL "
+            f"OR json_valid(CAST({col} AS VARCHAR)))"
         )
 
         return SQLQuery(
