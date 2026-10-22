@@ -182,20 +182,29 @@ class CSVDataLoader:
                 filename_or_buffer, dtype_dict
             )
 
-            # Convert to Polars schema - only for all-NULL columns to force their types
-            # For columns with data, let Polars infer so we can detect type mismatches
+            # Convert to Polars schema - force the spec type for all-NULL columns and
+            # for string columns (any CSV text is a valid string, and inferring all-digit
+            # IDs as integers would fail TypeString and drop leading zeros).
+            # For other columns, let Polars infer so we can detect type mismatches
             polars_dtypes_to_force = {}
-            if all_null_columns:
+            string_columns = {
+                col
+                for col, dtype in self._convert_pandas_to_polars_dtypes(
+                    dtype_dict
+                ).items()
+                if dtype == pl.Utf8
+            }
+            if all_null_columns or string_columns:
                 forced_dtypes = {
                     col: dtype
                     for col, dtype in dtype_dict.items()
-                    if col in all_null_columns
+                    if col in all_null_columns or col in string_columns
                 }
                 polars_dtypes_to_force = self._convert_pandas_to_polars_dtypes(
                     forced_dtypes
                 )
                 self.log.info(
-                    f"Forcing types for {len(polars_dtypes_to_force)} all-NULL columns: "
+                    f"Forcing types for {len(polars_dtypes_to_force)} all-NULL or string columns: "
                     f"{', '.join(sorted(polars_dtypes_to_force.keys()))}"
                 )
 

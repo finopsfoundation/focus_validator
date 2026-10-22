@@ -341,6 +341,20 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         self.assertEqual(result['BilledCost'][1], 'INVALID_NUMBER')  # String
         self.assertEqual(result['BilledCost'][2], '67.89')  # String
 
+    def test_all_digit_string_columns_stay_strings(self):
+        """All-digit values in string columns keep their text, including leading zeros."""
+        self.temp_csv = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        self.temp_csv.write("BillingAccountId,SubAccountId,BilledCost\n")
+        self.temp_csv.write("111111111111,022222222222,1.5\n")
+        self.temp_csv.close()
+
+        column_types = {'BillingAccountId': 'string', 'SubAccountId': 'string', 'BilledCost': 'float64'}
+        result = CSVDataLoader(self.temp_csv.name, column_types=column_types).load()
+
+        self.assertEqual(result['BillingAccountId'].dtype, pl.String)
+        self.assertEqual(result['SubAccountId'][0], '022222222222')
+        self.assertEqual(result['BilledCost'].dtype, pl.Float64)
+
     def test_resilient_loading_with_invalid_datetime_data(self):
         """Test resilient loading when datetime columns contain invalid data - columns should be dropped."""
         # Create CSV with invalid datetime data
