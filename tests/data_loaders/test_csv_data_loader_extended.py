@@ -341,6 +341,34 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         self.assertEqual(result['BilledCost'][1], 'INVALID_NUMBER')  # String
         self.assertEqual(result['BilledCost'][2], '67.89')  # String
 
+    def test_all_digit_string_columns_stay_strings(self):
+        """All-digit values in string columns keep their text, including leading zeros."""
+        self.temp_csv = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        self.temp_csv.write("BillingAccountId,SubAccountId,BilledCost\n")
+        self.temp_csv.write("111111111111,022222222222,1.5\n")
+        self.temp_csv.close()
+
+        column_types = {'BillingAccountId': 'string', 'SubAccountId': 'string', 'BilledCost': 'float64'}
+        result = CSVDataLoader(self.temp_csv.name, column_types=column_types).load()
+
+        self.assertEqual(result['BillingAccountId'].dtype, pl.String)
+        self.assertEqual(result['SubAccountId'][0], '022222222222')
+        self.assertEqual(result['BilledCost'].dtype, pl.Float64)
+
+    def test_whole_number_decimal_columns_load_as_float(self):
+        """Whole numbers in decimal columns load as Float64; text still loads as String."""
+        self.temp_csv = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        self.temp_csv.write("PricingQuantity,ConsumedQuantity,BilledCost\n")
+        self.temp_csv.write("1,24,abc\n")
+        self.temp_csv.close()
+
+        column_types = {'PricingQuantity': 'float64', 'ConsumedQuantity': 'float64', 'BilledCost': 'float64'}
+        result = CSVDataLoader(self.temp_csv.name, column_types=column_types).load()
+
+        self.assertEqual(result['PricingQuantity'].dtype, pl.Float64)
+        self.assertEqual(result['ConsumedQuantity'][0], 24.0)
+        self.assertEqual(result['BilledCost'].dtype, pl.String)
+
     def test_resilient_loading_with_invalid_datetime_data(self):
         """Test resilient loading when datetime columns contain invalid data - columns should be dropped."""
         # Create CSV with invalid datetime data
@@ -453,9 +481,8 @@ class TestCSVDataLoaderResilientLoading(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(len(result), 2)
         
-        # NEW BEHAVIOR: GoodColumn has actual data, so it keeps inferred type (Int64)
-        # This allows type validation to catch mismatches between spec and actual data
-        self.assertEqual(result['GoodColumn'].dtype, pl.Int64)
+        # GoodColumn holds whole numbers, which are valid decimals in a CSV, so it is widened to Float64
+        self.assertEqual(result['GoodColumn'].dtype, pl.Float64)
         
         # The problematic column should still be loaded (as VARCHAR since it has mixed data)
         # Polars will infer VARCHAR when it encounters the string value
