@@ -231,6 +231,21 @@ class CSVDataLoader:
                 ],  # Common invalid values
             )
 
+            # Whole numbers are valid decimals; widen integer columns the spec types as decimal
+            decimal_columns = [
+                col
+                for col, dtype in self._convert_pandas_to_polars_dtypes(
+                    dtype_dict
+                ).items()
+                if dtype == pl.Float64
+                and col in df.columns
+                and df[col].dtype.is_integer()
+            ]
+            if decimal_columns:
+                df = df.with_columns(
+                    [pl.col(col).cast(pl.Float64) for col in decimal_columns]
+                )
+
             # Apply datetime conversions for columns specified in parse_dates_list
             for col in parse_dates_list:
                 if col in df.columns:

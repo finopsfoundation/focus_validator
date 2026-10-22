@@ -243,9 +243,8 @@ class TestResilientLoadingIntegration(unittest.TestCase):
         self.assertIsInstance(result, pl.DataFrame)
         self.assertEqual(len(result), 2)
         
-        # NEW BEHAVIOR: GoodColumn has integer data (123, 456) so inferred as Int64
-        # This is correct - if spec expects Float64 but data is Int64, type validation should catch it
-        self.assertEqual(result['GoodColumn'].dtype, pl.Int64)
+        # GoodColumn has whole numbers (123, 456), which are valid decimals in a CSV, so it is widened to Float64
+        self.assertEqual(result['GoodColumn'].dtype, pl.Float64)
         
         # Datetime columns: AnotherGoodColumn has valid dates but was inferred as Date (not Datetime)
         # Because of the failure, it gets dropped. ProblematicColumn also gets dropped.
