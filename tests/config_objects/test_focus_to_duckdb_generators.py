@@ -1457,6 +1457,32 @@ class TestErrorHandling(unittest.TestCase):
         self.assertIn("Column With Spaces", sql)
 
 
+class TestApplyConditionToTable(unittest.TestCase):
+    """Test restricting requirement SQL to rows matching the row condition."""
+
+    def _generator(self, row_condition_sql):
+        mock_rule = Mock(spec=ModelRule)
+        mock_rule.rule_id = "JSON-COND-001"
+        gen = CheckValueGenerator(
+            rule=mock_rule, rule_id="JSON-COND-001", ColumnName="ChargeCategory", Value="Usage"
+        )
+        gen.row_condition_sql = row_condition_sql
+        return gen
+
+    def test_both_template_forms_are_filtered(self):
+        gen = self._generator("ChargeCategory = 'Purchase'")
+        sql = gen._apply_condition_to_table(
+            "SELECT 1 FROM {table_name} UNION ALL SELECT 1 FROM {{table_name}}"
+        )
+        filtered = "(SELECT * FROM {table_name} WHERE ChargeCategory = 'Purchase')"
+        self.assertEqual(sql, f"SELECT 1 FROM {filtered} UNION ALL SELECT 1 FROM {filtered}")
+
+    def test_no_condition_leaves_sql_unchanged(self):
+        gen = self._generator(None)
+        sql = "SELECT 1 FROM {table_name}"
+        self.assertEqual(gen._apply_condition_to_table(sql), sql)
+
+
 class TestFOCUSRuleScenarios(unittest.TestCase):
     """Test real FOCUS rule scenarios and edge cases."""
     
