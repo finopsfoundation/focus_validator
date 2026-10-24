@@ -910,7 +910,7 @@ class WebOutputter:
             font-size: 0.75rem;
             color: #64748b;
         }}
-        .requirement-count, .passed-count {{
+        .requirement-count, .passed-count, .failed-count {{
             font-size: 0.75rem;
             color: #64748b;
         }}
@@ -1684,7 +1684,8 @@ class WebOutputter:
                                 <div class="column-name">${{column.name}}</div>
                                 <div class="column-summary">
                                     <span class="requirement-count">${{column.requirements.length}} requirements</span>
-                                    <span class="passed-count">${{column.requirements.filter(req => req.passed).length}} passed</span>
+                                    <span class="passed-count">${{column.requirements.filter(req => req.passed || req.status === 'skipped').length}} passed</span>
+                                    <span class="failed-count">${{column.requirements.filter(req => !req.passed && req.status !== 'skipped').length}} failed</span>
                                 </div>
                             </div>
                             <div class="column-meta">
@@ -1772,7 +1773,8 @@ class WebOutputter:
                                             <div class="column-name">${{entity.name}}</div>
                                             <div class="column-summary">
                                                 <span class="requirement-count">${{entity.requirements.length}} requirements</span>
-                                                <span class="passed-count">${{entity.requirements.filter(req => req.passed).length}} passed</span>
+                                                <span class="passed-count">${{entity.requirements.filter(req => req.passed || req.status === 'skipped').length}} passed</span>
+                                                <span class="failed-count">${{entity.requirements.filter(req => !req.passed && req.status !== 'skipped').length}} failed</span>
                                             </div>
                                         </div>
                                         <div class="column-meta">
@@ -2269,6 +2271,32 @@ class WebOutputter:
                         req.style.display = 'none';
                     }}
                 }});
+
+                const visibleRequirements = Array.from(requirements).filter(
+                    req => req.style.display !== 'none'
+                );
+                const visiblePassedCount = visibleRequirements.filter(req => {{
+                    const icon = req.querySelector('.requirement-icon');
+                    return icon && (icon.classList.contains('passed') || icon.classList.contains('skipped'));
+                }}).length;
+                const visibleFailedCount = visibleRequirements.filter(req => {{
+                    const icon = req.querySelector('.requirement-icon');
+                    return icon && icon.classList.contains('failed');
+                }}).length;
+
+                const requirementCount = card.querySelector('.requirement-count');
+                const passedCount = card.querySelector('.passed-count');
+                const failedCount = card.querySelector('.failed-count');
+
+                if (requirementCount) {{
+                    requirementCount.textContent = `${{visibleRequirements.length}} requirements`;
+                }}
+                if (passedCount) {{
+                    passedCount.textContent = `${{visiblePassedCount}} passed`;
+                }}
+                if (failedCount) {{
+                    failedCount.textContent = `${{visibleFailedCount}} failed`;
+                }}
 
                 // Only recalculate entity status when requirement filters change
                 // When status filter changes, use the existing card.dataset.status
