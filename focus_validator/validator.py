@@ -324,7 +324,10 @@ class Validator:
                             child_check = child.get("check_type", "")
 
                             # For reference type children, show the referenced rule instead of the parent rule_id
-                            if child_type == "reference":
+                            if (
+                                child_type == "special"
+                                and child.get("special_kind") == "reference"
+                            ):
                                 referenced_id = child.get("referenced", child_id)
                                 if referenced_id and referenced_id != child_id:
                                     child_display_id = f"{child_id} -> {referenced_id}"

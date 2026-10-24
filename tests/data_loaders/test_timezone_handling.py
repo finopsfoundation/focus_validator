@@ -215,6 +215,62 @@ class TestStrictTimezoneHandling(unittest.TestCase):
         finally:
             safe_delete_file(temp_path)
 
+    def test_parquet_nullable_datetime_columns_are_converted(self):
+        """Nullable datetime columns convert instead of being dropped to string.
+
+        Regression: every parse strategy used to require a zero null_count, so a
+        single null cell forced the column to stay a string. The strategies now
+        accept a result that introduces no new nulls beyond those already present.
+        """
+        cases = {
+            "IsoZ": ["2023-01-01T10:00:00Z", None, "2023-01-03T08:45:00Z"],
+            "IsoOffset": ["2023-01-01T10:00:00-05:00", None, "2023-01-03T08:45:00-05:00"],
+            "DateOnly": ["2023-01-01", None, "2023-01-03"],
+            "SpaceSep": ["2023-01-01 10:00:00", None, "2023-01-03 08:45:00"],
+        }
+        for name, values in cases.items():
+            with self.subTest(column=name):
+                df = pl.DataFrame({name: values, "Value": [1, 2, 3]})
+                fd, temp_path = tempfile.mkstemp(suffix=".parquet")
+                try:
+                    os.close(fd)
+                    df.write_parquet(temp_path)
+
+                    column_types = {name: pl.Datetime("us", "UTC")}
+                    loader = ParquetDataLoader(temp_path, column_types=column_types)
+                    result_df = loader.load()
+
+                    self.assertIsNotNone(result_df)
+                    self.assertNotIn(name, loader.failed_columns)
+                    self.assertIsInstance(result_df[name].dtype, pl.Datetime)
+                    self.assertEqual(result_df[name].dtype.time_zone, "UTC")
+                    # The originally-null cell is preserved as null, not dropped.
+                    self.assertEqual(result_df[name].null_count(), 1)
+                finally:
+                    safe_delete_file(temp_path)
+
+    def test_parquet_mixed_format_column_is_dropped(self):
+        """A genuinely mixed/unparseable column is still rejected (left as string)."""
+        df = pl.DataFrame(
+            {"BadDate": ["2023-01-01", "not-a-date", "01/31/2023"], "Value": [1, 2, 3]}
+        )
+        fd, temp_path = tempfile.mkstemp(suffix=".parquet")
+        try:
+            os.close(fd)
+            df.write_parquet(temp_path)
+
+            column_types = {"BadDate": pl.Datetime("us", "UTC")}
+            loader = ParquetDataLoader(temp_path, column_types=column_types)
+            result_df = loader.load()
+
+            self.assertIsNotNone(result_df)
+            # Parsing introduces new nulls, so no strategy accepts it and the
+            # column is dropped rather than coerced.
+            self.assertIn("BadDate", loader.failed_columns)
+            self.assertNotIn("BadDate", result_df.columns)
+        finally:
+            safe_delete_file(temp_path)
+
     def test_parquet_no_timezone_defaults_to_utc(self):
         """Test that Parquet columns without timezone default to UTC."""
         # Create test DataFrame without timezone using Polars
