@@ -1,4 +1,5 @@
 import logging
+import re
 import sys
 import xml.etree.cElementTree as ET
 from datetime import datetime, timezone
@@ -257,7 +258,7 @@ class UnittestOutputter:
                     name=testcase["check_name"],
                     result=testcase["status"].value,
                     message=testcase["error"],
-                    check_type_name=None,
+                    check_type_name=testcase["rule_ref"]["check_type_friendly_name"],
                 )
 
         # Add the testcases to the testsuites
@@ -265,7 +266,14 @@ class UnittestOutputter:
         for testcase in rows:
             if testcase["status"].value == "errored":
                 continue
-            test_suite_id = testcase["check_name"].rsplit("-", 1)[0]
+            # Group by entity: CAU-BilledCost-C-001-M -> CAU-BilledCost
+            match = re.match(
+                r"^(.+?)(?:-[A-Za-z]+)?-\d+-[A-Za-z]+$", testcase["check_name"]
+            )
+            if match:
+                test_suite_id = match.group(1)
+            else:
+                test_suite_id = testcase["check_name"].rsplit("-", 1)[0]
             if test_suite_id not in added_testsuites:
                 formatter.add_testsuite(
                     name=test_suite_id, column=testcase["column_id"]
