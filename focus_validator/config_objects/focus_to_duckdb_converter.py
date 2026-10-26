@@ -757,15 +757,16 @@ class FormatNumericGenerator(DuckDBCheckGenerator):
 class FormatStringGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
 
-    # Generate string format validation check for ASCII characters
+    # StringHandling sets no character-set requirement; a violation is a value that
+    # cannot be read as text
     def generateSql(self) -> SQLQuery:
         col = self.params.ColumnName
         keyword = self._get_validation_keyword()
-        message = self.errorMessage or f"{col} {keyword} contain only ASCII characters."
+        message = self.errorMessage or f"{col} {keyword} contain string values."
         msg_sql = message.replace("'", "''")
 
         # Requirement SQL (finds violations)
-        condition = f"{col} IS NOT NULL AND NOT ({col}::TEXT ~ '^[\\x00-\\x7F]*$')"
+        condition = f"{col} IS NOT NULL AND TRY_CAST({col} AS VARCHAR) IS NULL"
         condition = self._apply_condition(condition)
 
         requirement_sql = f"""
@@ -782,7 +783,7 @@ class FormatStringGenerator(DuckDBCheckGenerator):
 
         # Predicate SQL (for condition mode)
         predicate_sql = self._apply_condition(
-            f"{col} IS NOT NULL AND ({col}::TEXT ~ '^[\\x00-\\x7F]*$')"
+            f"{col} IS NOT NULL AND TRY_CAST({col} AS VARCHAR) IS NOT NULL"
         )
 
         return SQLQuery(
@@ -793,8 +794,8 @@ class FormatStringGenerator(DuckDBCheckGenerator):
         """Return SQL to fetch sample violating rows for display"""
         col = self.params.ColumnName
 
-        # Build condition to find violating rows (non-ASCII characters)
-        condition = f"{col} IS NOT NULL AND NOT ({col}::TEXT ~ '^[\\x00-\\x7F]*$')"
+        # Build condition to find violating rows (values that cannot be read as text)
+        condition = f"{col} IS NOT NULL AND TRY_CAST({col} AS VARCHAR) IS NULL"
         condition = self._apply_condition(condition)
 
         return f"""
@@ -3912,14 +3913,14 @@ class FormatJSONFormatGenerator(DuckDBCheckGenerator):
 
 class JSONFormatStringGenerator(DuckDBCheckGenerator):
     """
-    Check element(s) at JSON path conform to StringHandling requirements (ASCII characters only).
+    Check element(s) at JSON path conform to StringHandling requirements.
 
     Arguments:
         ColumnName: The column containing JSON data
         Path: JSONPath expression (e.g., "$.name" or "$.items[*].label")
 
-    StringHandling requirements:
-    - Strings must contain only ASCII characters ([\x00-\x7f])
+    StringHandling sets no character-set requirement; an element that cannot be
+    read as text is a violation.
 
     For array paths (e.g., $.items[*].label), validates ALL string elements.
     """
@@ -3934,7 +3935,7 @@ class JSONFormatStringGenerator(DuckDBCheckGenerator):
         # Build error message
         message = (
             self.errorMessage
-            or f"{col} at path '{path}' {keyword} contain only ASCII characters"
+            or f"{col} at path '{path}' {keyword} contain string values"
         )
         msg_sql = message.replace("'", "''")
 
@@ -3958,7 +3959,7 @@ class JSONFormatStringGenerator(DuckDBCheckGenerator):
                         FROM unnest(json_extract({col}::TEXT, '{path_escaped}')) AS t(elem)
                         WHERE elem IS NOT NULL
                             AND elem::TEXT != 'null'
-                            AND NOT (TRIM(elem::TEXT, '"') ~ '^[\\x00-\\x7F]*$')
+                            AND TRY_CAST(elem AS VARCHAR) IS NULL
                     )
             )
             SELECT
@@ -3976,7 +3977,7 @@ class JSONFormatStringGenerator(DuckDBCheckGenerator):
                     FROM unnest(json_extract({col}::TEXT, '{path_escaped}')) AS t(elem)
                     WHERE elem IS NOT NULL
                         AND elem::TEXT != 'null'
-                        AND NOT (TRIM(elem::TEXT, '"') ~ '^[\\x00-\\x7F]*$')
+                        AND TRY_CAST(elem AS VARCHAR) IS NULL
                 )
             """
         else:
@@ -3991,7 +3992,7 @@ class JSONFormatStringGenerator(DuckDBCheckGenerator):
                     AND json_valid({col}::TEXT)
                     AND {extracted_value} IS NOT NULL
                     AND {extracted_value}::TEXT != 'null'
-                    AND NOT (TRIM({extracted_value}::TEXT, '"') ~ '^[\\x00-\\x7F]*$')
+                    AND TRY_CAST({extracted_value} AS VARCHAR) IS NULL
             )
             SELECT
                 COUNT(*) AS violations,
@@ -4004,7 +4005,7 @@ class JSONFormatStringGenerator(DuckDBCheckGenerator):
                 AND json_valid({col}::TEXT)
                 AND {extracted_value} IS NOT NULL
                 AND {extracted_value}::TEXT != 'null'
-                AND (TRIM({extracted_value}::TEXT, '"') ~ '^[\\x00-\\x7F]*$')
+                AND TRY_CAST({extracted_value} AS VARCHAR) IS NOT NULL
             """
 
         return SQLQuery(
