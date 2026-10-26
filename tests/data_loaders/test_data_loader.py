@@ -235,18 +235,49 @@ class TestDataLoader(unittest.TestCase):
         temp_parquet_upper.close()
         
         try:
-            # Current implementation doesn't handle case-insensitive extensions
-            # These should raise FocusNotImplementedError
-            with self.assertRaises(FocusNotImplementedError):
-                DataLoader(temp_csv_upper.name)
-                
-            with self.assertRaises(FocusNotImplementedError):
-                DataLoader(temp_parquet_upper.name)
-                
+            self.assertEqual(
+                DataLoader(temp_csv_upper.name).data_loader_class, CSVDataLoader
+            )
+            self.assertEqual(
+                DataLoader(temp_parquet_upper.name).data_loader_class,
+                ParquetDataLoader,
+            )
+            self.assertEqual(DataLoader(temp_csv_upper.name).load()["col1"][0], 1)
         finally:
             for temp_file in [temp_csv_upper.name, temp_parquet_upper.name]:
                 if os.path.exists(temp_file):
                     os.unlink(temp_file)
+
+    def test_explicit_data_format_overrides_extension(self):
+        """Test that an explicit data_format wins over the file extension."""
+        with tempfile.NamedTemporaryFile(suffix='.bin', delete=False) as temp_file:
+            temp_filename = temp_file.name
+        pl.DataFrame({"col1": [1, 3], "col2": [2, 4]}).write_parquet(temp_filename)
+
+        try:
+            loader = DataLoader(temp_filename, data_format="parquet")
+            self.assertEqual(loader.data_loader_class, ParquetDataLoader)
+            self.assertEqual(len(loader.load()), 2)
+
+            self.assertEqual(
+                DataLoader(self.temp_csv.name, data_format="parquet").data_loader_class,
+                ParquetDataLoader,
+            )
+            self.assertEqual(
+                DataLoader(temp_filename, data_format="csv").data_loader_class,
+                CSVDataLoader,
+            )
+        finally:
+            if os.path.exists(temp_filename):
+                os.unlink(temp_filename)
+
+    def test_stdin_defaults_to_csv(self):
+        """Test that stdin uses CSV unless parquet is requested."""
+        self.assertEqual(DataLoader("-").data_loader_class, CSVDataLoader)
+        self.assertEqual(
+            DataLoader("-", data_format="parquet").data_loader_class,
+            ParquetDataLoader,
+        )
 
     def test_performance_logging_decoration(self):
         """Test that load method is properly decorated with performance logging."""

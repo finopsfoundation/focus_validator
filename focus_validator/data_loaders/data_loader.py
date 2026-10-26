@@ -56,10 +56,14 @@ class DataLoader:
             else:  # Default to CSV for stdin
                 self.log.debug("Using CSV data loader for stdin")
                 return CSVDataLoader
-        elif self.data_filename.endswith(".csv"):
+        # An explicit format overrides detection from the file extension
+        elif self.data_format == "parquet":
+            self.log.debug("Using Parquet data loader")
+            return ParquetDataLoader
+        elif self.data_format == "csv" or self.data_filename.lower().endswith(".csv"):
             self.log.debug("Using CSV data loader")
             return CSVDataLoader
-        elif self.data_filename.endswith(".parquet"):
+        elif self.data_filename.lower().endswith(".parquet"):
             self.log.debug("Using Parquet data loader")
             return ParquetDataLoader
         else:
