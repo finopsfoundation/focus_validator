@@ -6629,6 +6629,15 @@ class FocusToDuckDBSchemaConverter:
             results_by_idx, non_applicable_rule_ids
         )
 
+    def _rule_column(self, rule: Any, rule_id: str) -> str:
+        """Column a rule belongs to: Reference for Column rules (IDs such as
+        "CAU-BilledCost-C-001-M"), else the ID prefix ("BilledCost-C-001-M")."""
+        if getattr(rule, "entity_type", None) == "Column":
+            reference = getattr(rule, "reference", None)
+            if reference:
+                return reference
+        return rule_id.split("-")[0]
+
     def _apply_non_applicable_skips(
         self, results_by_idx: Dict[int, Dict[str, Any]]
     ) -> tuple[Set[str], Set[str]]:
@@ -6691,7 +6700,7 @@ class FocusToDuckDBSchemaConverter:
                     else None
                 )
                 if rule_id and "-" in rule_id:
-                    column_prefix = rule_id.split("-")[0]
+                    column_prefix = self._rule_column(node.rule, rule_id)
                     if column_prefix in non_applicable_column_prefixes:
                         rules_to_skip.add(idx)
                         if rule_id:
@@ -6776,7 +6785,10 @@ class FocusToDuckDBSchemaConverter:
                                 )
                         # Also check if child rule shares column prefix with non-applicable column
                         elif "-" in child_rule_id:
-                            child_column_prefix = child_rule_id.split("-")[0]
+                            child_node = self._node_by_rule_id(child_rule_id)
+                            child_column_prefix = self._rule_column(
+                                getattr(child_node, "rule", None), child_rule_id
+                            )
                             if child_column_prefix in non_applicable_column_prefixes:
                                 # Only update if not already skipped
                                 if not child.get("skipped", False):
