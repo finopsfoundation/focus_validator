@@ -389,12 +389,14 @@ class SpecRules:
         all_versions = list(self.remote_versions.keys())
         return self._filter_to_highest_versions(all_versions)
 
-    def download_remote_version(self, remote_url: str, save_path: str) -> bool:
+    def download_remote_version(
+        self, remote_url: str, save_path: str, timeout: float = 15.0
+    ) -> bool:
         """Download the file from remote_url and save it to save_path.
         Returns True if download was successful, False otherwise.
         """
         try:
-            response = requests.get(remote_url)
+            response = requests.get(remote_url, timeout=timeout)
             response.raise_for_status()  # Raise an error for bad status codes
             with open(save_path, "wb") as file:
                 file.write(response.content)
