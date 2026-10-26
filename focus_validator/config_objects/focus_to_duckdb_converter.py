@@ -4874,6 +4874,21 @@ class CompositeORRuleGenerator(CompositeBaseRuleGenerator):
         return " OR ".join(preds) if preds else "FALSE"
 
 
+def _references_rule(requirement: Any, rule_id: str) -> bool:
+    """True if a requirement's Items reference rule_id through CheckModelRule."""
+    if not isinstance(requirement, dict):
+        return False
+    for item in requirement.get("Items") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("CheckFunction") == "CheckModelRule":
+            if item.get("ModelRuleId") == rule_id:
+                return True
+        elif _references_rule(item, rule_id):
+            return True
+    return False
+
+
 class FocusToDuckDBSchemaConverter:
     # Central configuration for sample violation data collection
     DEFAULT_SAMPLE_LIMIT = 2  # Number of sample violation rows to collect when --show-violations is enabled
@@ -6026,8 +6041,11 @@ class FocusToDuckDBSchemaConverter:
                     composite_rule = composite_node.rule
                     composite_function = getattr(composite_rule, "function", None)
 
-                    # Check if it's a composite with a condition
-                    if composite_function == "Composite":
+                    # Only composites that reference this rule in their Items pass their
+                    # condition down; graph children also include plain Dependencies
+                    if composite_function == "Composite" and _references_rule(
+                        composite_rule.validation_criteria.requirement, rule_id
+                    ):
                         composite_cond_spec = self._extract_condition_spec(
                             composite_rule
                         )
