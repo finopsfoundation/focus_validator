@@ -1,3 +1,5 @@
+import os
+import tempfile
 from unittest import TestCase
 import pandas as pd
 from focus_validator.validator import Validator
@@ -47,3 +49,32 @@ class TestColumnNamespace(TestCase):
         except FileNotFoundError:
             # Expected - file doesn't exist, but parameter was accepted
             pass
+
+    def _load(self, data_filename):
+        validator = Validator(
+            data_filename=data_filename,
+            output_type="console",
+            output_destination=None,
+            column_namespace="F",
+            rules_version="1.2",
+            focus_dataset="CostAndUsage",
+            rules_block_remote_download=True,
+        )
+        validator.load()
+        return validator.focus_data
+
+    def test_namespaced_columns_are_renamed_and_vendor_columns_ignored(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as f:
+            f.write("F:BilledCost,F:ChargeCategory,ChargeCategory\n1.5,Usage,vendor-value\n")
+            path = f.name
+        try:
+            data = self._load(path)
+            self.assertEqual(list(data.columns), ["BilledCost", "ChargeCategory"])
+            self.assertEqual(data["ChargeCategory"][0], "Usage")
+        finally:
+            os.unlink(path)
+
+    def test_data_without_namespaced_columns_raises(self):
+        with self.assertRaises(ValueError) as cm:
+            self._load("tests/samples/all_pass_0.5.csv")
+        self.assertIn("'F' namespace", str(cm.exception))
