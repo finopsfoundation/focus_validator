@@ -321,6 +321,43 @@ class TestUnittestOutputter(unittest.TestCase):
         self.assertTrue(any("GroupA" in name for name in suite_names))
         self.assertTrue(any("GroupB" in name for name in suite_names))
 
+        # GroupA-001 and GroupA-002 share one suite
+        self.assertEqual(suite_names, {"GroupA-ColumnA", "GroupB-ColumnB"})
+        group_a = next(ts for ts in testsuites if ts.get("name") == "GroupA-ColumnA")
+        self.assertEqual(len(group_a.findall("testcase")), 2)
+
+    def test_write_groups_rule_ids_by_entity(self):
+        """Test that model rule IDs are grouped by their entity part."""
+        rule_ids = [
+            ("CAU-BilledCost-C-001-M", "BilledCost"),
+            ("CAU-BilledCost-C-002-C", "BilledCost"),
+            ("CAU-BillingPeriodEnd-C-001-M", "BillingPeriodEnd"),
+            ("BilledCost-C-001-M", "BilledCost"),
+            ("BilledCost-C-002-M", "BilledCost"),
+        ]
+
+        mock_result_set = Mock()
+        mock_result_set.checklist = {
+            rule_id: self.create_mock_checklist_object(rule_id, "passed", column)
+            for rule_id, column in rule_ids
+        }
+
+        self.outputter.write(mock_result_set)
+
+        tree = ET.parse(self.output_file)
+        suites = {
+            ts.get("name"): len(ts.findall("testcase"))
+            for ts in tree.getroot().findall("testsuite")
+        }
+        self.assertEqual(
+            suites,
+            {
+                "CAU-BilledCost-BilledCost": 2,
+                "CAU-BillingPeriodEnd-BillingPeriodEnd": 1,
+                "BilledCost-BilledCost": 2,
+            },
+        )
+
     def test_write_handles_errored_cases_in_base_suite(self):
         """Test that errored cases are handled in Base suite."""
         errored_obj = self.create_mock_checklist_object("Error-001-M", "errored", error="Critical error")
@@ -350,6 +387,7 @@ class TestUnittestOutputter(unittest.TestCase):
         error_elements = base_suite.findall(".//error")
         self.assertEqual(len(error_elements), 1)
         self.assertEqual(error_elements[0].get("message"), "Critical error")
+        self.assertEqual(error_testcases[0].get("name"), "Error-001-M :: TestCheckType")
 
     def test_xml_declaration_and_encoding(self):
         """Test that XML file has proper declaration and UTF-8 encoding."""
