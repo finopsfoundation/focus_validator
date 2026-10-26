@@ -173,12 +173,22 @@ class Validator:
                 file_size = os.path.getsize(self.data_filename)
                 self.log.info("Data file size: %.2f MB", file_size / 1024 / 1024)
 
+        # With a column namespace, FOCUS columns are named "<namespace>:<Column>"
+        namespace = self.spec_rules.column_namespace
+        if namespace and column_types:
+            column_types = {
+                f"{namespace}:{col}": dtype for col, dtype in column_types.items()
+            }
+
         dataLoader = data_loader.DataLoader(
             data_filename=self.data_filename,
             data_format=self.data_format,
             column_types=column_types,
         )
         self.focus_data = dataLoader.load()
+
+        if namespace and self.focus_data is not None:
+            self.focus_data = self._strip_column_namespace(self.focus_data, namespace)
 
         if self.focus_data is not None:
             try:
@@ -206,6 +216,29 @@ class Validator:
                 self.log.warning("Could not determine data dimensions: %s", e)
 
         self.log.info("Data and rules loading completed")
+
+    def _strip_column_namespace(self, data, namespace: str):
+        """Keep the "<namespace>:<Column>" columns, renamed to "<Column>".
+
+        Columns without the namespace are vendor columns and are not validated.
+        """
+        prefix = f"{namespace}:"
+        renames = {
+            col: col[len(prefix) :] for col in data.columns if col.startswith(prefix)
+        }
+        if not renames:
+            raise ValueError(
+                f"No columns with the '{namespace}' namespace (e.g. '{prefix}BilledCost') found in the data"
+            )
+        vendor_columns = [col for col in data.columns if col not in renames]
+        if vendor_columns:
+            self.log.info(
+                "Ignoring %d columns without the '%s' namespace: %s",
+                len(vendor_columns),
+                namespace,
+                vendor_columns,
+            )
+        return data.select(list(renames)).rename(renames)
 
     @logPerformance("validator.validate", includeArgs=True)
     def validate(self) -> ValidationResults:
