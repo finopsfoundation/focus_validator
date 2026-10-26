@@ -6629,14 +6629,24 @@ class FocusToDuckDBSchemaConverter:
             results_by_idx, non_applicable_rule_ids
         )
 
+    def _rule_column(self, rule: Any, rule_id: str) -> str:
+        """Column a rule belongs to: Reference for Column rules (IDs such as
+        "CAU-BilledCost-C-001-M"), else the ID prefix ("BilledCost-C-001-M")."""
+        if getattr(rule, "entity_type", None) == "Column":
+            reference = getattr(rule, "reference", None)
+            if reference:
+                return reference
+        return rule_id.split("-")[0]
+
     def _apply_non_applicable_skips(
         self, results_by_idx: Dict[int, Dict[str, Any]]
     ) -> tuple[Set[str], Set[str]]:
         """Mark non-applicable rules and all their descendants as skipped.
 
         This handles both separate plan nodes AND nested children within composites.
-        Also handles column-family rules: when a column presence check is non-applicable,
-        ALL rules for that column are marked non-applicable.
+        Also handles column-family rules: when a column presence check is non-applicable
+        and the column is absent from the data, ALL rules for that column are marked
+        non-applicable.
 
         Returns:
             Tuple of (non_applicable_nested_rule_ids, non_applicable_column_prefixes)
@@ -6649,6 +6659,8 @@ class FocusToDuckDBSchemaConverter:
         non_applicable_rules: Set[int] = set()
         non_applicable_nested_rule_ids: Set[str] = set()
         non_applicable_column_prefixes: Set[str] = set()
+        columns = getattr(getattr(self, "focus_data", None), "columns", None)
+        data_columns = set(columns) if columns is not None else set()
 
         for idx, node in enumerate(self.plan.nodes):
             if not node or not hasattr(node, "rule"):
@@ -6676,7 +6688,12 @@ class FocusToDuckDBSchemaConverter:
                         # Dataset presence rules for columns are like "CostAndUsage-D-NNN-X"
                         # We need to look at the "Reference" field to get the actual column name
                         column_name = getattr(rule, "reference", None)
-                        if column_name and column_name != "CostAndUsage":
+                        # A column that is present is still validated
+                        if (
+                            column_name
+                            and column_name != "CostAndUsage"
+                            and column_name not in data_columns
+                        ):
                             non_applicable_column_prefixes.add(column_name)
 
         # Collect all descendants of non-applicable rules
@@ -6691,7 +6708,7 @@ class FocusToDuckDBSchemaConverter:
                     else None
                 )
                 if rule_id and "-" in rule_id:
-                    column_prefix = rule_id.split("-")[0]
+                    column_prefix = self._rule_column(node.rule, rule_id)
                     if column_prefix in non_applicable_column_prefixes:
                         rules_to_skip.add(idx)
                         if rule_id:
@@ -6776,7 +6793,10 @@ class FocusToDuckDBSchemaConverter:
                                 )
                         # Also check if child rule shares column prefix with non-applicable column
                         elif "-" in child_rule_id:
-                            child_column_prefix = child_rule_id.split("-")[0]
+                            child_node = self._node_by_rule_id(child_rule_id)
+                            child_column_prefix = self._rule_column(
+                                getattr(child_node, "rule", None), child_rule_id
+                            )
                             if child_column_prefix in non_applicable_column_prefixes:
                                 # Only update if not already skipped
                                 if not child.get("skipped", False):
