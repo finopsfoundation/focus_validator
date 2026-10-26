@@ -158,7 +158,7 @@ def main() -> None:
     parser.add_argument(
         "--filter-rules",
         default=None,
-        help="Filter rules to only those containing this string",
+        help="Filter rules to only those whose rule ID starts with this string",
     )
     parser.add_argument(
         "--visualize",
