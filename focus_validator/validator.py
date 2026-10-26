@@ -360,8 +360,17 @@ class Validator:
 
         import re
 
+        # Mask string literals so whitespace and keywords inside them are kept
+        literals: List[str] = []
+
+        def _mask(match: "re.Match[str]") -> str:
+            literals.append(match.group(0))
+            return f"\x00{len(literals) - 1}\x00"
+
+        formatted = re.sub(r"'(?:[^']|'')*'", _mask, sql.strip())
+
         # Clean up whitespace first
-        formatted = re.sub(r"\s+", " ", sql.strip())
+        formatted = re.sub(r"\s+", " ", formatted)
 
         # Add newlines before major SQL keywords
         major_keywords = [
@@ -395,7 +404,11 @@ class Validator:
                 # Everything else gets indented
                 result_lines.append("  " + line)
 
-        return "\n".join(result_lines)
+        return re.sub(
+            r"\x00(\d+)\x00",
+            lambda m: literals[int(m.group(1))],
+            "\n".join(result_lines),
+        )
 
     def get_supported_versions(self) -> Tuple[List[str], List[str]]:
         self.log.debug("Retrieving supported versions...")
