@@ -212,6 +212,9 @@ class DuckDBColumnCheck:
             None  # For upstream dependency failures
         )
         self.sample_sql: Optional[str] = None  # For --show-violations feature
+        self.violation_sql: Optional[str] = (
+            None  # Row-level predicate for OR composites
+        )
 
         # Attributes for dependency tracking and rule composition
         self._dependencies: Optional[List[DependencyRef]] = None
@@ -234,6 +237,7 @@ class DuckDBCheckGenerator(ABC):
         self.nestedChecks: List[Any] = []
         self.nestedCheckHandler: Optional[Callable] = None
         self.row_condition_sql: Optional[str] = None
+        self.violation_sql: Optional[str] = None
         self.compile_condition = kwargs.pop("compile_condition", None)
         self.child_builder = kwargs.pop("child_builder", None)
         self.breadcrumb = kwargs.pop("breadcrumb", rule_id)
@@ -380,6 +384,9 @@ class DuckDBCheckGenerator(ABC):
         # Note: sample_limit is now centralized in FocusToDuckDBSchemaConverter.DEFAULT_SAMPLE_LIMIT
         if hasattr(self, "sample_sql"):
             chk.sample_sql = self.sample_sql
+
+        if self.violation_sql:
+            chk.violation_sql = self.violation_sql
 
         return chk
 
@@ -534,6 +541,7 @@ class TypeStringCheckGenerator(DuckDBCheckGenerator):
         # Requirement SQL (finds violations)
         condition = f"{col} IS NOT NULL AND typeof({col}) != 'VARCHAR'"
         condition = self._apply_condition(condition)
+        self.violation_sql = condition
 
         requirement_sql = f"""
         WITH invalid AS (
@@ -571,6 +579,7 @@ class TypeJSONCheckGenerator(DuckDBCheckGenerator):
 
         condition = f"{col} IS NOT NULL AND NOT json_valid(CAST({col} AS VARCHAR))"
         condition = self._apply_condition(condition)
+        self.violation_sql = condition
 
         requirement_sql = f"""
         WITH invalid AS (
@@ -1375,6 +1384,7 @@ class CheckValueGenerator(DuckDBCheckGenerator):
 
         # Apply conditional logic if present (for requirement SQL)
         condition = self._apply_condition(condition)
+        self.violation_sql = condition
         msg_sql = message.replace("'", "''")
 
         requirement_sql = f"""
@@ -1590,6 +1600,7 @@ class CheckStringEndsWithGenerator(DuckDBCheckGenerator):
 
         condition = f"{col} IS NOT NULL AND NOT ends_with(CAST({col} AS VARCHAR), '{value_sql}')"
         condition = self._apply_condition(condition)
+        self.violation_sql = condition
 
         requirement_sql = f"""
         WITH invalid AS (
@@ -4693,6 +4704,21 @@ class CompositeANDRuleGenerator(CompositeBaseRuleGenerator):
         return " AND ".join(preds) if preds else "TRUE"
 
 
+def _row_violation_sql(chk) -> Optional[str]:
+    """Row-level violation predicate of a check tree, or None if unknown."""
+    v = getattr(chk, "violation_sql", None)
+    if v:
+        return v
+    nested = getattr(chk, "nestedChecks", None) or []
+    handler = getattr(chk, "nestedCheckHandler", None)
+    if nested and handler in (all, any):
+        parts = [_row_violation_sql(c) for c in nested]
+        if all(parts):
+            joiner = " OR " if handler is all else " AND "
+            return joiner.join(f"({p})" for p in parts)
+    return None
+
+
 class CompositeORRuleGenerator(CompositeBaseRuleGenerator):
     COMPOSITE_NAME = "OR"
     HANDLER = staticmethod(any)
@@ -4797,6 +4823,18 @@ class CompositeORRuleGenerator(CompositeBaseRuleGenerator):
                 # OR passes if ANY child passes
                 overall_ok = any(child_oks)
 
+                row_level_violations = None
+                row_preds = [_row_violation_sql(c) for c in original_nested_checks]
+                if row_preds and all(row_preds):
+                    where = " AND ".join(f"({p})" for p in row_preds)
+                    try:
+                        row_level_violations = conn.execute(
+                            f"SELECT COUNT(*) FROM {converter.table_name} WHERE {where}"
+                        ).fetchone()[0]
+                        overall_ok = row_level_violations == 0
+                    except duckdb.Error:
+                        row_level_violations = None  # e.g. missing column
+
                 # Collect information about failed rule IDs from child_details
                 failed_rule_ids = []
                 passed_rule_ids = []
@@ -4829,10 +4867,17 @@ class CompositeORRuleGenerator(CompositeBaseRuleGenerator):
                 rule_id = getattr(check, "rule_id", "<rule>")
                 if overall_ok:
                     message = f"{rule_id}: OR passed - satisfied by rules: [{', '.join(passed_rule_ids)}]"
+                elif row_level_violations:
+                    all_child_ids = [d.get("rule_id", "<child>") for d in child_details]
+                    message = f"{rule_id}: OR failed - {row_level_violations} row(s) satisfy none of: [{', '.join(all_child_ids)}]"
                 else:
                     message = f"{rule_id}: OR failed - all child rules failed: [{', '.join(failed_rule_ids)}]"
 
+                if row_level_violations is not None:
+                    composite_violations = row_level_violations
+
                 details = {
+                    "row_level_violations": row_level_violations,
                     "children": child_details,
                     "aggregated": "any",
                     "message": message,
@@ -6939,6 +6984,10 @@ class FocusToDuckDBSchemaConverter:
             if aggregator == "all":
                 # AND: all non-skipped children must pass
                 composite_ok = all(child_oks)
+            elif (
+                aggregator == "any" and details.get("row_level_violations") is not None
+            ):
+                composite_ok = details["row_level_violations"] == 0
             elif aggregator == "any":
                 # OR: at least one non-skipped child must pass
                 composite_ok = any(child_oks)
