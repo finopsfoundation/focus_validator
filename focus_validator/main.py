@@ -107,9 +107,10 @@ def main() -> None:
     )
     parser.add_argument(
         "--data-format",
-        help="Data format when using stdin (default: csv)",
+        help="Data format; overrides file extension detection for files "
+        "(default: csv for stdin)",
         choices=["csv", "parquet"],
-        default="csv",
+        default=None,
         required=False,
     )
     parser.add_argument(
@@ -282,7 +283,7 @@ def main() -> None:
 
     validator = Validator(
         data_filename=args.data_file,
-        data_format=args.data_format if args.data_file == "-" else None,
+        data_format=args.data_format,
         rule_set_path=args.rule_set_path,
         rules_version=args.validate_version,
         output_type=args.output_type,
