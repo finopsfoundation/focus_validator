@@ -1,5 +1,9 @@
+import os
+import tempfile
 from unittest import TestCase
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import requests
 
 from focus_validator.exceptions import UnsupportedVersion
 from focus_validator.rules.spec_rules import SpecRules
@@ -225,3 +229,47 @@ class TestSpecRulesVersionMatching(TestCase):
         # Should return semantically sorted
         expected = sorted([v for v in result], key=self.spec._parse_version_tuple)
         self.assertEqual(result, expected)
+
+
+class TestSpecRulesDownload(TestCase):
+    """Test downloading a remote model file."""
+
+    def setUp(self):
+        self.spec = SpecRules(
+            rule_set_path="focus_validator/rules",
+            rules_file_prefix="model-",
+            rules_version="1.2",
+            rules_file_suffix=".json",
+            focus_dataset="CostAndUsage",
+            filter_rules=None,
+            rules_force_remote_download=False,
+            rules_block_remote_download=True,
+            allow_draft_releases=False,
+            allow_prerelease_releases=False,
+            column_namespace=None,
+        )
+        fd, self.save_path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        self.addCleanup(os.unlink, self.save_path)
+
+    @patch("focus_validator.rules.spec_rules.requests.get")
+    def test_download_passes_timeout(self, mock_get):
+        mock_get.return_value = MagicMock(content=b"{}")
+
+        result = self.spec.download_remote_version(
+            "https://example.com/model-1.2.json", self.save_path
+        )
+
+        self.assertTrue(result)
+        mock_get.assert_called_once()
+        self.assertEqual(mock_get.call_args.kwargs.get("timeout"), 15.0)
+
+    @patch("focus_validator.rules.spec_rules.requests.get")
+    def test_download_timeout_returns_false(self, mock_get):
+        mock_get.side_effect = requests.Timeout("timed out")
+
+        result = self.spec.download_remote_version(
+            "https://example.com/model-1.2.json", self.save_path
+        )
+
+        self.assertFalse(result)
