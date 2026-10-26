@@ -4770,7 +4770,7 @@ class CompositeORRuleGenerator(CompositeBaseRuleGenerator):
 
                     # OR semantics: child passes if it has fewer violations than total rows
                     # (meaning at least one row matched the condition)
-                    or_child_ok = violations < total_rows
+                    or_child_ok = violations < total_rows and "error" not in det_i
 
                     child_oks.append(or_child_ok)
 
@@ -5715,6 +5715,21 @@ class FocusToDuckDBSchemaConverter:
                 ),
                 "error": msg,
                 "missing_columns": missing or None,
+                "timing_ms": (time.perf_counter() - t0) * 1000.0,
+                "check_type": getattr(check, "checkType", None)
+                or getattr(check, "check_type", None),
+            }
+            return False, details
+        except duckdb.ConversionException as e:
+            # Column values whose type does not match the check (e.g. numbers in
+            # an enum column) fail the rule instead of aborting the run
+            details = {
+                "violations": 1,
+                "message": _msg_for(
+                    check,
+                    f"{getattr(check, 'rule_id', '<rule>')}: Column type mismatch",
+                ),
+                "error": str(e),
                 "timing_ms": (time.perf_counter() - t0) * 1000.0,
                 "check_type": getattr(check, "checkType", None)
                 or getattr(check, "check_type", None),

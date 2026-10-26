@@ -109,5 +109,19 @@ TAX
         violations = rule_result.get("details", {}).get("violations", 0)
         self.assertEqual(violations, 4, f"Expected 4 violations but got {violations}")
 
+    def test_rule_fail_numeric_values(self):
+        """Test failure instead of a conversion error when values are numeric."""
+        csv_data = """ChargeCategory
+1
+2
+"""
+        df = pd.read_csv(StringIO(csv_data))
+        results = self.spec_rules.validate(focus_data=df)
+
+        rule_result = results.by_rule_id["ChargeCategory-C-003-M"]
+        self.assertFalse(rule_result.get("ok"), f"Rule should FAIL but got: {rule_result}")
+        for child in rule_result.get("details", {}).get("children", []):
+            self.assertIn("Conversion Error", child.get("error", ""))
+
 if __name__ == '__main__':
     unittest.main()
