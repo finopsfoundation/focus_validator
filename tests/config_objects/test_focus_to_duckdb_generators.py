@@ -1310,6 +1310,40 @@ class TestConditionalRules(unittest.TestCase):
         self.assertEqual(condition["ColumnBName"], "InvoiceIssuerName")
 
 
+class TestConditionCompilation(unittest.TestCase):
+    """Test compiling rule Condition specs into row predicates."""
+
+    def setUp(self):
+        self.converter = FocusToDuckDBSchemaConverter(focus_data=None, explain_mode=True)
+        self.mock_rule = Mock(spec=ModelRule)
+        self.mock_rule.rule_id = "CapacityReservationStatus-C-004-C"
+        self.items = [
+            {"CheckFunction": "CheckNotValue", "ColumnName": "CapacityReservationId", "Value": None},
+            {"CheckFunction": "CheckValue", "ColumnName": "ChargeCategory", "Value": "Usage"},
+        ]
+
+    def _compile(self, spec):
+        return self.converter._compile_condition_with_generators(
+            spec, rule=self.mock_rule, rule_id=self.mock_rule.rule_id
+        )
+
+    def test_bare_and_list_matches_check_function_form(self):
+        expected = self._compile({"CheckFunction": "AND", "Items": self.items})
+        self.assertIsNotNone(expected)
+        self.assertIn("CapacityReservationId IS NOT NULL", expected)
+        self.assertEqual(self._compile({"AND": self.items}), expected)
+
+    def test_bare_and_single_item(self):
+        expected = self._compile(self.items[0])
+        self.assertIsNotNone(expected)
+        self.assertEqual(self._compile({"AND": self.items[0]}), f"({expected})")
+
+    def test_bare_or_list_matches_check_function_form(self):
+        expected = self._compile({"CheckFunction": "OR", "Items": self.items})
+        self.assertIn(" OR ", expected)
+        self.assertEqual(self._compile({"OR": self.items}), expected)
+
+
 class TestAdvancedConditionalScenarios(unittest.TestCase):
     """Test advanced conditional rule scenarios and combinations."""
     
