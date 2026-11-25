@@ -393,6 +393,21 @@ class DuckDBCheckGenerator(ABC):
             return violation_pred_sql
         return f"(({violation_pred_sql})) AND ({cond})"
 
+    def _apply_condition_to_table(self, requirement_sql: str) -> str:
+        """
+        Restrict the rows a requirement query reads to those matching the
+        effective row_condition_sql, for queries that select from {table_name}
+        without applying the condition themselves.
+        """
+        cond = (self.row_condition_sql or "").strip()
+        if not cond:
+            return requirement_sql
+        filtered = f"(SELECT * FROM {{table_name}} WHERE {cond})"
+        # Templates use both {table_name} and {{table_name}}
+        return re.sub(
+            r"\{\{table_name\}\}|\{table_name\}", lambda _: filtered, requirement_sql
+        )
+
     def _lit(self, v) -> str:
         if v is None:
             return "NULL"
@@ -2366,7 +2381,7 @@ class JSONCheckPathTypeGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(),
+            requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
             predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
@@ -2489,7 +2504,7 @@ class JSONCheckPathKeyValueFormatGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(),
+            requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
             predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
@@ -2623,7 +2638,7 @@ class JSONCheckPathKeyStartsWithGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(),
+            requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
             predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
@@ -2757,7 +2772,7 @@ class JSONCheckPathKeyExistsGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(),
+            requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
             predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
@@ -2929,7 +2944,7 @@ class JSONCheckPathValueGenerator(DuckDBCheckGenerator):
                 """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(),
+            requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
             predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
@@ -3094,7 +3109,7 @@ class JSONCheckPathNotValueGenerator(DuckDBCheckGenerator):
                 """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(),
+            requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
             predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
@@ -3390,7 +3405,7 @@ class JSONCheckPathSameValueGenerator(DuckDBCheckGenerator):
                 """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(),
+            requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
             predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
@@ -3496,7 +3511,7 @@ class JSONCheckPathNumericFormatGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(),
+            requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
             predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
@@ -3676,7 +3691,7 @@ class JSONCheckPathUnitFormatGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(),
+            requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
             predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
@@ -3775,7 +3790,7 @@ class JSONCheckPathDistinctParentGenerator(DuckDBCheckGenerator):
         """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(),
+            requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
             predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
@@ -3831,7 +3846,7 @@ class FormatJSONFormatGenerator(DuckDBCheckGenerator):
             """
 
             return SQLQuery(
-                requirement_sql=requirement_sql.strip(),
+                requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
                 predicate_sql=self._apply_condition(predicate_sql.strip()),
             )
 
@@ -3911,7 +3926,7 @@ class FormatJSONFormatGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(),
+            requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
             predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
@@ -4017,7 +4032,7 @@ class JSONFormatStringGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(),
+            requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
             predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
@@ -4205,7 +4220,7 @@ class JSONFormatUnitGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(),
+            requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
             predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
@@ -4318,7 +4333,7 @@ class JSONFormatNumericGenerator(DuckDBCheckGenerator):
             """
 
         return SQLQuery(
-            requirement_sql=requirement_sql.strip(),
+            requirement_sql=self._apply_condition_to_table(requirement_sql.strip()),
             predicate_sql=self._apply_condition(predicate_sql.strip()),
         )
 
