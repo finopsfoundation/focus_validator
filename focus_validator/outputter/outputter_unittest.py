@@ -268,7 +268,7 @@ class UnittestOutputter:
                 continue
             # Group by entity: CAU-BilledCost-C-001-M -> CAU-BilledCost
             match = re.match(
-                r"^(.+?)(?:-[A-Za-z]+)?-\d+-[A-Za-z]+$", testcase["check_name"]
+                r"^(.+?)(?:-[A-Z])?-\d+-[A-Za-z]+$", testcase["check_name"]
             )
             if match:
                 test_suite_id = match.group(1)

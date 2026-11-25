@@ -334,6 +334,7 @@ class TestUnittestOutputter(unittest.TestCase):
             ("CAU-BillingPeriodEnd-C-001-M", "BillingPeriodEnd"),
             ("BilledCost-C-001-M", "BilledCost"),
             ("BilledCost-C-002-M", "BilledCost"),
+            ("CAU-ListUnitPrice-001-M", "ListUnitPrice"),
         ]
 
         mock_result_set = Mock()
@@ -355,6 +356,7 @@ class TestUnittestOutputter(unittest.TestCase):
                 "CAU-BilledCost-BilledCost": 2,
                 "CAU-BillingPeriodEnd-BillingPeriodEnd": 1,
                 "BilledCost-BilledCost": 2,
+                "CAU-ListUnitPrice-ListUnitPrice": 1,
             },
         )
 
