@@ -693,6 +693,16 @@ class TypeDateTimeGenerator(DuckDBCheckGenerator):
 
 class FormatNumericGenerator(DuckDBCheckGenerator):
     REQUIRED_KEYS = {"ColumnName"}
+    # NumericFormat: no plus sign, and no plus sign on the exponent
+    NUMERIC_PATTERN = r"^-?([0-9]*[.])?[0-9]+([eE]-?[0-9]+)?$"
+    # Native numeric columns render as text like 1e+20, so they keep the signs
+    NATIVE_NUMERIC_PATTERN = r"^[+-]?([0-9]*[.])?[0-9]+([eE][+-]?[0-9]+)?$"
+
+    def _valid_sql(self, col: str) -> str:
+        return (
+            f"(TRIM({col}::TEXT) ~ '{self.NUMERIC_PATTERN}' OR "
+            f"(typeof({col}) != 'VARCHAR' AND TRIM({col}::TEXT) ~ '{self.NATIVE_NUMERIC_PATTERN}'))"
+        )
 
     # Generate numeric format validation check
     def generateSql(self) -> SQLQuery:
@@ -700,13 +710,13 @@ class FormatNumericGenerator(DuckDBCheckGenerator):
         keyword = self._get_validation_keyword()
         message = (
             self.errorMessage
-            or f"{col} {keyword} be a numeric value (optional +/- sign, optional decimal, optional scientific notation)."
+            or f"{col} {keyword} be a numeric value (optional minus sign, optional decimal, optional scientific notation)."
         )
         msg_sql = message.replace("'", "''")
 
         # Requirement SQL (finds violations)
-        # Pattern supports: 123, -123, 1.23, -1.23, 1.23e10, 1.23e-10, 1.23E+10, etc.
-        condition = f"{col} IS NOT NULL AND NOT (TRIM({col}::TEXT) ~ '^[+-]?([0-9]*[.])?[0-9]+([eE][+-]?[0-9]+)?$')"
+        # Pattern supports: 123, -123, 1.23, -1.23, 1.23e10, 1.23e-10
+        condition = f"{col} IS NOT NULL AND NOT {self._valid_sql(col)}"
         condition = self._apply_condition(condition)
 
         requirement_sql = f"""
@@ -723,7 +733,7 @@ class FormatNumericGenerator(DuckDBCheckGenerator):
 
         # Predicate SQL (for condition mode)
         predicate_sql = self._apply_condition(
-            f"{col} IS NOT NULL AND (TRIM({col}::TEXT) ~ '^[+-]?([0-9]*[.])?[0-9]+([eE][+-]?[0-9]+)?$')"
+            f"{col} IS NOT NULL AND {self._valid_sql(col)}"
         )
 
         return SQLQuery(
@@ -735,8 +745,7 @@ class FormatNumericGenerator(DuckDBCheckGenerator):
         col = self.params.ColumnName
 
         # Build condition to find violating rows
-        # Pattern supports: 123, -123, 1.23, -1.23, 1.23e10, 1.23e-10, 1.23E+10, etc.
-        condition = f"{col} IS NOT NULL AND NOT (TRIM({col}::TEXT) ~ '^[+-]?([0-9]*[.])?[0-9]+([eE][+-]?[0-9]+)?$')"
+        condition = f"{col} IS NOT NULL AND NOT {self._valid_sql(col)}"
         condition = self._apply_condition(condition)
 
         return f"""
@@ -3398,7 +3407,7 @@ class JSONCheckPathNumericFormatGenerator(DuckDBCheckGenerator):
     - Path: JSONPath expression to extract element(s)
 
     Validation:
-    - Checks that extracted values match numeric pattern: ^[+-]?([0-9]*[.])?[0-9]+([eE][+-]?[0-9]+)?$
+    - Checks that extracted values match numeric pattern: ^-?([0-9]*[.])?[0-9]+([eE]-?[0-9]+)?$
     - Supports both array paths (with [*]) and single value paths
     - Only validates non-null JSON values
     """
@@ -3411,15 +3420,15 @@ class JSONCheckPathNumericFormatGenerator(DuckDBCheckGenerator):
         keyword = self._get_validation_keyword()
         message = (
             self.errorMessage
-            or f"{col} at path {path} {keyword} contain numeric values (optional +/- sign, optional decimal, optional scientific notation)."
+            or f"{col} at path {path} {keyword} contain numeric values (optional minus sign, optional decimal, optional scientific notation)."
         )
         msg_sql = message.replace("'", "''")
 
         # Determine if this is an array path or single value path
         is_array_path = "[*]" in path
 
-        # Numeric pattern: supports 123, -123, 1.23, -1.23, 1.23e10, 1.23e-10, 1.23E+10, etc.
-        numeric_pattern = r"^[+-]?([0-9]*[.])?[0-9]+([eE][+-]?[0-9]+)?$"
+        # Numeric pattern: supports 123, -123, 1.23, -1.23, 1.23e10, 1.23e-10
+        numeric_pattern = FormatNumericGenerator.NUMERIC_PATTERN
 
         if is_array_path:
             # Array path: Check if ANY element violates the numeric format
@@ -4217,7 +4226,7 @@ class JSONFormatNumericGenerator(DuckDBCheckGenerator):
     - Optional decimal point with digits
     - Required digits
     - Optional scientific notation (e.g., 1.23e10, 1.23E-5)
-    - Pattern: ^[+-]?([0-9]*[.])?[0-9]+([eE][+-]?[0-9]+)?$
+    - Pattern: ^-?([0-9]*[.])?[0-9]+([eE]-?[0-9]+)?$
 
     For array paths (e.g., $.items[*].price), validates ALL elements.
     """
@@ -4239,8 +4248,8 @@ class JSONFormatNumericGenerator(DuckDBCheckGenerator):
         # Escape single quotes in path for SQL
         path_escaped = path.replace("'", "''")
 
-        # Numeric pattern: supports 123, -123, 1.23, -1.23, 1.23e10, 1.23e-10, 1.23E+10, etc.
-        numeric_pattern = r"^[+-]?([0-9]*[.])?[0-9]+([eE][+-]?[0-9]+)?$"
+        # Numeric pattern: supports 123, -123, 1.23, -1.23, 1.23e10, 1.23e-10
+        numeric_pattern = FormatNumericGenerator.NUMERIC_PATTERN
 
         # Determine if this is an array path (contains [*])
         is_array_path = "[*]" in path
