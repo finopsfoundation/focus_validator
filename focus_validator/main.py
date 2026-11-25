@@ -13,7 +13,11 @@ from typing import Any, Dict
 
 import yaml
 
-from focus_validator.validator import DEFAULT_VERSION_SETS_PATH, Validator
+from focus_validator.validator import (
+    COLUMN_NAMESPACE_WARNING,
+    DEFAULT_VERSION_SETS_PATH,
+    Validator,
+)
 
 from .outputter.outputter_validation_graph import build_validation_graph
 
@@ -115,7 +119,10 @@ def main() -> None:
     )
     parser.add_argument(
         "--column-namespace",
-        help="Column namespace to differentiate focus columns from vendor columns",
+        help=(
+            "Validate columns named '<namespace>:<Column>' and ignore the rest. "
+            "FOCUS conformant datasets do not namespace columns"
+        ),
     )
     parser.add_argument(
         "--output-format", default="text", help="Path to the output report file"
@@ -258,6 +265,10 @@ def main() -> None:
         log.info("  Filter rules: %s", args.filter_rules)
     if args.column_namespace:
         log.info("  Column namespace: %s", args.column_namespace)
+        print(
+            "Warning: " + COLUMN_NAMESPACE_WARNING % args.column_namespace,
+            file=sys.stderr,
+        )
     if args.applicability_criteria:
         log.info("  Applicability criteria: %s", args.applicability_criteria)
 
