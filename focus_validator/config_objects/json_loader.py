@@ -106,10 +106,9 @@ class JsonLoader:
                 rid for rid in relevant_rules if rid.startswith(filter_rules)
             ]
             if not entry_rule_ids:
-                # fallback: allow roots from the raw set if the prefix trimmed relevance too far
-                entry_rule_ids = [
-                    rid for rid in rules_dict if rid.startswith(filter_rules)
-                ]
+                raise ValueError(
+                    f"No rule ID in dataset '{focus_dataset}' starts with '{filter_rules}'"
+                )
         else:
             entry_rule_ids = list(relevant_rules.keys())
 
@@ -212,10 +211,9 @@ class JsonLoader:
                 rid for rid in relevant_rules if rid.startswith(filter_rules)
             ]
             if not entry_rule_ids:
-                # fallback: allow roots from the raw set if the prefix trimmed relevance too far
-                entry_rule_ids = [
-                    rid for rid in rules_dict if rid.startswith(filter_rules)
-                ]
+                raise ValueError(
+                    f"No rule ID in dataset '{focus_dataset}' starts with '{filter_rules}'"
+                )
         else:
             entry_rule_ids = list(relevant_rules.keys())
 

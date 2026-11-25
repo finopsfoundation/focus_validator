@@ -170,6 +170,27 @@ class TestJsonLoader(unittest.TestCase):
                 mock_resolver.buildDependencyGraph.assert_called_once_with(target_rule_prefix="MODEL-")
 
     @patch('focus_validator.config_objects.json_loader.RuleDependencyResolver')
+    def test_load_json_rules_with_filter_matching_nothing(self, mock_resolver_class):
+        """A filter prefix that matches no rule raises instead of running every rule."""
+        mock_resolver = Mock()
+        mock_resolver_class.return_value = mock_resolver
+        mock_resolver.getRelevantRules.return_value = {"MODEL-001": Mock()}
+
+        json_content = json.dumps(self.sample_json_data)
+
+        with patch('builtins.open', mock_open(read_data=json_content)):
+            with patch('os.path.exists', return_value=True):
+                with self.assertRaises(ValueError) as cm:
+                    JsonLoader.load_json_rules_with_dependencies(
+                        json_rule_file="test_rules.json",
+                        focus_dataset="CostAndUsage",
+                        filter_rules="OTHER-"
+                    )
+
+        self.assertIn("starts with 'OTHER-'", str(cm.exception))
+        mock_resolver.build_plan_and_schedule.assert_not_called()
+
+    @patch('focus_validator.config_objects.json_loader.RuleDependencyResolver')
     def test_load_json_rules_with_empty_dataset_rules(self, mock_resolver_class):
         """Test loading dataset with empty rules list."""
         data_with_empty_rules = self.sample_json_data.copy()
