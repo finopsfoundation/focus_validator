@@ -78,3 +78,18 @@ class TestColumnNamespace(TestCase):
         with self.assertRaises(ValueError) as cm:
             self._load("tests/samples/all_pass_0.5.csv")
         self.assertIn("'F' namespace", str(cm.exception))
+
+    def test_column_namespace_logs_conformance_warning(self):
+        with self.assertLogs("focus_validator.validator", level="WARNING") as cm:
+            Validator(
+                data_filename="tests/samples/all_pass_0.5.csv",
+                output_type="console",
+                output_destination=None,
+                column_namespace="F",
+                rules_version="1.2",
+                focus_dataset="CostAndUsage",
+                rules_block_remote_download=True,
+            )
+        self.assertTrue(
+            any("does not namespace its columns" in line for line in cm.output)
+        )

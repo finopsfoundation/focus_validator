@@ -14,6 +14,12 @@ DEFAULT_VERSION_SETS_PATH = str(
     importlib.resources.files("focus_validator").joinpath("rules")
 )
 
+COLUMN_NAMESPACE_WARNING = (
+    "--column-namespace '%s' is set, but a FOCUS conformant dataset does not "
+    "namespace its columns. The namespace is removed before validation, so "
+    "these results do not confirm the dataset's column names are conformant."
+)
+
 
 class Validator:
     def __init__(
@@ -69,7 +75,7 @@ class Validator:
         if filter_rules:
             self.log.info("Rule filtering enabled: %s", filter_rules)
         if column_namespace:
-            self.log.info("Column namespace: %s", column_namespace)
+            self.log.warning(COLUMN_NAMESPACE_WARNING, column_namespace)
         if rules_force_remote_download:
             self.log.info("Force remote download enabled")
 
