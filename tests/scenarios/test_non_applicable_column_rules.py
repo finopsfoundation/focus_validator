@@ -9,9 +9,12 @@ class TestNonApplicableColumnRules(unittest.TestCase):
 
     def setUp(self):
         self.rule_data = load_rule_data_from_file("base_rule_data.json")
-        self.rule_data['ModelDatasets'] = {
+        self.rule_data["ModelDatasets"] = {
             "CostAndUsage": {
-                "ModelRules": ["CAU-CostAndUsage-D-065-C", "CAU-CapacityReservationId-C-001-M"]
+                "ModelRules": [
+                    "CAU-CostAndUsage-D-065-C",
+                    "CAU-CapacityReservationId-C-001-M",
+                ]
             }
         }
         self.rule_data["ModelRules"] = {
@@ -27,10 +30,13 @@ class TestNonApplicableColumnRules(unittest.TestCase):
                 "ValidationCriteria": {
                     "MustSatisfy": "CostAndUsage MUST include CapacityReservationId when the service provider supports capacity reservations.",
                     "Keyword": "MUST",
-                    "Requirement": {"CheckFunction": "ColumnPresent", "ColumnName": "CapacityReservationId"},
+                    "Requirement": {
+                        "CheckFunction": "ColumnPresent",
+                        "ColumnName": "CapacityReservationId",
+                    },
                     "Condition": {},
-                    "Dependencies": []
-                }
+                    "Dependencies": [],
+                },
             },
             "CAU-CapacityReservationId-C-001-M": {
                 "Function": "Type",
@@ -44,10 +50,13 @@ class TestNonApplicableColumnRules(unittest.TestCase):
                 "ValidationCriteria": {
                     "MustSatisfy": "CapacityReservationId MUST be of type String.",
                     "Keyword": "MUST",
-                    "Requirement": {"CheckFunction": "TypeString", "ColumnName": "CapacityReservationId"},
+                    "Requirement": {
+                        "CheckFunction": "TypeString",
+                        "ColumnName": "CapacityReservationId",
+                    },
                     "Condition": {},
-                    "Dependencies": []
-                }
+                    "Dependencies": [],
+                },
             },
         }
 
@@ -56,7 +65,7 @@ class TestNonApplicableColumnRules(unittest.TestCase):
             rule_data=self.rule_data,
             focus_dataset="CostAndUsage",
             filter_rules=None,
-            applicability_criteria_list=[]
+            applicability_criteria_list=[],
         )
         self.spec_rules.load()
 
@@ -66,14 +75,18 @@ class TestNonApplicableColumnRules(unittest.TestCase):
 
     def test_absent_column_rules_are_skipped(self):
         rule_result = self._column_rule(pd.DataFrame({"ChargeCategory": ["Usage"]}))
-        self.assertTrue(rule_result.get("ok"), f"Rule should be SKIPPED but got: {rule_result}")
+        self.assertTrue(
+            rule_result.get("ok"), f"Rule should be SKIPPED but got: {rule_result}"
+        )
         self.assertTrue(rule_result["details"].get("skipped"))
 
     def test_present_column_rules_are_validated(self):
         rule_result = self._column_rule(pd.DataFrame({"CapacityReservationId": [123]}))
-        self.assertFalse(rule_result.get("ok"), f"Rule should FAIL but got: {rule_result}")
+        self.assertFalse(
+            rule_result.get("ok"), f"Rule should FAIL but got: {rule_result}"
+        )
         self.assertFalse(rule_result["details"].get("skipped"))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
