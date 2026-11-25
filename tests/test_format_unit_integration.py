@@ -131,3 +131,26 @@ terabyte
         # Should have violations for invalid units ('invalid-unit' and 'terabyte')
         # The exact count might vary based on our test data, but should be > 0
         self.assertGreater(rule_result["details"]["violations"], 0)
+    def test_format_unit_accepts_spec_compound_examples(self):
+        """Compound units from the FOCUS Unit Format examples pass; a singular second unit does not."""
+        spec_rules = SpecRulesFromData(
+            rule_data=self.rule_data,
+            focus_dataset="CostAndUsage",
+            filter_rules=None,
+            applicability_criteria_list=["ALL"]
+        )
+        spec_rules.load()
+
+        csv_data = """ConsumedUnit
+GB-Hours
+MB-Days
+Request-Tokens
+Core-Hours/Day
+1000 Request-Tokens
+Request-Token
+"""
+        df = pd.read_csv(StringIO(csv_data))
+        results = spec_rules.validate(focus_data=df)
+
+        rule_result = results.by_rule_id["ConsumedUnit-C-003-O"]
+        self.assertEqual(rule_result["details"]["violations"], 1)
