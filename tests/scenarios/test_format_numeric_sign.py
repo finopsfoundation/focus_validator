@@ -1,8 +1,8 @@
 import json
 import unittest
+
 import pandas as pd
-from helper import SpecRulesFromData
-from helper import load_rule_data_from_file
+from helper import SpecRulesFromData, load_rule_data_from_file
 
 
 def _rule(requirement, must_satisfy):
@@ -20,8 +20,8 @@ def _rule(requirement, must_satisfy):
             "Keyword": "MUST",
             "Requirement": requirement,
             "Condition": {},
-            "Dependencies": []
-        }
+            "Dependencies": [],
+        },
     }
 
 
@@ -30,25 +30,30 @@ class TestFormatNumericSign(unittest.TestCase):
 
     def setUp(self):
         self.rule_data = load_rule_data_from_file("base_rule_data.json")
-        self.rule_data['ModelDatasets'] = {
-            "CostAndUsage": {"ModelRules": ["BilledCost-C-002-M", "ContractAppliedObject-O-061-M"]}
+        self.rule_data["ModelDatasets"] = {
+            "CostAndUsage": {
+                "ModelRules": ["BilledCost-C-002-M", "ContractAppliedObject-O-061-M"]
+            }
         }
         self.rule_data["ModelRules"] = {
             "BilledCost-C-002-M": _rule(
                 {"CheckFunction": "FormatNumeric", "ColumnName": "BilledCost"},
-                "BilledCost MUST conform to NumericFormat requirements."
+                "BilledCost MUST conform to NumericFormat requirements.",
             ),
             "ContractAppliedObject-O-061-M": _rule(
-                {"CheckFunction": "JSONCheckPathNumericFormat", "ColumnName": "ContractApplied",
-                 "Path": "$.Elements[*].ContractCommitmentAppliedQuantity"},
-                "\"ContractCommitmentAppliedQuantity\" MUST conform to NumericFormat requirements."
+                {
+                    "CheckFunction": "JSONCheckPathNumericFormat",
+                    "ColumnName": "ContractApplied",
+                    "Path": "$.Elements[*].ContractCommitmentAppliedQuantity",
+                },
+                '"ContractCommitmentAppliedQuantity" MUST conform to NumericFormat requirements.',
             ),
         }
         self.spec_rules = SpecRulesFromData(
             rule_data=self.rule_data,
             focus_dataset="CostAndUsage",
             filter_rules=None,
-            applicability_criteria_list=["ALL"]
+            applicability_criteria_list=["ALL"],
         )
         self.spec_rules.load()
 
@@ -57,11 +62,17 @@ class TestFormatNumericSign(unittest.TestCase):
         return self.spec_rules.validate(focus_data=df).by_rule_id[rule_id]
 
     def test_spec_examples_pass(self):
-        result = self._rule_result("BilledCost-C-002-M", "BilledCost", ["-100.2", "-3", "4", "35.2E-7", "1.234"])
+        result = self._rule_result(
+            "BilledCost-C-002-M",
+            "BilledCost",
+            ["-100.2", "-3", "4", "35.2E-7", "1.234"],
+        )
         self.assertTrue(result.get("ok"), f"Rule should PASS but got: {result}")
 
     def test_plus_signs_fail(self):
-        result = self._rule_result("BilledCost-C-002-M", "BilledCost", ["4", "+333", "35.2E+7"])
+        result = self._rule_result(
+            "BilledCost-C-002-M", "BilledCost", ["4", "+333", "35.2E+7"]
+        )
         self.assertFalse(result.get("ok"), f"Rule should FAIL but got: {result}")
         self.assertEqual(result["details"]["violations"], 2)
 
@@ -74,10 +85,12 @@ class TestFormatNumericSign(unittest.TestCase):
             json.dumps({"Elements": [{"ContractCommitmentAppliedQuantity": 1.5}]}),
             json.dumps({"Elements": [{"ContractCommitmentAppliedQuantity": "+333"}]}),
         ]
-        result = self._rule_result("ContractAppliedObject-O-061-M", "ContractApplied", values)
+        result = self._rule_result(
+            "ContractAppliedObject-O-061-M", "ContractApplied", values
+        )
         self.assertFalse(result.get("ok"), f"Rule should FAIL but got: {result}")
         self.assertEqual(result["details"]["violations"], 1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
