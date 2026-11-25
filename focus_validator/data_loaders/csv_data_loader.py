@@ -403,7 +403,7 @@ class CSVDataLoader:
         """
         try:
             # Check if already datetime type
-            if isinstance(series.dtype, pl.Datetime):
+            if isinstance(series.dtype, (pl.Datetime, pl.Date)):
                 # Already datetime, but validate that conversion was successful
                 # If there are nulls, it means some values failed to convert
                 if series.null_count() > 0:
@@ -413,6 +413,11 @@ class CSVDataLoader:
                         series.null_count(),
                     )
                     return None
+
+                # Date-only values carry no time; keep them as text so the
+                # column stays present and the datetime format rules report it
+                if isinstance(series.dtype, pl.Date):
+                    return series.cast(pl.Utf8)
 
                 # All values converted successfully, ensure UTC timezone
                 if series.dtype.time_zone is None:

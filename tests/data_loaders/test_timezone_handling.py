@@ -18,6 +18,7 @@ from focus_validator.data_loaders.csv_data_loader import CSVDataLoader
 from focus_validator.data_loaders.parquet_data_loader import ParquetDataLoader
 import os
 import time
+from datetime import date
 
 
 def safe_delete_file(filepath, max_retries=3):
@@ -138,6 +139,25 @@ class TestStrictTimezoneHandling(unittest.TestCase):
             # Check that timezone is UTC
             self.assertEqual(df['Date'].dtype.time_zone, 'UTC')
             
+        finally:
+            safe_delete_file(temp_path)
+
+    def test_csv_date_only_column_kept_as_text(self):
+        """A date-only CSV column is kept as text instead of being dropped."""
+        test_data = "Date,Value\n2023-01-01,100\n2023-01-02,200\n"
+        fd, temp_path = tempfile.mkstemp(suffix=".csv", text=True)
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(test_data)
+
+            column_types = {"Date": pl.Datetime("us", "UTC")}
+            loader = CSVDataLoader(temp_path, column_types=column_types)
+            df = loader.load()
+
+            self.assertIsNotNone(df)
+            self.assertNotIn("Date", loader.failed_columns)
+            self.assertEqual(df["Date"].dtype, pl.Utf8)
+            self.assertEqual(df["Date"].to_list(), ["2023-01-01", "2023-01-02"])
         finally:
             safe_delete_file(temp_path)
 
@@ -295,6 +315,26 @@ class TestStrictTimezoneHandling(unittest.TestCase):
             self.assertIn('Date', result_df.columns)
             self.assertEqual(result_df['Date'].dtype.time_zone, 'UTC')
             
+        finally:
+            safe_delete_file(temp_path)
+
+    def test_parquet_date_column_is_kept(self):
+        """A native Parquet Date column is kept instead of being dropped."""
+        df = pl.DataFrame(
+            {"Date": [date(2023, 1, 1), date(2023, 1, 2)], "Value": [1, 2]}
+        )
+        fd, temp_path = tempfile.mkstemp(suffix=".parquet")
+        try:
+            os.close(fd)
+            df.write_parquet(temp_path)
+
+            column_types = {"Date": pl.Datetime("us", "UTC")}
+            loader = ParquetDataLoader(temp_path, column_types=column_types)
+            result_df = loader.load()
+
+            self.assertIsNotNone(result_df)
+            self.assertNotIn("Date", loader.failed_columns)
+            self.assertEqual(result_df["Date"].dtype, pl.Date)
         finally:
             safe_delete_file(temp_path)
 

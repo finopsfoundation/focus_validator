@@ -32,7 +32,7 @@ class ParquetDataLoader:
         """
         try:
             # Check if already datetime type
-            if isinstance(series.dtype, pl.Datetime):
+            if isinstance(series.dtype, (pl.Datetime, pl.Date)):
                 # Already datetime, but validate that conversion was successful
                 # If there are nulls, it means some values failed to convert
                 if series.null_count() > 0:
@@ -42,6 +42,10 @@ class ParquetDataLoader:
                         series.null_count(),
                     )
                     return None
+
+                # Native Date columns are accepted by the datetime checks as is
+                if isinstance(series.dtype, pl.Date):
+                    return series
 
                 # All values converted successfully, ensure UTC timezone
                 if series.dtype.time_zone is None:
